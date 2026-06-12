@@ -1,0 +1,438 @@
+"use client"
+
+import { useState, useEffect, useCallback } from "react"
+import { User, Users, Save, Loader2, Plus, Eye, EyeOff, ShieldCheck, Shield, Package, CheckCircle2, XCircle, KeyRound, UserCog } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { createClient } from "@/lib/supabase"
+import { useAuth } from "@/contexts/auth-context"
+import { ROLE_LABELS } from "@/types/auth"
+import { cn } from "@/lib/utils"
+import type { UserRole } from "@/types/auth"
+
+type Tab = "perfil" | "usuarios"
+
+interface ProfileRow {
+  id:         string
+  nombre:     string
+  email:      string
+  role:       UserRole
+  activo:     boolean
+  created_at: string
+}
+
+const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
+  { value: "super_admin",    label: "Super Admin"  },
+  { value: "operador",       label: "Operador"     },
+  { value: "operador_carga", label: "Op. de Carga" },
+]
+
+const ROLE_STYLE: Record<UserRole, string> = {
+  super_admin:    "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+  operador:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  operador_carga: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+}
+
+const ROLE_ICON: Record<UserRole, React.ReactNode> = {
+  super_admin:    <ShieldCheck className="h-3 w-3" />,
+  operador:       <Shield className="h-3 w-3" />,
+  operador_carga: <Package className="h-3 w-3" />,
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</Label>
+      {children}
+    </div>
+  )
+}
+
+function StatusMsg({ msg }: { msg: { ok: boolean; text: string } | null }) {
+  if (!msg) return null
+  return (
+    <div className={cn(
+      "flex items-center gap-2 text-xs px-3 py-2 rounded-lg border",
+      msg.ok
+        ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400"
+        : "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400"
+    )}>
+      {msg.ok ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" /> : <XCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+      {msg.text}
+    </div>
+  )
+}
+
+const initials = (nombre: string) =>
+  nombre.split(" ").filter(Boolean).map(w => w[0]).slice(0, 2).join("").toUpperCase()
+
+export default function ConfiguracionPage() {
+  const { user, profile, role } = useAuth()
+  const isSuperAdmin = role === "super_admin"
+
+  const [tab, setTab] = useState<Tab>("perfil")
+
+  /* ── Perfil ── */
+  const [nombre,       setNombre]       = useState("")
+  const [savingPerfil, setSavingPerfil] = useState(false)
+  const [perfilMsg,    setPerfilMsg]    = useState<{ ok: boolean; text: string } | null>(null)
+
+  const [newPass,     setNewPass]     = useState("")
+  const [confirmPass, setConfirmPass] = useState("")
+  const [showPass,    setShowPass]    = useState(false)
+  const [savingPass,  setSavingPass]  = useState(false)
+  const [passMsg,     setPassMsg]     = useState<{ ok: boolean; text: string } | null>(null)
+
+  useEffect(() => { if (profile?.nombre) setNombre(profile.nombre) }, [profile])
+
+  async function handleSavePerfil() {
+    setSavingPerfil(true); setPerfilMsg(null)
+    const supabase = createClient()
+    const { error } = await supabase.from("profiles").update({ nombre }).eq("id", user!.id)
+    setSavingPerfil(false)
+    setPerfilMsg(error ? { ok: false, text: error.message } : { ok: true, text: "Perfil actualizado correctamente" })
+  }
+
+  async function handleChangePassword() {
+    if (newPass !== confirmPass) { setPassMsg({ ok: false, text: "Las contraseñas no coinciden" }); return }
+    if (newPass.length < 6)      { setPassMsg({ ok: false, text: "Mínimo 6 caracteres" });          return }
+    setSavingPass(true); setPassMsg(null)
+    const supabase = createClient()
+    const { error } = await supabase.auth.updateUser({ password: newPass })
+    setSavingPass(false)
+    if (error) { setPassMsg({ ok: false, text: error.message }) }
+    else       { setPassMsg({ ok: true, text: "Contraseña actualizada" }); setNewPass(""); setConfirmPass("") }
+  }
+
+  /* ── Usuarios ── */
+  const [users,        setUsers]        = useState<ProfileRow[]>([])
+  const [loadingUsers, setLoadingUsers] = useState(false)
+  const [togglingId,   setTogglingId]   = useState<string | null>(null)
+  const [savingRoleId, setSavingRoleId] = useState<string | null>(null)
+
+  const [createOpen, setCreateOpen] = useState(false)
+  const [newUser,    setNewUser]    = useState({ nombre: "", email: "", password: "", role: "operador" as UserRole })
+  const [creating,   setCreating]   = useState(false)
+  const [createMsg,  setCreateMsg]  = useState<{ ok: boolean; text: string } | null>(null)
+
+  const fetchUsers = useCallback(async () => {
+    setLoadingUsers(true)
+    const supabase = createClient()
+    const { data } = await supabase.from("profiles").select("id, nombre, email, role, activo, created_at").order("created_at", { ascending: true })
+    if (data) setUsers(data as ProfileRow[])
+    setLoadingUsers(false)
+  }, [])
+
+  useEffect(() => { if (tab === "usuarios" && isSuperAdmin) fetchUsers() }, [tab, isSuperAdmin, fetchUsers])
+
+  async function handleToggleActivo(u: ProfileRow) {
+    setTogglingId(u.id)
+    const supabase = createClient()
+    await supabase.from("profiles").update({ activo: !u.activo }).eq("id", u.id)
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, activo: !u.activo } : x))
+    setTogglingId(null)
+  }
+
+  async function handleChangeRole(id: string, newRole: UserRole) {
+    setSavingRoleId(id)
+    const supabase = createClient()
+    await supabase.from("profiles").update({ role: newRole }).eq("id", id)
+    setUsers(prev => prev.map(x => x.id === id ? { ...x, role: newRole } : x))
+    setSavingRoleId(null)
+  }
+
+  async function handleCreateUser() {
+    setCreating(true); setCreateMsg(null)
+    const res  = await fetch("/api/admin/create-user", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newUser) })
+    const json = await res.json()
+    setCreating(false)
+    if (!res.ok) { setCreateMsg({ ok: false, text: json.error }) }
+    else {
+      setCreateMsg({ ok: true, text: "Usuario creado correctamente" })
+      setNewUser({ nombre: "", email: "", password: "", role: "operador" })
+      fetchUsers()
+      setTimeout(() => { setCreateOpen(false); setCreateMsg(null) }, 1500)
+    }
+  }
+
+  const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: "perfil",   label: "Mi perfil", icon: <User className="h-4 w-4" /> },
+    ...(isSuperAdmin ? [{ key: "usuarios" as Tab, label: "Usuarios", icon: <Users className="h-4 w-4" /> }] : []),
+  ]
+
+  return (
+    <>
+    <div className="flex h-full overflow-hidden">
+
+      {/* ── Sidebar de navegación ── */}
+      <aside className="w-52 flex-shrink-0 border-r bg-muted/20 p-3 flex flex-col gap-1">
+        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-3 pt-2 pb-1">Configuración</p>
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left w-full",
+              tab === t.key
+                ? "bg-[oklch(0.35_0.12_240)] text-white shadow-sm"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </aside>
+
+      {/* ── Contenido ── */}
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        <div className="max-w-4xl mx-auto px-8 py-8 space-y-6">
+
+          {/* ─── Tab Perfil ─── */}
+          {tab === "perfil" && (
+            <>
+              {/* Card: Info personal */}
+              <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+                {/* Header del card con fondo */}
+                <div className="bg-gradient-to-r from-[oklch(0.35_0.12_240)] to-[oklch(0.45_0.15_260)] px-6 py-5">
+                  <div className="flex items-center gap-4">
+                    <Avatar className="h-14 w-14 ring-2 ring-white/40">
+                      <AvatarFallback className="bg-white/20 text-white text-lg font-bold backdrop-blur-sm">
+                        {nombre ? initials(nombre) : "??"}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-bold text-white text-base leading-tight">{nombre || "—"}</p>
+                      <p className="text-white/70 text-xs mt-0.5">{user?.email}</p>
+                      {role && (
+                        <div className="flex items-center gap-1 mt-1.5 bg-white/20 rounded-full px-2 py-0.5 w-fit">
+                          {ROLE_ICON[role]}
+                          <span className="text-white text-[10px] font-semibold">{ROLE_LABELS[role]}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Formulario */}
+                <div className="p-6 space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <UserCog className="h-4 w-4 text-muted-foreground" />
+                    <h2 className="text-sm font-bold text-foreground">Información personal</h2>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <Field label="Nombre completo">
+                        <Input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Tu nombre completo" className="h-9" />
+                      </Field>
+                    </div>
+                    <div className="col-span-2">
+                      <Field label="Correo electrónico">
+                        <Input value={user?.email ?? ""} readOnly className="h-9 bg-muted/40 cursor-not-allowed opacity-70" />
+                      </Field>
+                    </div>
+                  </div>
+
+                  <StatusMsg msg={perfilMsg} />
+
+                  <div className="flex justify-end pt-1">
+                    <Button onClick={handleSavePerfil} disabled={savingPerfil} size="sm"
+                      className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white px-5">
+                      {savingPerfil ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      Guardar cambios
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card: Cambiar contraseña */}
+              <div className="rounded-xl border bg-card shadow-sm p-6 space-y-4">
+                <div className="flex items-center gap-2 pb-3 border-b">
+                  <KeyRound className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <h2 className="text-sm font-bold text-foreground">Cambiar contraseña</h2>
+                    <p className="text-xs text-muted-foreground">Mínimo 6 caracteres</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Nueva contraseña">
+                    <div className="relative">
+                      <Input type={showPass ? "text" : "password"} value={newPass} onChange={e => setNewPass(e.target.value)}
+                        placeholder="••••••••" className="h-9 pr-9" />
+                      <button onClick={() => setShowPass(!showPass)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                        {showPass ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  </Field>
+                  <Field label="Confirmar contraseña">
+                    <Input type={showPass ? "text" : "password"} value={confirmPass} onChange={e => setConfirmPass(e.target.value)}
+                      placeholder="••••••••" className="h-9" />
+                  </Field>
+                </div>
+
+                <StatusMsg msg={passMsg} />
+
+                <div className="flex justify-end">
+                  <Button onClick={handleChangePassword} disabled={savingPass || !newPass} size="sm"
+                    className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white px-5">
+                    {savingPass ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+                    Actualizar contraseña
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ─── Tab Usuarios ─── */}
+          {tab === "usuarios" && isSuperAdmin && (
+            <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b bg-muted/20">
+                <div>
+                  <h2 className="text-sm font-bold text-foreground">Gestión de usuarios</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {users.length} usuario{users.length !== 1 ? "s" : ""} registrado{users.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                <Button size="sm" onClick={() => { setCreateMsg(null); setCreateOpen(true) }}
+                  className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+                  <Plus className="h-3.5 w-3.5" />
+                  Nuevo usuario
+                </Button>
+              </div>
+
+              {loadingUsers ? (
+                <div className="flex items-center justify-center h-40">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-muted/30">
+                    <tr>
+                      <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Usuario</th>
+                      <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Email</th>
+                      <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-40">Rol</th>
+                      <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-28">Estado</th>
+                      <th className="px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-24 text-right">Alta</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {users.map(u => (
+                      <tr key={u.id} className="hover:bg-muted/20 transition-colors">
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8 flex-shrink-0">
+                              <AvatarFallback className={cn(
+                                "text-xs font-bold text-white",
+                                u.id === user?.id ? "bg-[oklch(0.35_0.12_240)]" : "bg-slate-400"
+                              )}>
+                                {initials(u.nombre)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-semibold text-foreground text-xs leading-none">
+                                {u.nombre}
+                              </p>
+                              {u.id === user?.id && (
+                                <span className="text-[10px] text-muted-foreground">tú</span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5 text-xs text-muted-foreground">{u.email}</td>
+                        <td className="px-5 py-3.5">
+                          {savingRoleId === u.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                            : (
+                              <select
+                                value={u.role}
+                                disabled={u.id === user?.id}
+                                onChange={e => handleChangeRole(u.id, e.target.value as UserRole)}
+                                className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed w-full"
+                              >
+                                {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                              </select>
+                            )
+                          }
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <button
+                            onClick={() => u.id !== user?.id && handleToggleActivo(u)}
+                            disabled={togglingId === u.id || u.id === user?.id}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full transition-all",
+                              u.activo
+                                ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                : "bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400",
+                              u.id === user?.id && "cursor-not-allowed opacity-50"
+                            )}
+                          >
+                            {togglingId === u.id
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : u.activo
+                                ? <><CheckCircle2 className="h-3 w-3" />Activo</>
+                                : <><XCircle className="h-3 w-3" />Inactivo</>
+                            }
+                          </button>
+                        </td>
+                        <td className="px-5 py-3.5 text-[11px] text-muted-foreground text-right whitespace-nowrap">
+                          {new Date(u.created_at).toLocaleDateString("es-CL")}
+                        </td>
+                      </tr>
+                    ))}
+                    {users.length === 0 && (
+                      <tr><td colSpan={5} className="px-5 py-12 text-center text-sm text-muted-foreground">No hay usuarios registrados</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+
+    {/* ── Dialog crear usuario ── */}
+    <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Nuevo usuario</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-1">
+          <Field label="Nombre completo">
+            <Input value={newUser.nombre} onChange={e => setNewUser(p => ({ ...p, nombre: e.target.value }))} placeholder="Nombre completo" className="h-9" />
+          </Field>
+          <Field label="Correo electrónico">
+            <Input type="email" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} placeholder="correo@ejemplo.com" className="h-9" />
+          </Field>
+          <Field label="Contraseña inicial">
+            <Input type="password" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} placeholder="Mínimo 6 caracteres" className="h-9" />
+          </Field>
+          <Field label="Rol">
+            <select value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value as UserRole }))}
+              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
+              {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </Field>
+          <StatusMsg msg={createMsg} />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)}>Cancelar</Button>
+          <Button size="sm" disabled={creating || !newUser.nombre || !newUser.email || !newUser.password}
+            onClick={handleCreateUser}
+            className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+            {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            Crear usuario
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
+  )
+}
