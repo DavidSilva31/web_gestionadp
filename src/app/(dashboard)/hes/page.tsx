@@ -10,9 +10,9 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   FileSpreadsheet, Search, Settings2, Printer, CheckCircle2,
-  AlertCircle, Loader2, ChevronRight, FileText, RefreshCw, Download,
+  AlertCircle, Loader2, ChevronRight, FileText, RefreshCw, Download, Wrench,
 } from "lucide-react"
-import type { Cliente, TarifaCliente, TarifaClienteInsert } from "@/types/database"
+import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente } from "@/types/database"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -236,6 +236,8 @@ export default function HesPage() {
   const [search,         setSearch]         = useState("")
   const [selectedId,     setSelectedId]     = useState<string | null>(null)
   const [tarifa,         setTarifa]         = useState<TarifaCliente | null>(null)
+  const [servicios,      setServicios]      = useState<ServicioCliente[]>([])
+  const [srvCantidades,  setSrvCantidades]  = useState<Record<string, number>>({})
   const [movs,           setMovs]           = useState<MovRaw[]>([])
   const [selectedMonth,  setSelectedMonth]  = useState(CURRENT_MONTH)
   const [selectedYear,   setSelectedYear]   = useState(CURRENT_YEAR)
@@ -269,6 +271,19 @@ export default function HesPage() {
     const supabase = createClient()
     supabase.from("tarifas_cliente").select("*").eq("cliente_id", selectedId).eq("activo", true).single()
       .then(({ data }) => setTarifa(data ?? null))
+  }, [selectedId])
+
+  // ── Load servicios for selected client ──────────────────────────────────────
+  useEffect(() => {
+    if (!selectedId) { setServicios([]); setSrvCantidades({}); return }
+    const supabase = createClient()
+    supabase.from("servicios_cliente").select("*")
+      .eq("cliente_id", selectedId).eq("activo", true)
+      .order("orden").order("nombre")
+      .then(({ data }) => {
+        setServicios((data ?? []) as ServicioCliente[])
+        setSrvCantidades({})
+      })
   }, [selectedId])
 
   // ── Load movimientos for selected client + year ────────────────────────────
@@ -312,13 +327,21 @@ export default function HesPage() {
     addRow("Ingreso pallets a bodega", hes.totalIngresos, "pallets", tarifa.tarifa_inout_uf)
     addRow("Salida pallets desde bodega", hes.totalDespachos, "pallets", tarifa.tarifa_inout_uf)
 
+    // Servicios adicionales del cliente
+    for (const srv of servicios) {
+      const qty = srvCantidades[srv.id] ?? 0
+      if (qty > 0 && srv.tarifa_uf) {
+        addRow(srv.nombre, qty, srv.unidad, srv.tarifa_uf)
+      }
+    }
+
     const totalUF  = rows.reduce((s, r) => s + r.totalUF, 0)
     const totalCLP = totalUF * uf
     const minUF    = tarifa.facturacion_minima_uf ?? 0
     const finalUF  = Math.max(totalUF, minUF)
 
     return { rows, totalUF, totalCLP: totalUF * uf, finalUF, finalCLP: finalUF * uf, hasMin: finalUF > totalUF }
-  }, [hes, tarifa, ufValue])
+  }, [hes, tarifa, ufValue, servicios, srvCantidades])
 
   // ── Filtered clients ───────────────────────────────────────────────────────
   const filteredClientes = useMemo(() =>
@@ -347,6 +370,13 @@ export default function HesPage() {
           tarifa,
           billing,
           hes,
+          servicios: servicios.map(s => ({
+            id:       s.id,
+            nombre:   s.nombre,
+            tarifa_uf: s.tarifa_uf ?? 0,
+            unidad:   s.unidad,
+            cantidad: srvCantidades[s.id] ?? 0,
+          })),
           mes: selectedMonth,
           anio: selectedYear,
           ufValue,
@@ -478,7 +508,7 @@ export default function HesPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="max-w-5xl mx-auto space-y-4 print:max-w-none print:space-y-3">
+                  <div className="space-y-4 print:space-y-3">
 
                     {/* ── HES Header (printable) ── */}
                     <div className="bg-background rounded-xl border border-border/40 shadow-sm px-6 py-5 print:border-0 print:shadow-none print:px-0">
@@ -505,6 +535,47 @@ export default function HesPage() {
                         <div><p className="text-[10px] text-muted-foreground">Contacto</p><p className="text-[12px] font-medium">{selectedCliente.contacto ?? "—"}</p></div>
                       </div>
                     </div>
+
+                    {/* ── Servicios adicionales ── */}
+                    {servicios.length > 0 && (
+                      <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden print:hidden">
+                        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/20">
+                          <Wrench className="h-3.5 w-3.5 text-primary" />
+                          <span className="text-[12px] font-semibold">Servicios adicionales</span>
+                          <span className="text-[11px] text-muted-foreground ml-1">— ingresa la cantidad mensual de cada servicio</span>
+                        </div>
+                        <div className="divide-y divide-border/20">
+                          {servicios.map(srv => (
+                            <div key={srv.id} className="flex items-center gap-4 px-4 py-2.5">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[12px] font-medium truncate">{srv.nombre}</p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  {srv.tarifa_uf != null ? `${srv.tarifa_uf.toFixed(4)} UF / ${srv.unidad}` : "Sin tarifa"}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <Input
+                                  type="number" min="0" step="1"
+                                  value={srvCantidades[srv.id] ?? ""}
+                                  onChange={e => setSrvCantidades(prev => ({
+                                    ...prev,
+                                    [srv.id]: parseFloat(e.target.value) || 0,
+                                  }))}
+                                  className="h-7 w-24 text-[12px] text-right bg-muted/40 border-border/50 focus-visible:ring-1"
+                                  placeholder="0"
+                                />
+                                <span className="text-[11px] text-muted-foreground w-14 truncate">{srv.unidad}</span>
+                                {srv.tarifa_uf != null && (srvCantidades[srv.id] ?? 0) > 0 && (
+                                  <span className="text-[11px] font-mono text-primary w-20 text-right">
+                                    {((srvCantidades[srv.id] ?? 0) * srv.tarifa_uf).toFixed(4)} UF
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* ── Resumen de cobro ── */}
                     {billing && (
