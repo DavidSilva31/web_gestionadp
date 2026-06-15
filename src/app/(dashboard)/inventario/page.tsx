@@ -104,12 +104,19 @@ function InventarioContent() {
   const fetchClientes = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
-    const { data } = await supabase
-      .from("clientes")
-      .select("*")
-      .eq("activo", true)
-      .order("nombre")
-    if (data) setClientes(data as Cliente[])
+    const [{ data: cData }, { data: iData }] = await Promise.all([
+      supabase.from("clientes").select("*").eq("activo", true).order("nombre"),
+      supabase.from("inventario_items").select("*").eq("activo", true).order("numero"),
+    ])
+    const clientes = (cData ?? []) as Cliente[]
+    if (clientes.length) setClientes(clientes)
+    const grouped: Record<string, InventarioItem[]> = {}
+    for (const c of clientes) grouped[c.id] = []
+    for (const item of (iData ?? []) as InventarioItem[]) {
+      if (grouped[item.cliente_id]) grouped[item.cliente_id].push(item)
+      else grouped[item.cliente_id] = [item]
+    }
+    setClienteItems(grouped)
     setLoading(false)
   }, [])
 

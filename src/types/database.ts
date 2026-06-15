@@ -156,3 +156,17 @@ export interface TarifaCliente {
 }
 
 export type TarifaClienteInsert = Omit<TarifaCliente, 'id' | 'created_at'>
+
+export interface ServicioCliente {
+  id:          string
+  cliente_id:  string
+  nombre:      string
+  descripcion: string | null
+  tarifa_uf:   number | null
+  unidad:      string
+  orden:       number
+  activo:      boolean
+  created_at:  string
+}
+
+export type ServicioClienteInsert = Omit<ServicioCliente, 'id' | 'created_at'>
