@@ -2,19 +2,18 @@
 
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Truck } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { PageHeader } from "@/components/layout/page-header"
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import type { Report, ReportEstado } from "@/types/database"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
+import { exportReportsToExcel } from "@/lib/export-reports-excel"
+import { useAuth } from "@/contexts/auth-context"
 
 type Tab = "todos" | ReportEstado
 
@@ -53,13 +52,14 @@ function seccionesTag(r: ReportRow) {
 }
 
 export default function ReportsPage() {
-  const [reports,        setReports]        = useState<ReportRow[]>([])
-  const [loading,        setLoading]        = useState(true)
-  const [activeTab,      setActiveTab]      = useState<Tab>("todos")
-  const [search,         setSearch]         = useState("")
-  const [pdfLoading,     setPdfLoading]     = useState<string | null>(null)
-  const [dispatchingId,  setDispatchingId]  = useState<string | null>(null)
-  const [confirmId,      setConfirmId]      = useState<string | null>(null)
+  const { user } = useAuth()
+  const router = useRouter()
+  const [reports,     setReports]     = useState<ReportRow[]>([])
+  const [loading,     setLoading]     = useState(true)
+  const [activeTab,   setActiveTab]   = useState<Tab>("todos")
+  const [search,      setSearch]      = useState("")
+  const [pdfLoading,  setPdfLoading]  = useState<string | null>(null)
+  const [xlsxLoading, setXlsxLoading] = useState(false)
 
   const fetchReports = useCallback(async () => {
     setLoading(true)
@@ -75,17 +75,6 @@ export default function ReportsPage() {
 
   useEffect(() => { fetchReports() }, [fetchReports])
 
-  async function handleDispatch(id: string) {
-    setDispatchingId(id)
-    const supabase = createClient()
-    await supabase.from("reports").update({
-      estado:        "despachado",
-      fecha_despacho: new Date().toISOString(),
-    }).eq("id", id)
-    setReports(prev => prev.map(r => r.id === id ? { ...r, estado: "despachado" as ReportEstado } : r))
-    setDispatchingId(null)
-  }
-
   async function handleDownloadPDF(id: string) {
     setPdfLoading(id)
     const supabase = createClient()
@@ -94,12 +83,24 @@ export default function ReportsPage() {
     setPdfLoading(null)
   }
 
+  async function handleExportExcel() {
+    setXlsxLoading(true)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("reports")
+      .select("*")
+      .order("numero", { ascending: true })
+    if (data && data.length > 0) exportReportsToExcel(data as Report[])
+    setXlsxLoading(false)
+  }
+
   const filtered = reports.filter(r => {
     if (activeTab !== "todos" && r.estado !== activeTab) return false
     if (search) {
       const q = search.toLowerCase()
       return r.patente.toLowerCase().includes(q) ||
              r.cliente.toLowerCase().includes(q) ||
+             r.conductor.toLowerCase().includes(q) ||
              String(r.numero).includes(q)
     }
     return true
@@ -112,14 +113,16 @@ export default function ReportsPage() {
     borrador:           reports.filter(r => r.estado === "borrador").length,
   }
 
-  const confirmReport = filtered.find(x => x.id === confirmId)
-
   return (
-    <>
     <div className="flex flex-col h-full overflow-hidden">
       <PageHeader title="Reports de Servicio" subtitle="Gestión de reportes de almacenamiento y despacho">
         <Button variant="ghost" size="sm" onClick={fetchReports} disabled={loading} className="h-10 w-10 p-0 text-muted-foreground">
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={xlsxLoading || reports.length === 0}
+          className="gap-1.5 text-emerald-700 border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-400 dark:border-emerald-700 dark:hover:bg-emerald-900/20">
+          {xlsxLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sheet className="h-3.5 w-3.5" />}
+          Exportar Excel
         </Button>
         <Link href="/reports/nuevo">
           <Button size="sm" className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
@@ -147,8 +150,8 @@ export default function ReportsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 px-6 pb-3 flex-shrink-0">
-        <div className="flex gap-1 bg-muted rounded-lg p-0.5">
+      <div className="flex items-center gap-3 px-6 pb-3 flex-shrink-0 overflow-x-auto">
+        <div className="flex gap-1 bg-muted rounded-lg p-0.5 flex-shrink-0">
           {TABS.map(tab => (
             <button
               key={tab.key}
@@ -171,7 +174,7 @@ export default function ReportsPage() {
         </div>
         <div className="relative flex-1 max-w-xs ml-auto">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input placeholder="Buscar por patente, cliente o N°..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs" />
+          <Input placeholder="Buscar por patente, cliente, conductor o N°..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs" />
         </div>
       </div>
 
@@ -183,74 +186,67 @@ export default function ReportsPage() {
               <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="overflow-y-auto flex-1">
-              <table className="w-full text-sm">
+            <div className="overflow-auto flex-1">
+              <table className="w-full text-sm table-fixed min-w-[680px]">
+                <colgroup>
+                  <col style={{ width: "5%" }}  />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "9%" }}  />
+                  <col style={{ width: "17%" }} />
+                  <col style={{ width: "24%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "4%" }}  />
+                </colgroup>
                 <thead className="sticky top-0 bg-muted/60 border-b z-10">
                   <tr>
-                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs whitespace-nowrap w-14">Report</th>
-                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs w-[30%]">Cliente</th>
-                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs whitespace-nowrap">Patente</th>
-                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs w-[25%]">Conductor</th>
-                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs whitespace-nowrap">Secciones</th>
-                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs whitespace-nowrap">Fecha</th>
-                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs whitespace-nowrap">Estado</th>
-                    <th className="w-10" />
+                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Report</th>
+                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Cliente</th>
+                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Patente</th>
+                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Conductor</th>
+                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Secciones</th>
+                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Fecha</th>
+                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Estado</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((r, i) => (
-                    <tr key={r.id} className={cn("border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer", i % 2 !== 0 && "bg-muted/10")}>
-                      <td className="px-4 py-4">
-                        <Link href={`/reports/${r.id}`} className="block font-mono font-semibold text-[oklch(0.35_0.12_240)]">#{r.numero}</Link>
+                    <tr
+                      key={r.id}
+                      onClick={() => router.push(`/reports/${r.id}`)}
+                      className={cn("border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer", i % 2 !== 0 && "bg-muted/10")}
+                    >
+                      <td className="px-4 py-4 font-mono font-semibold text-[oklch(0.35_0.12_240)]">#{r.numero}</td>
+                      <td className="px-4 py-4 font-medium text-foreground overflow-hidden">
+                        <span className="block truncate">{r.cliente}</span>
                       </td>
-                      <td className="px-4 py-4 font-medium text-foreground max-w-0">
-                        <Link href={`/reports/${r.id}`} className="block truncate">{r.cliente}</Link>
+                      <td className="px-4 py-4 text-center overflow-hidden">
+                        <span className="font-mono bg-muted px-2 py-0.5 rounded text-foreground">{r.patente}</span>
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <Link href={`/reports/${r.id}`} className="block">
-                          <span className="font-mono bg-muted px-2 py-0.5 rounded text-foreground">{r.patente}</span>
-                        </Link>
+                      <td className="px-4 py-4 text-center text-muted-foreground overflow-hidden">
+                        <span className="block truncate">{r.conductor}</span>
                       </td>
-                      <td className="px-4 py-4 text-muted-foreground max-w-0">
-                        <Link href={`/reports/${r.id}`} className="block truncate">{r.conductor}</Link>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <Link href={`/reports/${r.id}`} className="flex gap-1">
+                      <td className="px-4 py-4 text-center overflow-hidden">
+                        <div className="flex gap-1 flex-wrap justify-center">
                           {seccionesTag(r).map(t => (
-                            <span key={t} className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-0.5 rounded text-xs font-medium">{t}</span>
+                            <span key={t} className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap">{t}</span>
                           ))}
-                        </Link>
+                        </div>
                       </td>
-                      <td className="px-4 py-4 text-muted-foreground whitespace-nowrap">
-                        <Link href={`/reports/${r.id}`} className="block">{r.fecha}</Link>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <Link href={`/reports/${r.id}`} className="block">
-                          <Badge className={cn("text-xs font-semibold border-0", ESTADO_STYLE[r.estado].className)}>
-                            {ESTADO_STYLE[r.estado].label}
-                          </Badge>
-                        </Link>
+                      <td className="px-4 py-4 text-center text-muted-foreground">{r.fecha}</td>
+                      <td className="px-4 py-4 text-center">
+                        <Badge className={cn("text-xs font-semibold border-0", ESTADO_STYLE[r.estado].className)}>
+                          {ESTADO_STYLE[r.estado].label}
+                        </Badge>
                       </td>
                       <td className="px-4 py-4">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {r.estado === "pendiente_despacho" && (
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-11 w-11 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
-                              disabled={dispatchingId === r.id}
-                              onClick={e => { e.preventDefault(); e.stopPropagation(); setConfirmId(r.id) }}
-                            >
-                              {dispatchingId === r.id
-                                ? <Loader2 className="h-10 w-10 animate-spin" />
-                                : <Truck className="h-10 w-10" />
-                              }
-                            </Button>
-                          )}
+                        <div className="flex items-center justify-end">
                           <Button
                             variant="ghost" size="icon"
                             className="h-11 w-11 text-muted-foreground hover:text-foreground"
                             disabled={pdfLoading === r.id}
-                            onClick={e => { e.preventDefault(); e.stopPropagation(); handleDownloadPDF(r.id) }}
+                            onClick={e => { e.stopPropagation(); handleDownloadPDF(r.id) }}
                           >
                             {pdfLoading === r.id
                               ? <Loader2 className="h-10 w-10 animate-spin" />
@@ -275,26 +271,5 @@ export default function ReportsPage() {
         </div>
       </div>
     </div>
-
-    <AlertDialog open={confirmId !== null} onOpenChange={open => { if (!open) setConfirmId(null) }}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Confirmar despacho</AlertDialogTitle>
-          <AlertDialogDescription>
-            ¿Estás seguro de que deseas marcar el report <strong>#{confirmReport?.numero}</strong> ({confirmReport?.cliente}) como despachado? Esta acción no se puede deshacer.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-amber-600 hover:bg-amber-700 text-white"
-            onClick={() => { handleDispatch(confirmId!); setConfirmId(null) }}
-          >
-            Confirmar despacho
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-    </>
   )
 }

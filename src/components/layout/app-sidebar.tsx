@@ -14,6 +14,8 @@ import {
   ChevronRight,
   ClipboardList,
   Truck,
+  ShieldAlert,
+  FileSpreadsheet,
 } from "lucide-react"
 import {
   Sidebar,
@@ -33,21 +35,28 @@ import { useAuth } from "@/contexts/auth-context"
 import { ROLE_ROUTES, ROLE_LABELS } from "@/types/auth"
 
 const ALL_NAV_ITEMS = [
-  { href: "/dashboard",        label: "Dashboard",   icon: LayoutDashboard, group: "main"    },
+  { href: "/dashboard",        label: "Inicio",      icon: LayoutDashboard, group: "main"    },
   { href: "/inventario",       label: "Inventario",  icon: Package,         group: "main"    },
   { href: "/movimientos",      label: "Movimientos", icon: ArrowLeftRight,  group: "main"    },
   { href: "/clientes",         label: "Clientes",    icon: Users,           group: "main"    },
   { href: "/reportes",         label: "Reportes",    icon: BarChart3,       group: "main"    },
-  { href: "/usuarios",         label: "Usuarios",    icon: Users,           group: "main"    },
+  { href: "/hes",              label: "HES",         icon: FileSpreadsheet, group: "main"    },
   { href: "/reports",          label: "Reports",     icon: ClipboardList,   group: "reports" },
   { href: "/reports/despacho", label: "Despacho",    icon: Truck,           group: "reports" },
+  { href: "/auditoria",        label: "Auditoría",   icon: ShieldAlert,     group: "admin"   },
 ]
 
 interface NavItemDef { href: string; label: string; icon: React.ElementType; group: string }
 
-function NavItem({ item }: { item: NavItemDef }) {
+function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] }) {
   const pathname = usePathname()
-  const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
+  const matchesCurrent = pathname === item.href || pathname.startsWith(item.href + "/")
+  const moreSpecificMatch = allItems.some(
+    other => other.href !== item.href &&
+             other.href.startsWith(item.href + "/") &&
+             (pathname === other.href || pathname.startsWith(other.href + "/"))
+  )
+  const isActive = matchesCurrent && !moreSpecificMatch
 
   return (
     <SidebarMenuItem>
@@ -73,12 +82,16 @@ export function AppSidebar() {
   const { profile, role, signOut } = useAuth()
 
   const effectiveRole = role ?? 'operador'
-  const allowedRoutes = ROLE_ROUTES[effectiveRole]
-  const navItems = ALL_NAV_ITEMS.filter(item =>
-    allowedRoutes.some(r => item.href === r || item.href.startsWith(r + '/') || r.startsWith(item.href + '/'))
-  )
+  const navItems = ALL_NAV_ITEMS.filter(item => {
+    if (effectiveRole !== 'super_admin' && profile?.permisos) {
+      return profile.permisos.includes(item.href)
+    }
+    const allowed = ROLE_ROUTES[effectiveRole]
+    return allowed.some(r => item.href === r || item.href.startsWith(r + '/') || r.startsWith(item.href + '/'))
+  })
   const mainItems    = navItems.filter(i => i.group === "main")
   const reportsItems = navItems.filter(i => i.group === "reports")
+  const adminItems   = navItems.filter(i => i.group === "admin")
 
   const initials = profile?.nombre
     ? profile.nombre.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -105,7 +118,7 @@ export function AppSidebar() {
             Módulos
           </SidebarGroupLabel>
           <SidebarMenu>
-            {mainItems.map(item => <NavItem key={item.href} item={item} />)}
+            {mainItems.map(item => <NavItem key={item.href} item={item} allItems={navItems} />)}
           </SidebarMenu>
         </SidebarGroup>
 
@@ -117,7 +130,21 @@ export function AppSidebar() {
                 Servicio almacenamiento
               </SidebarGroupLabel>
               <SidebarMenu>
-                {reportsItems.map(item => <NavItem key={item.href} item={item} />)}
+                {reportsItems.map(item => <NavItem key={item.href} item={item} allItems={navItems} />)}
+              </SidebarMenu>
+            </SidebarGroup>
+          </>
+        )}
+
+        {adminItems.length > 0 && (
+          <>
+            <SidebarSeparator className="my-1" />
+            <SidebarGroup>
+              <SidebarGroupLabel className="text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-2 mb-1">
+                Administración
+              </SidebarGroupLabel>
+              <SidebarMenu>
+                {adminItems.map(item => <NavItem key={item.href} item={item} allItems={navItems} />)}
               </SidebarMenu>
             </SidebarGroup>
           </>
