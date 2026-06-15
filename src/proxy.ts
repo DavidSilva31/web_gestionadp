@@ -57,17 +57,27 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Obtener rol del perfil
+  // Obtener rol, permisos y flag de cambio de contraseña del perfil
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, permisos, must_change_password')
     .eq('id', user.id)
     .single()
 
-  const role = (profile?.role ?? 'operador') as UserRole
+  const role               = (profile?.role ?? 'operador') as UserRole
+  const permisos           = (profile?.permisos ?? null) as string[] | null
+  const mustChangePassword = profile?.must_change_password === true
 
-  // Verificar acceso por rol
-  if (!canAccess(role, pathname)) {
+  // Las rutas /api nunca se bloquean por permisos ni por must_change_password
+  if (pathname.startsWith('/api/')) return supabaseResponse
+
+  // Si debe cambiar contraseña, solo puede acceder a /configuracion
+  if (mustChangePassword && !pathname.startsWith('/configuracion')) {
+    return NextResponse.redirect(new URL('/configuracion', request.url))
+  }
+
+  // Verificar acceso por rol (o permisos personalizados si existen)
+  if (!canAccess(role, pathname, permisos)) {
     return NextResponse.redirect(new URL(DEFAULT_ROUTE[role], request.url))
   }
 

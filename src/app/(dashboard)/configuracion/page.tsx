@@ -1,7 +1,11 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { User, Users, Save, Loader2, Plus, Eye, EyeOff, ShieldCheck, Shield, Package, CheckCircle2, XCircle, KeyRound, UserCog } from "lucide-react"
+import {
+  User, Users, Save, Loader2, Plus, Eye, EyeOff,
+  ShieldCheck, Shield, Package, CheckCircle2, XCircle,
+  KeyRound, UserCog, LayoutGrid, AlertTriangle, Trash2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -21,6 +25,7 @@ interface ProfileRow {
   email:      string
   role:       UserRole
   activo:     boolean
+  permisos:   string[] | null
   created_at: string
 }
 
@@ -30,16 +35,67 @@ const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: "operador_carga", label: "Op. de Carga" },
 ]
 
-const ROLE_STYLE: Record<UserRole, string> = {
-  super_admin:    "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
-  operador:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  operador_carga: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-}
-
 const ROLE_ICON: Record<UserRole, React.ReactNode> = {
   super_admin:    <ShieldCheck className="h-3 w-3" />,
   operador:       <Shield className="h-3 w-3" />,
   operador_carga: <Package className="h-3 w-3" />,
+}
+
+const MODULE_OPTIONS = [
+  { href: "/dashboard",        label: "Inicio",      group: "Módulos principales"     },
+  { href: "/inventario",       label: "Inventario",  group: "Módulos principales"     },
+  { href: "/movimientos",      label: "Movimientos", group: "Módulos principales"     },
+  { href: "/clientes",         label: "Clientes",    group: "Módulos principales"     },
+  { href: "/reportes",         label: "Reportes",    group: "Módulos principales"     },
+  { href: "/hes",              label: "HES",         group: "Módulos principales"     },
+  { href: "/reports",          label: "Reports",     group: "Servicio almacenamiento" },
+  { href: "/reports/despacho", label: "Despacho",    group: "Servicio almacenamiento" },
+  { href: "/auditoria",        label: "Auditoría",   group: "Administración"          },
+]
+
+const ROLE_MODULE_DEFAULTS: Record<UserRole, string[]> = {
+  super_admin:    ["/dashboard", "/inventario", "/movimientos", "/clientes", "/reportes", "/hes", "/reports", "/reports/despacho", "/auditoria"],
+  operador:       ["/dashboard", "/inventario", "/movimientos", "/clientes", "/reportes", "/hes", "/reports", "/reports/despacho"],
+  operador_carga: ["/inventario", "/reports", "/reports/despacho"],
+}
+
+const MODULE_GROUPS = [...new Set(MODULE_OPTIONS.map(m => m.group))]
+
+function ModuleCheckboxes({
+  selected,
+  onChange,
+}: {
+  selected: string[]
+  onChange: (v: string[]) => void
+}) {
+  return (
+    <div className="space-y-3">
+      {MODULE_GROUPS.map(group => (
+        <div key={group}>
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5">{group}</p>
+          <div className="grid grid-cols-2 gap-0.5">
+            {MODULE_OPTIONS.filter(m => m.group === group).map(m => (
+              <label
+                key={m.href}
+                className="flex items-center gap-2 text-xs cursor-pointer px-2 py-1.5 rounded hover:bg-muted/60 transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(m.href)}
+                  onChange={e => {
+                    if (e.target.checked) onChange([...selected, m.href])
+                    else onChange(selected.filter(x => x !== m.href))
+                  }}
+                  className="h-3.5 w-3.5 rounded border-input accent-[oklch(0.35_0.12_240)]"
+                />
+                {m.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -87,6 +143,7 @@ export default function ConfiguracionPage() {
   const [passMsg,     setPassMsg]     = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => { if (profile?.nombre) setNombre(profile.nombre) }, [profile])
+  useEffect(() => { if (profile?.must_change_password) setTab("perfil") }, [profile?.must_change_password])
 
   async function handleSavePerfil() {
     setSavingPerfil(true); setPerfilMsg(null)
@@ -101,10 +158,23 @@ export default function ConfiguracionPage() {
     if (newPass.length < 6)      { setPassMsg({ ok: false, text: "Mínimo 6 caracteres" });          return }
     setSavingPass(true); setPassMsg(null)
     const supabase = createClient()
+    // Clear flag via admin API first so middleware allows navigation immediately after
+    const flagRes  = await fetch("/api/auth/clear-password-flag", { method: "POST" })
+    const flagJson = await flagRes.json()
+    console.log("[clear-password-flag] response:", flagRes.status, flagJson)
+    if (!flagRes.ok) {
+      setSavingPass(false)
+      setPassMsg({ ok: false, text: `Error al limpiar flag: ${flagJson.error ?? flagRes.status}` })
+      return
+    }
     const { error } = await supabase.auth.updateUser({ password: newPass })
     setSavingPass(false)
     if (error) { setPassMsg({ ok: false, text: error.message }) }
-    else       { setPassMsg({ ok: true, text: "Contraseña actualizada" }); setNewPass(""); setConfirmPass("") }
+    else {
+      setPassMsg({ ok: true, text: "Contraseña actualizada" })
+      setNewPass("")
+      setConfirmPass("")
+    }
   }
 
   /* ── Usuarios ── */
@@ -113,16 +183,31 @@ export default function ConfiguracionPage() {
   const [togglingId,   setTogglingId]   = useState<string | null>(null)
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null)
 
-  const [createOpen, setCreateOpen] = useState(false)
-  const [newUser,    setNewUser]    = useState({ nombre: "", email: "", password: "", role: "operador" as UserRole })
-  const [creating,   setCreating]   = useState(false)
-  const [createMsg,  setCreateMsg]  = useState<{ ok: boolean; text: string } | null>(null)
+  /* ── Crear usuario ── */
+  const [createOpen,     setCreateOpen]     = useState(false)
+  const [newUser,        setNewUser]        = useState({ nombre: "", email: "", password: "123456", role: "operador" as UserRole })
+  const [createPermisos, setCreatePermisos] = useState<string[]>(ROLE_MODULE_DEFAULTS["operador"])
+  const [creating,       setCreating]       = useState(false)
+  const [createMsg,      setCreateMsg]      = useState<{ ok: boolean; text: string } | null>(null)
+
+  /* ── Eliminar usuario ── */
+  const [deleteTarget,  setDeleteTarget]  = useState<ProfileRow | null>(null)
+  const [deleting,      setDeleting]      = useState(false)
+  const [deleteMsg,     setDeleteMsg]     = useState<{ ok: boolean; text: string } | null>(null)
+
+  /* ── Editar permisos ── */
+  const [permisosUser,   setPermisosUser]   = useState<ProfileRow | null>(null)
+  const [editPermisos,   setEditPermisos]   = useState<string[]>([])
+  const [savingPermisos, setSavingPermisos] = useState(false)
+  const [permisosMsg,    setPermisosMsg]    = useState<{ ok: boolean; text: string } | null>(null)
 
   const fetchUsers = useCallback(async () => {
     setLoadingUsers(true)
-    const supabase = createClient()
-    const { data } = await supabase.from("profiles").select("id, nombre, email, role, activo, created_at").order("created_at", { ascending: true })
-    if (data) setUsers(data as ProfileRow[])
+    const res = await fetch("/api/admin/users")
+    if (res.ok) {
+      const data = await res.json()
+      setUsers(data as ProfileRow[])
+    }
     setLoadingUsers(false)
   }, [])
 
@@ -146,15 +231,60 @@ export default function ConfiguracionPage() {
 
   async function handleCreateUser() {
     setCreating(true); setCreateMsg(null)
-    const res  = await fetch("/api/admin/create-user", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newUser) })
+    const res  = await fetch("/api/admin/create-user", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ ...newUser, permisos: createPermisos }),
+    })
     const json = await res.json()
     setCreating(false)
     if (!res.ok) { setCreateMsg({ ok: false, text: json.error }) }
     else {
       setCreateMsg({ ok: true, text: "Usuario creado correctamente" })
-      setNewUser({ nombre: "", email: "", password: "", role: "operador" })
+      setNewUser({ nombre: "", email: "", password: "123456", role: "operador" })
+      setCreatePermisos(ROLE_MODULE_DEFAULTS["operador"])
       fetchUsers()
       setTimeout(() => { setCreateOpen(false); setCreateMsg(null) }, 1500)
+    }
+  }
+
+  async function handleDeleteUser() {
+    if (!deleteTarget) return
+    setDeleting(true); setDeleteMsg(null)
+    const res  = await fetch("/api/admin/delete-user", {
+      method:  "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ targetId: deleteTarget.id }),
+    })
+    const json = await res.json()
+    setDeleting(false)
+    if (!res.ok) { setDeleteMsg({ ok: false, text: json.error }) }
+    else {
+      setUsers(prev => prev.filter(x => x.id !== deleteTarget.id))
+      setDeleteTarget(null)
+    }
+  }
+
+  function openPermisosDialog(u: ProfileRow) {
+    setPermisosUser(u)
+    setEditPermisos(u.permisos ?? ROLE_MODULE_DEFAULTS[u.role])
+    setPermisosMsg(null)
+  }
+
+  async function handleSavePermisos() {
+    if (!permisosUser) return
+    setSavingPermisos(true); setPermisosMsg(null)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from("profiles")
+      .update({ permisos: editPermisos })
+      .eq("id", permisosUser.id)
+    setSavingPermisos(false)
+    if (error) { setPermisosMsg({ ok: false, text: error.message }) }
+    else {
+      setUsers(prev => prev.map(x => x.id === permisosUser.id ? { ...x, permisos: editPermisos } : x))
+      setPermisosMsg({ ok: true, text: "Accesos actualizados" })
+      setTimeout(() => { setPermisosUser(null); setPermisosMsg(null) }, 1200)
     }
   }
 
@@ -194,9 +324,16 @@ export default function ConfiguracionPage() {
           {/* ─── Tab Perfil ─── */}
           {tab === "perfil" && (
             <>
-              {/* Card: Info personal */}
+              {profile?.must_change_password && (
+                <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold">Debes cambiar tu contraseña</p>
+                    <p className="text-xs mt-0.5 text-amber-700">Por seguridad, actualiza tu contraseña antes de acceder a la aplicación.</p>
+                  </div>
+                </div>
+              )}
               <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-                {/* Header del card con fondo */}
                 <div className="bg-gradient-to-r from-[oklch(0.35_0.12_240)] to-[oklch(0.45_0.15_260)] px-6 py-5">
                   <div className="flex items-center gap-4">
                     <Avatar className="h-14 w-14 ring-2 ring-white/40">
@@ -217,13 +354,11 @@ export default function ConfiguracionPage() {
                   </div>
                 </div>
 
-                {/* Formulario */}
                 <div className="p-6 space-y-4">
                   <div className="flex items-center gap-2 mb-1">
                     <UserCog className="h-4 w-4 text-muted-foreground" />
                     <h2 className="text-sm font-bold text-foreground">Información personal</h2>
                   </div>
-
                   <div className="grid grid-cols-2 gap-4">
                     <div className="col-span-2">
                       <Field label="Nombre completo">
@@ -236,9 +371,7 @@ export default function ConfiguracionPage() {
                       </Field>
                     </div>
                   </div>
-
                   <StatusMsg msg={perfilMsg} />
-
                   <div className="flex justify-end pt-1">
                     <Button onClick={handleSavePerfil} disabled={savingPerfil} size="sm"
                       className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white px-5">
@@ -249,7 +382,6 @@ export default function ConfiguracionPage() {
                 </div>
               </div>
 
-              {/* Card: Cambiar contraseña */}
               <div className="rounded-xl border bg-card shadow-sm p-6 space-y-4">
                 <div className="flex items-center gap-2 pb-3 border-b">
                   <KeyRound className="h-4 w-4 text-muted-foreground" />
@@ -258,7 +390,6 @@ export default function ConfiguracionPage() {
                     <p className="text-xs text-muted-foreground">Mínimo 6 caracteres</p>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <Field label="Nueva contraseña">
                     <div className="relative">
@@ -271,15 +402,27 @@ export default function ConfiguracionPage() {
                     </div>
                   </Field>
                   <Field label="Confirmar contraseña">
-                    <Input type={showPass ? "text" : "password"} value={confirmPass} onChange={e => setConfirmPass(e.target.value)}
-                      placeholder="••••••••" className="h-9" />
+                    <Input
+                      type={showPass ? "text" : "password"}
+                      value={confirmPass}
+                      onChange={e => setConfirmPass(e.target.value)}
+                      placeholder="••••••••"
+                      className={cn(
+                        "h-9",
+                        confirmPass && newPass !== confirmPass && "border-red-400 focus-visible:ring-red-400"
+                      )}
+                    />
+                    {confirmPass && newPass !== confirmPass && (
+                      <p className="text-[11px] text-red-500 mt-1">Las contraseñas no coinciden</p>
+                    )}
                   </Field>
                 </div>
-
                 <StatusMsg msg={passMsg} />
-
                 <div className="flex justify-end">
-                  <Button onClick={handleChangePassword} disabled={savingPass || !newPass} size="sm"
+                  <Button
+                    onClick={handleChangePassword}
+                    disabled={savingPass || !newPass || !confirmPass || newPass !== confirmPass}
+                    size="sm"
                     className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white px-5">
                     {savingPass ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
                     Actualizar contraseña
@@ -318,7 +461,9 @@ export default function ConfiguracionPage() {
                       <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Email</th>
                       <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-40">Rol</th>
                       <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-28">Estado</th>
+                      <th className="px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-24 text-center">Accesos</th>
                       <th className="px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-24 text-right">Alta</th>
+                      <th className="px-5 py-3 w-12"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -335,12 +480,8 @@ export default function ConfiguracionPage() {
                               </AvatarFallback>
                             </Avatar>
                             <div>
-                              <p className="font-semibold text-foreground text-xs leading-none">
-                                {u.nombre}
-                              </p>
-                              {u.id === user?.id && (
-                                <span className="text-[10px] text-muted-foreground">tú</span>
-                              )}
+                              <p className="font-semibold text-foreground text-xs leading-none">{u.nombre}</p>
+                              {u.id === user?.id && <span className="text-[10px] text-muted-foreground">tú</span>}
                             </div>
                           </div>
                         </td>
@@ -349,12 +490,9 @@ export default function ConfiguracionPage() {
                           {savingRoleId === u.id
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                             : (
-                              <select
-                                value={u.role}
-                                disabled={u.id === user?.id}
+                              <select value={u.role} disabled={u.id === user?.id}
                                 onChange={e => handleChangeRole(u.id, e.target.value as UserRole)}
-                                className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed w-full"
-                              >
+                                className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed w-full">
                                 {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                               </select>
                             )
@@ -380,13 +518,46 @@ export default function ConfiguracionPage() {
                             }
                           </button>
                         </td>
+                        <td className="px-5 py-3.5 text-center">
+                          {u.role === "super_admin" ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                              <ShieldCheck className="h-3 w-3" />
+                              Todos
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => openPermisosDialog(u)}
+                              title="Editar accesos al menú lateral"
+                              className={cn(
+                                "inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md transition-colors",
+                                u.permisos
+                                  ? "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400"
+                                  : "bg-muted text-muted-foreground hover:bg-muted/70"
+                              )}
+                            >
+                              <LayoutGrid className="h-3 w-3" />
+                              {u.permisos ? `${u.permisos.length}` : "Rol"}
+                            </button>
+                          )}
+                        </td>
                         <td className="px-5 py-3.5 text-[11px] text-muted-foreground text-right whitespace-nowrap">
                           {new Date(u.created_at).toLocaleDateString("es-CL")}
+                        </td>
+                        <td className="px-3 py-3.5 text-center">
+                          {u.id !== user?.id && (
+                            <button
+                              onClick={() => { setDeleteMsg(null); setDeleteTarget(u) }}
+                              title="Eliminar usuario"
+                              className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:bg-red-100 hover:text-red-600 transition-colors dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
                     {users.length === 0 && (
-                      <tr><td colSpan={5} className="px-5 py-12 text-center text-sm text-muted-foreground">No hay usuarios registrados</td></tr>
+                      <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-muted-foreground">No hay usuarios registrados</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -400,7 +571,7 @@ export default function ConfiguracionPage() {
 
     {/* ── Dialog crear usuario ── */}
     <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nuevo usuario</DialogTitle>
         </DialogHeader>
@@ -412,14 +583,51 @@ export default function ConfiguracionPage() {
             <Input type="email" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} placeholder="correo@ejemplo.com" className="h-9" />
           </Field>
           <Field label="Contraseña inicial">
-            <Input type="password" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} placeholder="Mínimo 6 caracteres" className="h-9" />
+            <Input type="password" value={newUser.password} readOnly className="h-9 bg-muted/40 cursor-not-allowed opacity-70" />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              La contraseña por defecto para nuevos usuarios es <span className="font-semibold text-foreground">123456</span>. El usuario deberá cambiarla en su primer ingreso.
+            </p>
           </Field>
           <Field label="Rol">
-            <select value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value as UserRole }))}
-              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
+            <select
+              value={newUser.role}
+              onChange={e => {
+                const r = e.target.value as UserRole
+                setNewUser(p => ({ ...p, role: r }))
+                setCreatePermisos(ROLE_MODULE_DEFAULTS[r])
+              }}
+              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
               {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
+
+          <div className="border rounded-lg p-3 space-y-2 bg-muted/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <LayoutGrid className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs font-semibold text-foreground">Accesos al menú lateral</span>
+              </div>
+              {newUser.role !== "super_admin" && (
+                <button
+                  type="button"
+                  onClick={() => setCreatePermisos(ROLE_MODULE_DEFAULTS[newUser.role])}
+                  className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                >
+                  Restablecer a rol
+                </button>
+              )}
+            </div>
+            {newUser.role === "super_admin" ? (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5 px-1 py-1">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                Los Super Admin tienen acceso completo a todos los módulos.
+              </p>
+            ) : (
+              <ModuleCheckboxes selected={createPermisos} onChange={setCreatePermisos} />
+            )}
+          </div>
+
           <StatusMsg msg={createMsg} />
         </div>
         <DialogFooter>
@@ -429,6 +637,75 @@ export default function ConfiguracionPage() {
             className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
             {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
             Crear usuario
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* ── Dialog eliminar usuario ── */}
+    <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null) }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <Trash2 className="h-4 w-4" />
+            Eliminar usuario
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-2 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            ¿Estás seguro de que deseas eliminar a{" "}
+            <span className="font-semibold text-foreground">{deleteTarget?.nombre}</span>?
+            Esta acción no se puede deshacer.
+          </p>
+          <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{deleteTarget?.email}</span>
+            {" · "}
+            {deleteTarget ? ROLE_LABELS[deleteTarget.role] : ""}
+          </div>
+          <StatusMsg msg={deleteMsg} />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+            Cancelar
+          </Button>
+          <Button size="sm" disabled={deleting} onClick={handleDeleteUser}
+            className="gap-1.5 bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+            {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            Eliminar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* ── Dialog editar accesos ── */}
+    <Dialog open={!!permisosUser} onOpenChange={open => { if (!open) setPermisosUser(null) }}>
+      <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <LayoutGrid className="h-4 w-4" />
+            Accesos — {permisosUser?.nombre}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+            <span>Rol: <strong className="text-foreground">{permisosUser ? ROLE_LABELS[permisosUser.role] : ""}</strong></span>
+            <button
+              type="button"
+              onClick={() => permisosUser && setEditPermisos(ROLE_MODULE_DEFAULTS[permisosUser.role])}
+              className="text-[10px] underline underline-offset-2 hover:text-foreground"
+            >
+              Restablecer a rol
+            </button>
+          </div>
+          <ModuleCheckboxes selected={editPermisos} onChange={setEditPermisos} />
+          <StatusMsg msg={permisosMsg} />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setPermisosUser(null)}>Cancelar</Button>
+          <Button size="sm" disabled={savingPermisos} onClick={handleSavePermisos}
+            className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+            {savingPermisos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            Guardar
           </Button>
         </DialogFooter>
       </DialogContent>

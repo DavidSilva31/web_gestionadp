@@ -1,19 +1,21 @@
 export type UserRole = 'super_admin' | 'operador' | 'operador_carga'
 
 export interface Profile {
-  id:         string
-  nombre:     string
-  email:      string
-  role:       UserRole
-  activo:     boolean
-  created_at: string
-  updated_at: string
+  id:                   string
+  nombre:               string
+  email:                string
+  role:                 UserRole
+  activo:               boolean
+  permisos:             string[] | null
+  must_change_password: boolean
+  created_at:           string
+  updated_at:           string
 }
 
 // Rutas permitidas por rol
 export const ROLE_ROUTES: Record<UserRole, string[]> = {
-  super_admin:    ['/dashboard', '/inventario', '/movimientos', '/clientes', '/reportes', '/reports', '/reports/nuevo', '/reports/despacho', '/usuarios', '/configuracion'],
-  operador:       ['/dashboard', '/inventario', '/movimientos', '/clientes', '/reportes', '/reports', '/reports/nuevo', '/reports/despacho'],
+  super_admin:    ['/dashboard', '/inventario', '/movimientos', '/clientes', '/reportes', '/reports', '/reports/nuevo', '/reports/despacho', '/hes', '/usuarios', '/configuracion', '/auditoria'],
+  operador:       ['/dashboard', '/inventario', '/movimientos', '/clientes', '/reportes', '/reports', '/reports/nuevo', '/reports/despacho', '/hes'],
   operador_carga: ['/inventario', '/reports', '/reports/nuevo', '/reports/despacho'],
 }
 
@@ -30,7 +32,12 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   operador_carga: 'Operador de Carga',
 }
 
-export function canAccess(role: UserRole, pathname: string): boolean {
+export function canAccess(role: UserRole, pathname: string, permisos?: string[] | null): boolean {
+  if (role === 'super_admin') return true
+  if (pathname === '/configuracion' || pathname.startsWith('/configuracion/')) return true
+  if (permisos) {
+    return permisos.some(route => pathname === route || pathname.startsWith(route + '/'))
+  }
   const allowed = ROLE_ROUTES[role]
   return allowed.some(route => pathname === route || pathname.startsWith(route + '/'))
 }

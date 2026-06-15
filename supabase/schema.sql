@@ -147,6 +147,66 @@ CREATE OR REPLACE TRIGGER profiles_updated_at
   BEFORE UPDATE ON profiles
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+-- ── Tabla de clientes ────────────────────────────────────────
+CREATE SEQUENCE IF NOT EXISTS cliente_number_seq START 1;
+
+CREATE TABLE IF NOT EXISTS clientes (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  numero      INTEGER DEFAULT nextval('cliente_number_seq') UNIQUE NOT NULL,
+  nombre      TEXT NOT NULL,
+  rut         TEXT NOT NULL,
+  contacto    TEXT,
+  email       TEXT,
+  sector      TEXT,
+  activo      BOOLEAN DEFAULT TRUE,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
+CREATE INDEX IF NOT EXISTS idx_clientes_rut    ON clientes(rut);
+
+CREATE OR REPLACE TRIGGER clientes_updated_at
+  BEFORE UPDATE ON clientes
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+ALTER TABLE clientes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Autenticados leen clientes"
+  ON clientes FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Autenticados crean clientes"
+  ON clientes FOR INSERT TO authenticated WITH CHECK (true);
+
+CREATE POLICY "Autenticados actualizan clientes"
+  ON clientes FOR UPDATE TO authenticated USING (true);
+
+-- ── Tabla de auditoría ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tabla          TEXT NOT NULL,
+  registro_id    TEXT NOT NULL,
+  accion         TEXT NOT NULL,
+  descripcion    TEXT,
+  datos_prev     JSONB,
+  datos_nuevo    JSONB,
+  usuario_id     UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  usuario_nombre TEXT,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_tabla_registro ON audit_logs(tabla, registro_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created_at     ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_usuario        ON audit_logs(usuario_id);
+
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Autenticados leen audit_logs"
+  ON audit_logs FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Autenticados insertan audit_logs"
+  ON audit_logs FOR INSERT TO authenticated WITH CHECK (true);
+
 -- ── RLS Reports ───────────────────────────────────────────────
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
 
@@ -169,3 +229,276 @@ CREATE POLICY "Eliminar reports"
       WHERE p.id = auth.uid() AND p.role = 'super_admin'
     )
   );
+
+-- ── Tabla de inventario por cliente ───────────────────────────
+CREATE SEQUENCE IF NOT EXISTS inventario_seq START 1;
+
+CREATE TABLE IF NOT EXISTS inventario_items (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  numero          INTEGER DEFAULT nextval('inventario_seq') UNIQUE NOT NULL,
+  cliente_id      UUID NOT NULL REFERENCES clientes(id) ON DELETE RESTRICT,
+  descripcion     TEXT NOT NULL,
+  categoria       TEXT NOT NULL CHECK (categoria IN ('Contenedor IMO', 'Isotanque', 'Residuo peligroso', 'Carga general')),
+  area            TEXT NOT NULL CHECK (area IN ('Bodega IMO', 'Zona Isotanques', 'Zona RESPEL', 'Bodega General')),
+  clase_imo       TEXT,
+  nu              TEXT,
+  unidad          TEXT NOT NULL DEFAULT 'unidad',
+  stock_actual    INTEGER NOT NULL DEFAULT 0,
+  stock_minimo    INTEGER NOT NULL DEFAULT 0,
+  observaciones   TEXT,
+  activo          BOOLEAN DEFAULT TRUE,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW(),
+  created_by      UUID REFERENCES auth.users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventario_cliente ON inventario_items(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_inventario_activo  ON inventario_items(activo);
+CREATE INDEX IF NOT EXISTS idx_inventario_area    ON inventario_items(area);
+
+CREATE OR REPLACE TRIGGER inventario_updated_at
+  BEFORE UPDATE ON inventario_items
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+ALTER TABLE inventario_items ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Autenticados leen inventario"
+  ON inventario_items FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Autenticados crean inventario"
+  ON inventario_items FOR INSERT TO authenticated WITH CHECK (true);
+
+CREATE POLICY "Autenticados actualizan inventario"
+  ON inventario_items FOR UPDATE TO authenticated USING (true);
+
+CREATE POLICY "Autenticados eliminan inventario"
+  ON inventario_items FOR DELETE TO authenticated USING (true);
+
+-- ── Vincular sec3 de reports con inventario ───────────────────
+-- Permite que un report de bodegaje (sec3) actualice el stock de un ítem
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS sec3_inventario_item_id UUID REFERENCES inventario_items(id) ON DELETE SET NULL;
+
+-- ── Trigger: sincronizar stock desde reports ──────────────────
+CREATE OR REPLACE FUNCTION sync_inventario_stock()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_delta     INTEGER;
+  v_old_delta INTEGER;
+BEGIN
+  -- Revertir el efecto del estado anterior (UPDATE o DELETE)
+  IF TG_OP = 'UPDATE' OR TG_OP = 'DELETE' THEN
+    IF COALESCE(OLD.sec3_activa, FALSE) AND OLD.sec3_inventario_item_id IS NOT NULL THEN
+      v_old_delta := COALESCE(OLD.sec3_numero_pallets, 1);
+      IF OLD.sec3_tipo = 'ingreso' THEN
+        UPDATE inventario_items
+          SET stock_actual = GREATEST(0, stock_actual - v_old_delta)
+          WHERE id = OLD.sec3_inventario_item_id;
+      ELSIF OLD.sec3_tipo = 'despacho' THEN
+        UPDATE inventario_items
+          SET stock_actual = stock_actual + v_old_delta
+          WHERE id = OLD.sec3_inventario_item_id;
+      END IF;
+    END IF;
+  END IF;
+
+  -- Aplicar el efecto del estado nuevo (INSERT o UPDATE)
+  IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+    IF COALESCE(NEW.sec3_activa, FALSE) AND NEW.sec3_inventario_item_id IS NOT NULL THEN
+      v_delta := COALESCE(NEW.sec3_numero_pallets, 1);
+      IF NEW.sec3_tipo = 'ingreso' THEN
+        UPDATE inventario_items
+          SET stock_actual = stock_actual + v_delta
+          WHERE id = NEW.sec3_inventario_item_id;
+      ELSIF NEW.sec3_tipo = 'despacho' THEN
+        UPDATE inventario_items
+          SET stock_actual = GREATEST(0, stock_actual - v_delta)
+          WHERE id = NEW.sec3_inventario_item_id;
+      END IF;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER reports_sync_inventario
+  AFTER INSERT OR UPDATE OR DELETE ON reports
+  FOR EACH ROW EXECUTE FUNCTION sync_inventario_stock();
+
+-- ── Tabla de movimientos ───────────────────────────────────────
+CREATE SEQUENCE IF NOT EXISTS movimiento_seq START 1;
+
+CREATE TABLE IF NOT EXISTS movimientos (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  numero              INTEGER DEFAULT nextval('movimiento_seq') UNIQUE NOT NULL,
+  tipo                TEXT NOT NULL CHECK (tipo IN ('ingreso', 'despacho')),
+  servicio            TEXT NOT NULL CHECK (servicio IN ('Almacenaje', 'Transporte', 'Porteo', 'Logística')),
+  cliente_id          UUID REFERENCES clientes(id) ON DELETE SET NULL,
+  cliente_nombre      TEXT,
+  carga               TEXT NOT NULL,
+  area                TEXT CHECK (area IN ('Bodega IMO', 'Zona Isotanques', 'Zona RESPEL', 'Bodega General')),
+  inventario_item_id  UUID REFERENCES inventario_items(id) ON DELETE SET NULL,
+  unidades            INTEGER,
+  operador            TEXT,
+  estado              TEXT NOT NULL DEFAULT 'en_proceso' CHECK (estado IN ('en_proceso', 'completado')),
+  observaciones       TEXT,
+  fecha               TIMESTAMPTZ DEFAULT NOW(),
+  report_id           UUID REFERENCES reports(id) ON DELETE SET NULL,
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ DEFAULT NOW(),
+  created_by          UUID REFERENCES auth.users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mov_fecha     ON movimientos(fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_mov_tipo      ON movimientos(tipo);
+CREATE INDEX IF NOT EXISTS idx_mov_cliente   ON movimientos(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_mov_estado    ON movimientos(estado);
+CREATE INDEX IF NOT EXISTS idx_mov_report    ON movimientos(report_id);
+
+CREATE OR REPLACE TRIGGER movimientos_updated_at
+  BEFORE UPDATE ON movimientos
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+ALTER TABLE movimientos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Autenticados leen movimientos"
+  ON movimientos FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Autenticados crean movimientos"
+  ON movimientos FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Autenticados actualizan movimientos"
+  ON movimientos FOR UPDATE TO authenticated USING (true);
+
+-- ── Trigger: movimientos manuales con Almacenaje actualizan stock ──
+-- (los auto-generados desde reports tienen report_id y no tienen
+--  inventario_item_id para evitar doble conteo con el trigger de reports)
+CREATE OR REPLACE FUNCTION sync_inventario_from_movimiento()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_delta     INTEGER;
+  v_old_delta INTEGER;
+BEGIN
+  IF TG_OP = 'UPDATE' OR TG_OP = 'DELETE' THEN
+    IF OLD.inventario_item_id IS NOT NULL THEN
+      v_old_delta := COALESCE(OLD.unidades, 1);
+      IF OLD.tipo = 'ingreso' THEN
+        UPDATE inventario_items SET stock_actual = GREATEST(0, stock_actual - v_old_delta) WHERE id = OLD.inventario_item_id;
+      ELSIF OLD.tipo = 'despacho' THEN
+        UPDATE inventario_items SET stock_actual = stock_actual + v_old_delta WHERE id = OLD.inventario_item_id;
+      END IF;
+    END IF;
+  END IF;
+
+  IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+    IF NEW.inventario_item_id IS NOT NULL THEN
+      v_delta := COALESCE(NEW.unidades, 1);
+      IF NEW.tipo = 'ingreso' THEN
+        UPDATE inventario_items SET stock_actual = stock_actual + v_delta WHERE id = NEW.inventario_item_id;
+      ELSIF NEW.tipo = 'despacho' THEN
+        UPDATE inventario_items SET stock_actual = GREATEST(0, stock_actual - v_delta) WHERE id = NEW.inventario_item_id;
+      END IF;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER movimientos_sync_inventario
+  AFTER INSERT OR UPDATE OR DELETE ON movimientos
+  FOR EACH ROW EXECUTE FUNCTION sync_inventario_from_movimiento();
+
+-- ── Trigger: auto-crear movimiento cuando un report se despacha ──
+CREATE OR REPLACE FUNCTION create_movimiento_from_report()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_tipo     TEXT;
+  v_servicio TEXT;
+  v_carga    TEXT;
+  v_area     TEXT;
+  v_cliente_id UUID;
+BEGIN
+  -- Solo cuando cambia a 'despachado'
+  IF NOT (NEW.estado = 'despachado' AND COALESCE(OLD.estado, '') <> 'despachado') THEN
+    RETURN NEW;
+  END IF;
+
+  -- Obtener cliente_id
+  SELECT id INTO v_cliente_id FROM clientes WHERE nombre = NEW.cliente LIMIT 1;
+
+  -- Determinar servicio y datos desde la sección activa más relevante
+  IF NEW.sec3_activa THEN
+    v_tipo     := COALESCE(NEW.sec3_tipo, 'ingreso');
+    v_servicio := 'Almacenaje';
+    v_carga    := COALESCE(NEW.sec3_producto, 'Bodegaje');
+    v_area     := NULL;
+  ELSIF NEW.sec1_activa THEN
+    v_tipo     := COALESCE(NEW.sec1_tipo_movimiento, 'ingreso');
+    v_servicio := 'Almacenaje';
+    v_carga    := CONCAT(
+      UPPER(COALESCE(NEW.sec1_tipo_contenedor, 'contenedor')),
+      CASE WHEN NEW.sec1_carga_imo THEN ' — IMO ' || COALESCE(NEW.sec1_clase_imo, '') ELSE '' END
+    );
+    v_area     := CASE WHEN NEW.sec1_carga_imo THEN 'Bodega IMO' ELSE NULL END;
+  ELSIF NEW.sec2_activa THEN
+    v_tipo     := 'ingreso';
+    v_servicio := 'Logística';
+    v_carga    := CASE
+      WHEN NEW.sec2_consolidado    THEN 'Consolidado'
+      WHEN NEW.sec2_desconsolidado THEN 'Desconsolidado'
+      WHEN NEW.sec2_picking        THEN 'Picking'
+      ELSE 'Logística'
+    END;
+    v_area     := NULL;
+  ELSE
+    v_tipo     := 'ingreso';
+    v_servicio := 'Almacenaje';
+    v_carga    := 'Sin descripción';
+    v_area     := NULL;
+  END IF;
+
+  INSERT INTO movimientos (
+    tipo, servicio, cliente_id, cliente_nombre, carga, area,
+    unidades, operador, estado, fecha, report_id, created_by
+  ) VALUES (
+    v_tipo, v_servicio, v_cliente_id, NEW.cliente,
+    v_carga, v_area,
+    NEW.sec3_numero_pallets,
+    COALESCE(NEW.nombre_despachador, NEW.nombre_operador),
+    'completado',
+    COALESCE(NEW.fecha_despacho, NOW()),
+    NEW.id,
+    NEW.dispatched_by
+  );
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER reports_create_movimiento
+  AFTER UPDATE ON reports
+  FOR EACH ROW EXECUTE FUNCTION create_movimiento_from_report();
+
+-- ── Tarifas por cliente (HES) ─────────────────────────────────
+CREATE TABLE IF NOT EXISTS tarifas_cliente (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cliente_id            UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  cotizacion_numero     TEXT NOT NULL,
+  clase_imo             TEXT,
+  tarifa_almacenaje_uf  NUMERIC(10, 4),
+  tarifa_inout_uf       NUMERIC(10, 4) DEFAULT 0.06,
+  tarifa_descons_20_uf  NUMERIC(10, 4),
+  tarifa_descons_40_uf  NUMERIC(10, 4),
+  tarifa_consolid_40_uf NUMERIC(10, 4),
+  tarifa_porteo_uf      NUMERIC(10, 4),
+  tarifa_palletizado_uf NUMERIC(10, 4),
+  facturacion_minima_uf NUMERIC(10, 2),
+  activo                BOOLEAN DEFAULT TRUE,
+  created_at            TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE tarifas_cliente ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated full access tarifas_cliente"
+  ON tarifas_cliente FOR ALL TO authenticated
+  USING (TRUE) WITH CHECK (TRUE);

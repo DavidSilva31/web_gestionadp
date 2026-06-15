@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   if (profile?.role !== "super_admin")
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 })
 
-  const { nombre, email, password, role } = await req.json()
+  const { nombre, email, password, role, permisos } = await req.json()
   if (!nombre || !email || !password || !role)
     return NextResponse.json({ error: "Todos los campos son obligatorios" }, { status: 400 })
 
@@ -24,13 +24,19 @@ export async function POST(req: NextRequest) {
   })
   if (authError) return NextResponse.json({ error: authError.message }, { status: 400 })
 
-  await supabaseAdmin.from("profiles").upsert({
-    id:     newUser.user.id,
+  const { error: profileError } = await supabaseAdmin.from("profiles").upsert({
+    id:                   newUser.user.id,
     email,
     nombre,
     role,
-    activo: true,
+    activo:               true,
+    permisos:             permisos ?? null,
+    must_change_password: true,
   })
+  if (profileError) {
+    await supabaseAdmin.auth.admin.deleteUser(newUser.user.id)
+    return NextResponse.json({ error: profileError.message }, { status: 500 })
+  }
 
   return NextResponse.json({ success: true })
 }

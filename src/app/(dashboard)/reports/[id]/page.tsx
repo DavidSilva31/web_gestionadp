@@ -2,16 +2,22 @@
 
 import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
-import { ArrowLeft, Save, Send, ChevronRight, Loader2, Eye, Clock, CheckCircle2 } from "lucide-react"
+import { ArrowLeft, Save, Send, ChevronRight, Loader2, Eye, Clock, CheckCircle2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ScanLine, ChevronDown, ChevronUp } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
+import { logAudit, accionLabel } from "@/lib/audit"
+import type { AuditLog } from "@/lib/audit"
 import type { ReportEstado } from "@/types/database"
 
 type TipoMovimiento = "ingreso" | "despacho"
@@ -35,14 +41,24 @@ interface FormData {
   nombre_operador: string
 }
 
-type Tab = "antecedentes" | "sec1" | "sec2" | "sec3"
+type Tab = "antecedentes" | "sec1" | "sec2" | "sec3" | "historial"
 
 const TABS: { key: Tab; label: string; subtitle: string }[] = [
-  { key: "antecedentes", label: "Antecedentes",         subtitle: "Datos del vehículo y conductor"       },
-  { key: "sec1",         label: "Sección 1",            subtitle: "Depósito de contenedores"             },
-  { key: "sec2",         label: "Sección 2",            subtitle: "Consolidado / Desconsolidado / Otros" },
-  { key: "sec3",         label: "Sección 3",            subtitle: "Bodegaje"                             },
+  { key: "antecedentes", label: "Antecedentes", subtitle: "Datos del vehículo y conductor"       },
+  { key: "sec1",         label: "Sección 1",   subtitle: "Depósito de contenedores"             },
+  { key: "sec2",         label: "Sección 2",   subtitle: "Consolidado / Desconsolidado / Otros" },
+  { key: "sec3",         label: "Sección 3",   subtitle: "Bodegaje"                             },
+  { key: "historial",    label: "Historial",   subtitle: "Registro de actividad"                },
 ]
+
+const ACCION_ICON: Record<string, React.ReactNode> = {
+  "report.crear_borrador":     <FileText   className="h-4 w-4 text-gray-500"    />,
+  "report.actualizar":         <FilePen    className="h-4 w-4 text-blue-500"    />,
+  "report.enviar_despacho":    <FileCheck2 className="h-4 w-4 text-amber-500"   />,
+  "report.confirmar_despacho": <Truck      className="h-4 w-4 text-emerald-600" />,
+  "report.despachar":          <ScanLine   className="h-4 w-4 text-emerald-600" />,
+  "report.eliminar":           <Trash2     className="h-4 w-4 text-red-500"     />,
+}
 
 const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> = {
   borrador:           { label: "Borrador",       className: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
@@ -120,7 +136,7 @@ function dbToForm(data: Record<string, any>): FormData {
 export default function ReportDetailPage() {
   const router   = useRouter()
   const params   = useParams()
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const id = params.id as string
 
   const [tab,     setTab]     = useState<Tab>("antecedentes")
@@ -128,11 +144,43 @@ export default function ReportDetailPage() {
   const [estado,  setEstado]  = useState<ReportEstado>("borrador")
   const [numero,  setNumero]  = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState<string | null>(null)
-  const [notFound, setNotFound] = useState(false)
+  const [saving,        setSaving]        = useState(false)
+  const [error,         setError]         = useState<string | null>(null)
+  const [deleting,      setDeleting]      = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [notFound,      setNotFound]      = useState(false)
+  const [auditLogs,    setAuditLogs]    = useState<AuditLog[]>([])
+  const [loadingLogs,  setLoadingLogs]  = useState(false)
+  const [docPath,      setDocPath]      = useState<string | null>(null)
+  const [signedDocUrl, setSignedDocUrl] = useState<string | null>(null)
+  const [docExpanded,  setDocExpanded]  = useState(false)
 
   const readOnly = estado !== "borrador"
+
+  useEffect(() => {
+    if (tab !== "historial") return
+    async function fetchLogs() {
+      setLoadingLogs(true)
+      const supabase = createClient()
+      const { data } = await supabase
+        .from("audit_logs")
+        .select("*")
+        .eq("tabla", "reports")
+        .eq("registro_id", id)
+        .order("created_at", { ascending: false })
+      if (data) setAuditLogs(data as AuditLog[])
+      setLoadingLogs(false)
+
+      // Generar URL firmada si hay documento
+      if (docPath && !signedDocUrl) {
+        const { data: signed } = await supabase.storage
+          .from("reports-firmados")
+          .createSignedUrl(docPath, 3600)
+        if (signed?.signedUrl) setSignedDocUrl(signed.signedUrl)
+      }
+    }
+    fetchLogs()
+  }, [tab, id, docPath, signedDocUrl])
 
   useEffect(() => {
     async function fetchReport() {
@@ -142,6 +190,7 @@ export default function ReportDetailPage() {
       setEstado(data.estado as ReportEstado)
       setNumero(data.numero)
       setForm(dbToForm(data as Record<string, unknown>))
+      if (data.documento_firmado_url) setDocPath(data.documento_firmado_url as string)
       setLoading(false)
     }
     fetchReport()
@@ -210,6 +259,21 @@ export default function ReportDetailPage() {
     }
   }
 
+  async function handleDelete() {
+    setDeleting(true)
+    const supabase = createClient()
+    await supabase.from("reports").delete().eq("id", id)
+    await logAudit({
+      tabla:          "reports",
+      registro_id:    id,
+      accion:         "report.eliminar",
+      descripcion:    `Report #${numero} — ${form?.cliente} (${form?.patente}) eliminado`,
+      usuario_id:     user?.id,
+      usuario_nombre: profile?.nombre ?? user?.email,
+    })
+    router.push("/reports")
+  }
+
   async function handleSave(newEstado: ReportEstado) {
     if (!form) return
     if (!form.cliente || !form.patente || !form.conductor) {
@@ -225,6 +289,14 @@ export default function ReportDetailPage() {
     if (err) {
       setError(err.message)
     } else {
+      await logAudit({
+        tabla:          "reports",
+        registro_id:    id,
+        accion:         newEstado === "pendiente_despacho" ? "report.enviar_despacho" : "report.actualizar",
+        descripcion:    `Report #${numero} — ${form.cliente} (${form.patente})`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
       router.push("/reports")
     }
   }
@@ -249,9 +321,30 @@ export default function ReportDetailPage() {
   const currentTabInfo = TABS[tabIndex]
 
   return (
+    <>
+    <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar este report?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Estás a punto de eliminar el report <strong>#{numero}</strong> ({form?.cliente}). Esta acción no se puede deshacer.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-red-600 hover:bg-red-700 text-white"
+            onClick={handleDelete}
+          >
+            Eliminar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b bg-white flex-shrink-0">
+      <div className="flex items-center justify-between px-6 py-4 border-b bg-white flex-shrink-0 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <Link href="/reports">
             <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-500">
@@ -273,6 +366,16 @@ export default function ReportDetailPage() {
 
         <div className="flex items-center gap-2">
           {error && <p className="text-xs text-red-500 max-w-xs truncate">{error}</p>}
+
+          <Button
+            variant="ghost" size="sm"
+            className="gap-1.5 h-8 text-xs text-red-500 hover:text-red-700 hover:bg-red-50"
+            disabled={deleting || saving}
+            onClick={() => setConfirmDelete(true)}
+          >
+            {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            Eliminar
+          </Button>
 
           {estado === "borrador" && (
             <>
@@ -313,7 +416,7 @@ export default function ReportDetailPage() {
       )}
 
       {/* Tab bar */}
-      <div className="flex items-end gap-0 px-6 pt-3 border-b bg-gray-50 flex-shrink-0">
+      <div className="flex items-end gap-0 px-6 pt-3 border-b bg-gray-50 flex-shrink-0 overflow-x-auto">
         {TABS.map((t, i) => (
           <button
             key={t.key}
@@ -338,7 +441,7 @@ export default function ReportDetailPage() {
 
       {/* Form area */}
       <div className="flex-1 min-h-0 overflow-y-auto bg-gray-50">
-        <div className="max-w-3xl mx-auto px-6 py-5">
+        <div className={cn("mx-auto px-6 py-5", tab === "historial" ? "max-w-5xl" : "max-w-3xl")}>
           <div className="bg-white rounded-xl border p-5">
             <div className="mb-4 pb-3 border-b">
               <h2 className="text-sm font-bold text-gray-900">{currentTabInfo.label}</h2>
@@ -346,7 +449,7 @@ export default function ReportDetailPage() {
             </div>
 
             {tab === "antecedentes" && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Cliente" required className="col-span-2">
                   <Input value={form.cliente} onChange={e => set("cliente", e.target.value)} placeholder="Nombre del cliente" className="h-8 text-xs" readOnly={readOnly} />
                 </Field>
@@ -379,7 +482,7 @@ export default function ReportDetailPage() {
                   <label htmlFor="sec1_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">Activar Sección 1 — Depósito de Contenedores</label>
                 </div>
                 <div className={cn("space-y-4 transition-opacity", !form.sec1_activa && "opacity-40 pointer-events-none")}>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Field label="Tipo de movimiento">
                       <RadioGroup<TipoMovimiento> value={form.sec1_tipo_movimiento} onChange={v => set("sec1_tipo_movimiento", v)} options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]} readOnly={readOnly} />
                     </Field>
@@ -407,7 +510,7 @@ export default function ReportDetailPage() {
                       </Field>
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Field label="Hora inicio"><Input type="time" value={form.sec1_hora_inicio} onChange={e => set("sec1_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
                     <Field label="Hora término"><Input type="time" value={form.sec1_hora_termino} onChange={e => set("sec1_hora_termino", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
                     <Field label="Sigla"><Input value={form.sec1_sigla} onChange={e => set("sec1_sigla", e.target.value)} placeholder="Sigla del contenedor" className="h-8 text-xs" readOnly={readOnly} /></Field>
@@ -429,7 +532,7 @@ export default function ReportDetailPage() {
                   <label htmlFor="sec2_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">Activar Sección 2 — Consolidado / Desconsolidado / Otros</label>
                 </div>
                 <div className={cn("space-y-4 transition-opacity", !form.sec2_activa && "opacity-40 pointer-events-none")}>
-                  <div className="grid grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg">
                     {([
                       ["sec2_consolidado", "Consolidado"], ["sec2_desconsolidado", "Desconsolidado"],
                       ["sec2_picking", "Picking"], ["sec2_paletizado", "Paletizado"],
@@ -441,7 +544,7 @@ export default function ReportDetailPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Field label="Hora inicio"><Input type="time" value={form.sec2_hora_inicio} onChange={e => set("sec2_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
                     <Field label="Hora término"><Input type="time" value={form.sec2_hora_termino} onChange={e => set("sec2_hora_termino", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
                     <Field label="Sigla / N°" className="col-span-2"><Input value={form.sec2_sigla_numero} onChange={e => set("sec2_sigla_numero", e.target.value)} placeholder="Sigla o número" className="h-8 text-xs" readOnly={readOnly} /></Field>
@@ -461,8 +564,8 @@ export default function ReportDetailPage() {
                   <label htmlFor="sec3_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">Activar Sección 3 — Bodegaje</label>
                 </div>
                 <div className={cn("space-y-4 transition-opacity", !form.sec3_activa && "opacity-40 pointer-events-none")}>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field label="Producto" className="col-span-2"><Input value={form.sec3_producto} onChange={e => set("sec3_producto", e.target.value)} placeholder="Nombre del producto" className="h-8 text-xs" readOnly={readOnly} /></Field>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Producto" className="col-span-2 sm:col-span-2"><Input value={form.sec3_producto} onChange={e => set("sec3_producto", e.target.value)} placeholder="Nombre del producto" className="h-8 text-xs" readOnly={readOnly} /></Field>
                     <Field label="Clase IMO"><Input value={form.sec3_clase_imo} onChange={e => set("sec3_clase_imo", e.target.value)} placeholder="Clase IMO si aplica" className="h-8 text-xs" readOnly={readOnly} /></Field>
                     <Field label="NU"><Input value={form.sec3_nu} onChange={e => set("sec3_nu", e.target.value)} className="h-8 text-xs font-mono" readOnly={readOnly} /></Field>
                     <Field label="Hora inicio"><Input type="time" value={form.sec3_hora_inicio} onChange={e => set("sec3_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
@@ -470,7 +573,7 @@ export default function ReportDetailPage() {
                     <Field label="N° Bodega"><Input value={form.sec3_numero_bodega} onChange={e => set("sec3_numero_bodega", e.target.value)} placeholder="Número de bodega" className="h-8 text-xs" readOnly={readOnly} /></Field>
                     <Field label="N° Guía" className="col-span-2"><Input value={form.sec3_numero_guia} onChange={e => set("sec3_numero_guia", e.target.value)} placeholder="Número de guía" className="h-8 text-xs" readOnly={readOnly} /></Field>
 
-                    <div className="col-span-2 flex items-start gap-8 pt-1">
+                    <div className="col-span-2 flex flex-wrap items-start gap-6 sm:gap-8 pt-1">
                       <Field label="Tipo de movimiento">
                         <RadioGroup<TipoMovimiento> value={form.sec3_tipo} onChange={v => set("sec3_tipo", v)}
                           options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]} vertical readOnly={readOnly} />
@@ -513,18 +616,121 @@ export default function ReportDetailPage() {
             )}
           </div>
 
-          {/* Navigation footer */}
+          {/* ── Tab Historial ── */}
+          {tab === "historial" && (
+            <div className="space-y-4 mt-4">
+
+              {/* Documento firmado — si existe */}
+              {docPath && (
+                <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setDocExpanded(v => !v)}
+                    className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ScanLine className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                      <div className="text-left">
+                        <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Documento firmado por el conductor</p>
+                        <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 font-mono">{docPath}</p>
+                      </div>
+                    </div>
+                    {docExpanded
+                      ? <ChevronUp className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                      : <ChevronDown className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                    }
+                  </button>
+
+                  {docExpanded && (
+                    <div className="border-t border-emerald-200 dark:border-emerald-800 bg-gray-50 dark:bg-gray-900">
+                      {!signedDocUrl ? (
+                        <div className="flex items-center justify-center py-10">
+                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : /\.(pdf)$/i.test(docPath) ? (
+                        <iframe
+                          src={signedDocUrl}
+                          className="w-full"
+                          style={{ height: "600px", border: "none" }}
+                          title="Documento firmado"
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center p-4">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={signedDocUrl}
+                            alt="Documento firmado"
+                            className="max-w-full max-h-[600px] object-contain rounded-lg shadow"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Timeline de auditoría */}
+              {loadingLogs ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : auditLogs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+                  <History className="h-8 w-8 opacity-30" />
+                  <p className="text-sm">Sin actividad registrada aún</p>
+                </div>
+              ) : (
+                <div className="relative">
+                  <div className="absolute left-[19px] top-0 bottom-0 w-px bg-border" />
+                  <div className="space-y-3">
+                    {auditLogs.map((log, i) => (
+                      <div key={log.id} className="relative flex gap-4 pl-1">
+                        <div className="relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-background border-2 border-border shadow-sm">
+                          {ACCION_ICON[log.accion] ?? <History className="h-4 w-4 text-muted-foreground" />}
+                        </div>
+                        <div className={cn(
+                          "flex-1 rounded-xl border bg-card px-4 py-3.5 space-y-1",
+                          i === 0 && "border-[oklch(0.35_0.12_240)]/30 bg-[oklch(0.35_0.12_240)]/5"
+                        )}>
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="text-xs font-semibold text-foreground leading-tight">
+                              {accionLabel(log.accion)}
+                            </p>
+                            <time className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0 mt-0.5">
+                              {new Date(log.created_at).toLocaleString("es-CL", {
+                                day: "2-digit", month: "2-digit", year: "numeric",
+                                hour: "2-digit", minute: "2-digit"
+                              })}
+                            </time>
+                          </div>
+                          {log.descripcion && !/doc:/.test(log.descripcion) && (
+                            <p className="text-[11px] text-muted-foreground leading-relaxed">{log.descripcion}</p>
+                          )}
+                          {log.usuario_nombre && (
+                            <p className="text-[10px] text-muted-foreground/60">por {log.usuario_nombre}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Navigation footer — solo en tabs de formulario */}
+          {tab !== "historial" && (
           <div className="flex items-center justify-between mt-4">
             <button onClick={() => tabIndex > 0 && setTab(TABS[tabIndex - 1].key)} disabled={tabIndex === 0}
               className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1">
               ← Anterior
             </button>
             <div className="flex gap-1.5">
-              {TABS.map(t => (
+              {TABS.filter(t => t.key !== "historial").map(t => (
                 <div key={t.key} className={cn("h-1.5 rounded-full transition-all", tab === t.key ? "w-6 bg-[oklch(0.35_0.12_240)]" : "w-1.5 bg-gray-300")} />
               ))}
             </div>
-            {tabIndex < TABS.length - 1 ? (
+            {tabIndex < TABS.length - 2 ? (
               <button onClick={nextTab} className="text-xs text-[oklch(0.35_0.12_240)] hover:text-[oklch(0.30_0.12_240)] flex items-center gap-1 font-medium">
                 Siguiente <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -532,8 +738,10 @@ export default function ReportDetailPage() {
               <div className="w-16" />
             )}
           </div>
+          )}
         </div>
       </div>
     </div>
+    </>
   )
 }
