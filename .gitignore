@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# referencia interna / documentos comerciales — no van al repo
+/propuesta_ADP_Gestion.html
+/propuesta_ADP_Gestion.pdf
+/public/HES*IMO*.xlsx

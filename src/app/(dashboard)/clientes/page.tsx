@@ -92,7 +92,7 @@ export default function ClientesPage() {
       if (dialog === "new") {
         const { error: err } = await supabase.from("clientes").insert(payload)
         if (err) { setError(err.message); setSaving(false); return }
-      } else if (dialog && dialog !== "new") {
+      } else if (dialog) {
         const { error: err } = await supabase.from("clientes").update(payload).eq("id", dialog.id)
         if (err) { setError(err.message); setSaving(false); return }
       }

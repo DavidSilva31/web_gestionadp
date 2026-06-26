@@ -208,7 +208,7 @@ function TarifaDialog({
                 <div key={key} className="space-y-1">
                   <Label className={labelCls}>{label}</Label>
                   <Input className={fieldCls} type="number" step="0.0001"
-                    value={form[key as keyof typeof form] ?? ""}
+                    value={(form[key as keyof typeof form] ?? "") as string | number}
                     onChange={e => setField(key as keyof TarifaClienteInsert, num(e.target.value) as never)}
                     placeholder={ph}
                   />
