@@ -299,7 +299,7 @@ export default function HesPage() {
       .eq("cliente_id", selectedId)
       .lte("fecha", endDate)
       .order("fecha")
-    setMovs((data as MovRaw[]) ?? [])
+    setMovs((data as unknown as MovRaw[]) ?? [])
     setLoading(false)
   }, [selectedId, selectedMonth, selectedYear])
 
