@@ -342,7 +342,7 @@ export default function ReportDetailPage() {
       </AlertDialogContent>
     </AlertDialog>
 
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-white flex-shrink-0 flex-wrap gap-2">
         <div className="flex items-center gap-3">
@@ -416,7 +416,7 @@ export default function ReportDetailPage() {
       )}
 
       {/* Tab bar */}
-      <div className="flex items-end gap-0 px-6 pt-3 border-b bg-gray-50 flex-shrink-0 overflow-x-auto">
+      <div className="flex items-end gap-0 px-6 pt-3 border-b bg-gray-50 flex-shrink-0 overflow-x-hidden">
         {TABS.map((t, i) => (
           <button
             key={t.key}
