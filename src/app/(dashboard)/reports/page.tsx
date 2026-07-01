@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet } from "lucide-react"
+import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Upload, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +14,7 @@ import type { Report, ReportEstado } from "@/types/database"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { exportReportsToExcel } from "@/lib/export-reports-excel"
 import { useAuth } from "@/contexts/auth-context"
+import { logAudit } from "@/lib/audit"
 
 type Tab = "todos" | ReportEstado
 
@@ -52,7 +53,7 @@ function seccionesTag(r: ReportRow) {
 }
 
 export default function ReportsPage() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const router = useRouter()
   const [reports,     setReports]     = useState<ReportRow[]>([])
   const [loading,     setLoading]     = useState(true)
@@ -60,6 +61,15 @@ export default function ReportsPage() {
   const [search,      setSearch]      = useState("")
   const [pdfLoading,  setPdfLoading]  = useState<string | null>(null)
   const [xlsxLoading, setXlsxLoading] = useState(false)
+
+  // Estado del modal de despacho
+  const [dispatchFor,    setDispatchFor]    = useState<ReportRow | null>(null)
+  const [dispatchFile,   setDispatchFile]   = useState<File | null>(null)
+  const [dispatchNombre, setDispatchNombre] = useState("")
+  const [dispatchLoading, setDispatchLoading] = useState(false)
+  const [dispatchError,  setDispatchError]  = useState<string | null>(null)
+  const [dragOver,       setDragOver]       = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const fetchReports = useCallback(async () => {
     setLoading(true)
@@ -74,6 +84,15 @@ export default function ReportsPage() {
   }, [])
 
   useEffect(() => { fetchReports() }, [fetchReports])
+
+  function closeDispatchModal() {
+    setDispatchFor(null)
+    setDispatchFile(null)
+    setDispatchNombre("")
+    setDispatchError(null)
+    setDragOver(false)
+    if (fileRef.current) fileRef.current.value = ""
+  }
 
   async function handleDownloadPDF(id: string) {
     setPdfLoading(id)
@@ -92,6 +111,57 @@ export default function ReportsPage() {
       .order("numero", { ascending: true })
     if (data && data.length > 0) exportReportsToExcel(data as Report[])
     setXlsxLoading(false)
+  }
+
+  async function handleDispatch() {
+    if (!dispatchFor || !dispatchFile || !dispatchNombre.trim()) return
+    setDispatchError(null)
+    setDispatchLoading(true)
+
+    const supabase = createClient()
+    const ext  = dispatchFile.name.split(".").pop() ?? "pdf"
+    const path = `${dispatchFor.numero}-${dispatchFor.id}.${ext}`
+
+    const { error: uploadErr } = await supabase.storage
+      .from("reports-firmados")
+      .upload(path, dispatchFile, { upsert: true })
+
+    if (uploadErr) {
+      setDispatchError("Error al subir el archivo: " + uploadErr.message)
+      setDispatchLoading(false)
+      return
+    }
+
+    const now = new Date().toISOString()
+    const { error: updateErr } = await supabase
+      .from("reports")
+      .update({
+        estado:                "despachado",
+        nombre_despachador:    dispatchNombre,
+        fecha_despacho:        now,
+        dispatched_by:         user?.id ?? null,
+        documento_firmado_url: path,
+      })
+      .eq("id", dispatchFor.id)
+
+    if (updateErr) {
+      setDispatchError("Error al despachar: " + updateErr.message)
+      setDispatchLoading(false)
+      return
+    }
+
+    await logAudit({
+      tabla:          "reports",
+      registro_id:    dispatchFor.id,
+      accion:         "report.despachar",
+      descripcion:    `Vehículo despachado — ${dispatchFor.cliente} (${dispatchFor.patente}) · doc: ${path}`,
+      usuario_id:     user?.id,
+      usuario_nombre: profile?.nombre ?? dispatchNombre,
+    })
+
+    setDispatchLoading(false)
+    closeDispatchModal()
+    fetchReports()
   }
 
   const filtered = reports.filter(r => {
@@ -114,6 +184,101 @@ export default function ReportsPage() {
   }
 
   return (
+    <>
+    {/* Modal despacho */}
+    {dispatchFor && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-gray-900">Despachar Report #{dispatchFor.numero}</h3>
+              <p className="text-xs text-gray-500 mt-0.5">{dispatchFor.cliente} · {dispatchFor.patente}</p>
+            </div>
+            <button onClick={closeDispatchModal} className="text-gray-400 hover:text-gray-600 flex-shrink-0 mt-0.5">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Subida del documento firmado */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">
+              Report firmado por el conductor <span className="text-red-500">*</span>
+            </label>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={e => { setDispatchFile(e.target.files?.[0] ?? null); setDispatchError(null) }}
+            />
+            {dispatchFile ? (
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                <FileText className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                <span className="text-xs text-emerald-700 font-medium truncate flex-1">{dispatchFile.name}</span>
+                <span className="text-[10px] text-gray-400 flex-shrink-0">{(dispatchFile.size / 1024).toFixed(0)} KB</span>
+                <button
+                  type="button"
+                  onClick={() => { setDispatchFile(null); if (fileRef.current) fileRef.current.value = "" }}
+                  className="text-gray-400 hover:text-gray-600 flex-shrink-0"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) { setDispatchFile(f); setDispatchError(null) } }}
+                onClick={() => fileRef.current?.click()}
+                className={cn(
+                  "flex flex-col items-center justify-center gap-1.5 border-2 border-dashed rounded-lg px-4 py-6 cursor-pointer transition-colors select-none",
+                  dragOver
+                    ? "border-blue-400 bg-blue-50 text-blue-600"
+                    : "border-gray-300 hover:border-gray-400 text-gray-400 hover:text-gray-600"
+                )}
+              >
+                <Upload className="h-5 w-5" />
+                <span className="text-xs font-medium">{dragOver ? "Suelta para adjuntar" : "Arrastra el archivo aquí"}</span>
+                <span className="text-[10px]">o haz clic para seleccionar · PDF, JPG, PNG</span>
+              </div>
+            )}
+          </div>
+
+          {/* Nombre despachador */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">
+              Nombre del despachador <span className="text-red-500">*</span>
+            </label>
+            <Input
+              value={dispatchNombre}
+              onChange={e => setDispatchNombre(e.target.value)}
+              placeholder="Tu nombre completo"
+              className="h-8 text-xs"
+            />
+          </div>
+
+          {dispatchError && <p className="text-xs text-red-500">{dispatchError}</p>}
+
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" size="sm" className="flex-1 h-9 text-xs" onClick={closeDispatchModal} disabled={dispatchLoading}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              className="flex-1 h-9 gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40"
+              onClick={handleDispatch}
+              disabled={!dispatchFile || !dispatchNombre.trim() || dispatchLoading}
+            >
+              {dispatchLoading
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Procesando...</>
+                : <><CheckCircle2 className="h-3.5 w-3.5" />Confirmar despacho</>
+              }
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+
     <div className="flex flex-col h-full overflow-hidden">
       <PageHeader title="Reports de Servicio" subtitle="Gestión de reportes de almacenamiento y despacho">
         <Button variant="ghost" size="sm" onClick={fetchReports} disabled={loading} className="h-10 w-10 p-0 text-muted-foreground">
@@ -187,16 +352,16 @@ export default function ReportsPage() {
             </div>
           ) : (
             <div className="overflow-auto flex-1">
-              <table className="w-full text-sm table-fixed min-w-[680px]">
+              <table className="w-full text-sm table-fixed min-w-[720px]">
                 <colgroup>
                   <col style={{ width: "5%" }}  />
-                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "19%" }} />
                   <col style={{ width: "9%" }}  />
-                  <col style={{ width: "17%" }} />
-                  <col style={{ width: "24%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "23%" }} />
                   <col style={{ width: "10%" }} />
-                  <col style={{ width: "11%" }} />
-                  <col style={{ width: "4%" }}  />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "8%" }}  />
                 </colgroup>
                 <thead className="sticky top-0 bg-muted/60 border-b z-10">
                   <tr>
@@ -241,16 +406,32 @@ export default function ReportsPage() {
                         </Badge>
                       </td>
                       <td className="px-4 py-4">
-                        <div className="flex items-center justify-end">
+                        <div className="flex items-center justify-end gap-0.5">
+                          {r.estado === "pendiente_despacho" && (
+                            <Button
+                              variant="ghost" size="icon"
+                              className="h-8 w-8 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
+                              title="Subir documento firmado y despachar"
+                              onClick={e => {
+                                e.stopPropagation()
+                                setDispatchFor(r)
+                                setDispatchFile(null)
+                                setDispatchNombre("")
+                                setDispatchError(null)
+                              }}
+                            >
+                              <Upload className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost" size="icon"
-                            className="h-11 w-11 text-muted-foreground hover:text-foreground"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
                             disabled={pdfLoading === r.id}
                             onClick={e => { e.stopPropagation(); handleDownloadPDF(r.id) }}
                           >
                             {pdfLoading === r.id
-                              ? <Loader2 className="h-10 w-10 animate-spin" />
-                              : <Download className="h-10 w-10" />
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <Download className="h-4 w-4" />
                             }
                           </Button>
                         </div>
@@ -271,5 +452,6 @@ export default function ReportsPage() {
         </div>
       </div>
     </div>
+    </>
   )
 }
