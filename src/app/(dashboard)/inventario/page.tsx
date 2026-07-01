@@ -206,7 +206,7 @@ function InventarioContent() {
       if (dialog === "new") {
         const { error: err } = await supabase.from("inventario_items").insert(payload)
         if (err) { setError(err.message); setSaving(false); return }
-      } else if (dialog && dialog !== "new") {
+      } else if (dialog) {
         const { error: err } = await supabase.from("inventario_items").update(payload).eq("id", dialog.id)
         if (err) { setError(err.message); setSaving(false); return }
       }

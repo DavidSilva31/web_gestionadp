@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 import ExcelJS from "exceljs"
-import fs from "fs"
 import path from "path"
 
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -158,10 +157,8 @@ export async function POST(req: NextRequest) {
 
   // ── Logo incomex (col B, row 2) ──────────────────────────────────────────────
   try {
-    const logoPath   = path.join(process.cwd(), "public", "incomex_logo.png")
-    const logoBuffer = fs.readFileSync(logoPath)
-    const logoId     = wb.addImage({ buffer: logoBuffer, extension: "png" })
-    // tl col=1 → columna B (0-indexed); row=1 → fila 2
+    const logoPath = path.join(process.cwd(), "public", "incomex_logo.png")
+    const logoId   = wb.addImage({ filename: logoPath, extension: "png" })
     ws.addImage(logoId, { tl: { col: 1, row: 1 }, ext: { width: 140, height: 70 } })
   } catch { /* sin logo — continúa */ }
 
