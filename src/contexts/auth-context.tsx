@@ -45,22 +45,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       else setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user ?? null
       setUser(u)
       if (u) fetchProfile(u.id)
-      else { setProfile(null); setLoading(false) }
+      else {
+        setProfile(null)
+        setLoading(false)
+        if (event === "SIGNED_OUT") router.replace("/login")
+      }
     })
 
-    return () => subscription.unsubscribe()
-  }, [fetchProfile])
+    // Detectar restauración desde bfcache (botón Atrás tras cerrar sesión).
+    // Usa window.location en vez de router porque Next.js puede estar congelado.
+    function handlePageShow(e: PageTransitionEvent) {
+      if (e.persisted) {
+        supabase.auth.getUser().then(({ data: { user } }) => {
+          if (!user) window.location.replace("/login")
+        })
+      }
+    }
+    window.addEventListener("pageshow", handlePageShow)
+
+    return () => {
+      subscription.unsubscribe()
+      window.removeEventListener("pageshow", handlePageShow)
+    }
+  }, [fetchProfile, router])
 
   const signOut = useCallback(async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
     setUser(null)
     setProfile(null)
-    router.push('/login')
+    router.replace("/login")
   }, [router])
 
   return (

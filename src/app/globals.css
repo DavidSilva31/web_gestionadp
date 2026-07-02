@@ -39,6 +39,8 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+
+  /* Radius scale */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -47,111 +49,336 @@
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 
-  /* ADP Brand colors */
+  /* ADP Brand colors — usables como clases Tailwind: text-adp-blue, bg-adp-celeste, etc. */
   --color-adp-blue: #0A4A7F;
+  --color-adp-blue-mid: #1A5276;
   --color-adp-celeste: #29ABE2;
   --color-adp-celeste-light: #E8F7FD;
-  --color-adp-blue-mid: #1A5276;
+
+  /* Semantic status colors — para badges, iconos, deltas */
+  --color-status-success-bg: #EAF3DE;
+  --color-status-success-text: #2D5A1B;
+  --color-status-warning-bg: #FBF3DB;
+  --color-status-warning-text: #7A4F00;
+  --color-status-danger-bg: #FCEBEB;
+  --color-status-danger-text: #8B1F1F;
+  --color-status-info-bg: #E6F1FB;
+  --color-status-info-text: #0C447C;
+  --color-status-neutral-bg: #F1EFE8;
+  --color-status-neutral-text: #444441;
+
+  /* Typography scale */
+  --font-size-xs: 0.6875rem;   /* 11px @ base 16 */
+  --font-size-sm: 0.75rem;     /* 12px */
+  --font-size-base: 0.8125rem; /* 13px */
+  --font-size-md: 0.875rem;    /* 14px */
+  --font-size-lg: 1rem;        /* 16px */
+  --font-size-xl: 1.125rem;    /* 18px */
+  --font-size-2xl: 1.375rem;   /* 22px */
+  --font-size-3xl: 1.75rem;    /* 28px */
 }
 
-html {
-  font-size: 90%;
-}
-
+/* ============================================================
+   LIGHT MODE
+   ============================================================ */
 :root {
-  --background: oklch(0.985 0.002 247);
-  --foreground: oklch(0.15 0.025 240);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.15 0.025 240);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.15 0.025 240);
+  /* Canvas */
+  --background: oklch(0.982 0.002 247);
+  --foreground: oklch(0.14 0.025 240);
 
-  /* ADP primary = azul oscuro #0A4A7F */
+  /* Cards y popovers */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.14 0.025 240);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.14 0.025 240);
+
+  /* Primary = azul ADP #0A4A7F */
   --primary: oklch(0.35 0.1 240);
   --primary-foreground: oklch(0.985 0 0);
 
-  /* Secondary = celeste #29ABE2 */
+  /* Secondary = celeste ADP #29ABE2 */
   --secondary: oklch(0.67 0.13 215);
   --secondary-foreground: oklch(1 0 0);
 
-  --muted: oklch(0.96 0.005 240);
-  --muted-foreground: oklch(0.52 0.03 240);
-  --accent: oklch(0.94 0.02 215);
+  /* Muted — fondos de secciones, texto secundario */
+  --muted: oklch(0.965 0.004 240);
+  --muted-foreground: oklch(0.50 0.025 240);
+
+  /* Accent — hover states sutiles */
+  --accent: oklch(0.95 0.015 215);
   --accent-foreground: oklch(0.35 0.1 240);
+
+  /* Destructive */
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.91 0.008 240);
-  --input: oklch(0.91 0.008 240);
+
+  /* Bordes e inputs */
+  --border: oklch(0.915 0.006 240);
+  --input: oklch(0.92 0.005 240);
   --ring: oklch(0.67 0.13 215);
 
-  --chart-1: oklch(0.35 0.1 240);
-  --chart-2: oklch(0.67 0.13 215);
-  --chart-3: oklch(0.52 0.12 230);
-  --chart-4: oklch(0.76 0.1 200);
-  --chart-5: oklch(0.88 0.06 210);
+  /* Border más fuerte para énfasis */
+  --border-strong: oklch(0.82 0.012 240);
 
-  --radius: 0.625rem;
+  /* Charts — paleta ADP coherente */
+  --chart-1: oklch(0.35 0.1 240);   /* azul ADP */
+  --chart-2: oklch(0.67 0.13 215);  /* celeste ADP */
+  --chart-3: oklch(0.52 0.12 230);  /* azul medio */
+  --chart-4: oklch(0.76 0.1 200);   /* celeste claro */
+  --chart-5: oklch(0.88 0.06 210);  /* muy claro */
 
-  /* Sidebar ADP */
-  --sidebar: oklch(0.22 0.055 240);
-  --sidebar-foreground: oklch(0.92 0.01 240);
+  /* Radius base */
+  --radius: 0.5rem;
+
+  /* Sidebar — azul marino ADP */
+  --sidebar: oklch(0.20 0.058 240);
+  --sidebar-foreground: oklch(0.93 0.008 240);
   --sidebar-primary: oklch(0.67 0.13 215);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.28 0.06 240);
-  --sidebar-accent-foreground: oklch(0.92 0.01 240);
-  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-accent: oklch(0.26 0.06 240);
+  --sidebar-accent-foreground: oklch(0.93 0.008 240);
+  --sidebar-border: oklch(1 0 0 / 7%);
   --sidebar-ring: oklch(0.67 0.13 215);
+
+  /* Sombras ultra-sutiles */
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.04);
+  --shadow-md: 0 2px 8px oklch(0 0 0 / 0.05);
+  --shadow-card: 0 0 0 1px var(--border);
 }
 
+/* ============================================================
+   DARK MODE
+   ============================================================ */
 .dark {
-  --background: oklch(0.13 0.02 240);
-  --foreground: oklch(0.95 0.005 240);
-  --card: oklch(0.18 0.03 240);
-  --card-foreground: oklch(0.95 0.005 240);
-  --popover: oklch(0.18 0.03 240);
-  --popover-foreground: oklch(0.95 0.005 240);
+  --background: oklch(0.12 0.022 240);
+  --foreground: oklch(0.94 0.005 240);
+
+  --card: oklch(0.17 0.03 240);
+  --card-foreground: oklch(0.94 0.005 240);
+  --popover: oklch(0.17 0.03 240);
+  --popover-foreground: oklch(0.94 0.005 240);
+
+  /* En dark mode, primary pasa a celeste (más legible) */
   --primary: oklch(0.67 0.13 215);
-  --primary-foreground: oklch(0.1 0.02 240);
-  --secondary: oklch(0.25 0.04 240);
-  --secondary-foreground: oklch(0.95 0.005 240);
-  --muted: oklch(0.22 0.03 240);
-  --muted-foreground: oklch(0.65 0.02 240);
-  --accent: oklch(0.28 0.06 240);
-  --accent-foreground: oklch(0.95 0.005 240);
+  --primary-foreground: oklch(0.10 0.02 240);
+
+  --secondary: oklch(0.24 0.04 240);
+  --secondary-foreground: oklch(0.94 0.005 240);
+
+  --muted: oklch(0.21 0.028 240);
+  --muted-foreground: oklch(0.62 0.018 240);
+
+  --accent: oklch(0.27 0.055 240);
+  --accent-foreground: oklch(0.94 0.005 240);
+
   --destructive: oklch(0.704 0.191 22.216);
+
   --border: oklch(1 0 0 / 8%);
+  --border-strong: oklch(1 0 0 / 15%);
   --input: oklch(1 0 0 / 10%);
   --ring: oklch(0.67 0.13 215);
+
   --chart-1: oklch(0.67 0.13 215);
   --chart-2: oklch(0.52 0.12 230);
   --chart-3: oklch(0.76 0.1 200);
   --chart-4: oklch(0.88 0.06 210);
   --chart-5: oklch(0.35 0.1 240);
-  --sidebar: oklch(0.15 0.03 240);
-  --sidebar-foreground: oklch(0.92 0.01 240);
+
+  --sidebar: oklch(0.14 0.03 240);
+  --sidebar-foreground: oklch(0.92 0.008 240);
   --sidebar-primary: oklch(0.67 0.13 215);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.22 0.04 240);
-  --sidebar-accent-foreground: oklch(0.92 0.01 240);
-  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-accent: oklch(0.21 0.04 240);
+  --sidebar-accent-foreground: oklch(0.92 0.008 240);
+  --sidebar-border: oklch(1 0 0 / 7%);
   --sidebar-ring: oklch(0.67 0.13 215);
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.25);
+  --shadow-md: 0 2px 8px oklch(0 0 0 / 0.30);
+  --shadow-card: 0 0 0 1px var(--border);
+
+  /* Status colors adaptadas a dark mode */
+  --color-status-success-bg: oklch(0.25 0.06 145);
+  --color-status-success-text: oklch(0.82 0.1 145);
+  --color-status-warning-bg: oklch(0.25 0.06 80);
+  --color-status-warning-text: oklch(0.85 0.12 80);
+  --color-status-danger-bg: oklch(0.22 0.07 20);
+  --color-status-danger-text: oklch(0.80 0.12 20);
+  --color-status-info-bg: oklch(0.22 0.06 240);
+  --color-status-info-text: oklch(0.78 0.1 215);
+  --color-status-neutral-bg: oklch(0.22 0.015 240);
+  --color-status-neutral-text: oklch(0.72 0.01 240);
 }
 
+/* ============================================================
+   BASE STYLES
+   ============================================================ */
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-    font-family: var(--font-inter), var(--font-dm-sans), system-ui, sans-serif;
-  }
-  html, body {
-    font-size: 85%;
-    font-family: var(--font-inter), var(--font-dm-sans), system-ui, sans-serif;
+
+  html {
+    /* Tamaño base ligeramente mayor: 87.5% = ~14px.
+       Mejora legibilidad sin perder la densidad del sistema. */
+    font-size: 87.5%;
     height: 100%;
     overflow: hidden;
+    /* Renderizado tipográfico más nítido */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-dm-sans), var(--font-inter), system-ui, sans-serif;
+    font-size: var(--font-size-base);
+    line-height: 1.55;
+    height: 100%;
+    overflow: hidden;
+    /* Transición suave al cambiar tema */
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  /* Headings: DM Sans con tracking negativo para aspecto editorial */
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-dm-sans), var(--font-inter), system-ui, sans-serif;
-    letter-spacing: -0.02em;
+    font-weight: 500;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+    color: var(--foreground);
+  }
+
+  h1 { font-size: var(--font-size-2xl); letter-spacing: -0.03em; }
+  h2 { font-size: var(--font-size-xl); }
+  h3 { font-size: var(--font-size-lg); }
+  h4 { font-size: var(--font-size-md); }
+  h5 { font-size: var(--font-size-base); }
+  h6 { font-size: var(--font-size-sm); }
+
+  /* Números tabulares para tablas y KPIs */
+  table,
+  .tabular-nums,
+  [data-slot="kpi-value"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Focus visible accesible */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: calc(var(--radius) * 0.5);
+  }
+
+  /* Scrollbars sutiles (webkit) */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+
+  /* Selección de texto con color ADP */
+  ::selection {
+    background: oklch(0.67 0.13 215 / 20%);
+    color: var(--foreground);
+  }
+}
+
+/* ============================================================
+   UTILIDADES GLOBALES ADP
+   Clases de conveniencia reutilizables en todo el proyecto
+   ============================================================ */
+@layer utilities {
+  /* KPI values — números grandes con tracking negativo */
+  .kpi-value {
+    font-size: var(--font-size-3xl);
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--foreground);
+  }
+
+  /* Labels de sección pequeños — encabezados de grupo en sidebar, tablas */
+  .section-label {
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  /* Status badges */
+  .badge-success {
+    background-color: var(--color-status-success-bg);
+    color: var(--color-status-success-text);
+  }
+  .badge-warning {
+    background-color: var(--color-status-warning-bg);
+    color: var(--color-status-warning-text);
+  }
+  .badge-danger {
+    background-color: var(--color-status-danger-bg);
+    color: var(--color-status-danger-text);
+  }
+  .badge-info {
+    background-color: var(--color-status-info-bg);
+    color: var(--color-status-info-text);
+  }
+  .badge-neutral {
+    background-color: var(--color-status-neutral-bg);
+    color: var(--color-status-neutral-text);
+  }
+
+  /* Delta indicators — para tendencias en KPIs */
+  .delta-up {
+    color: var(--color-status-success-text);
+  }
+  .delta-down {
+    color: var(--color-status-danger-text);
+  }
+  .delta-neutral {
+    color: var(--muted-foreground);
+  }
+
+  /* Card base — borde sutil sin sombra pesada */
+  .card-flat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  /* Sombra para cards elevados (modales, dropdowns) */
+  .card-elevated {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Ocultar scrollbar manteniendo funcionalidad */
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Truncado de texto con ellipsis */
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 }

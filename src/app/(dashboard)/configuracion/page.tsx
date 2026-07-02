@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import {
   User, Users, Save, Loader2, Plus, Eye, EyeOff,
   ShieldCheck, Shield, Package, CheckCircle2, XCircle,
-  KeyRound, UserCog, LayoutGrid, AlertTriangle, Trash2,
+  KeyRound, UserCog, LayoutGrid, AlertTriangle, Trash2, Copy, Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -122,6 +122,32 @@ function StatusMsg({ msg }: { msg: { ok: boolean; text: string } | null }) {
   )
 }
 
+function CopyablePassword({ password }: { password: string }) {
+  const [copied, setCopied] = useState(false)
+  function copy() {
+    navigator.clipboard.writeText(password).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 dark:bg-amber-900/20 dark:border-amber-700">
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-0.5">Contraseña temporal generada</p>
+        <p className="font-mono text-sm font-bold text-amber-900 dark:text-amber-300 tracking-widest">{password}</p>
+      </div>
+      <button
+        type="button"
+        onClick={copy}
+        className="flex-shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? "Copiado" : "Copiar"}
+      </button>
+    </div>
+  )
+}
+
 const initials = (nombre: string) =>
   nombre.split(" ").filter(Boolean).map(w => w[0]).slice(0, 2).join("").toUpperCase()
 
@@ -155,16 +181,14 @@ export default function ConfiguracionPage() {
 
   async function handleChangePassword() {
     if (newPass !== confirmPass) { setPassMsg({ ok: false, text: "Las contraseñas no coinciden" }); return }
-    if (newPass.length < 6)      { setPassMsg({ ok: false, text: "Mínimo 6 caracteres" });          return }
+    if (newPass.length < 8)      { setPassMsg({ ok: false, text: "Mínimo 8 caracteres" });          return }
     setSavingPass(true); setPassMsg(null)
     const supabase = createClient()
-    // Clear flag via admin API first so middleware allows navigation immediately after
     const flagRes  = await fetch("/api/auth/clear-password-flag", { method: "POST" })
     const flagJson = await flagRes.json()
-    console.log("[clear-password-flag] response:", flagRes.status, flagJson)
     if (!flagRes.ok) {
       setSavingPass(false)
-      setPassMsg({ ok: false, text: `Error al limpiar flag: ${flagJson.error ?? flagRes.status}` })
+      setPassMsg({ ok: false, text: `Error al actualizar: ${flagJson.error ?? flagRes.status}` })
       return
     }
     const { error } = await supabase.auth.updateUser({ password: newPass })
@@ -182,13 +206,15 @@ export default function ConfiguracionPage() {
   const [loadingUsers, setLoadingUsers] = useState(false)
   const [togglingId,   setTogglingId]   = useState<string | null>(null)
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null)
+  const [usersError,   setUsersError]   = useState<string | null>(null)
 
   /* ── Crear usuario ── */
   const [createOpen,     setCreateOpen]     = useState(false)
-  const [newUser,        setNewUser]        = useState({ nombre: "", email: "", password: "123456", role: "operador" as UserRole })
+  const [newUser,        setNewUser]        = useState({ nombre: "", email: "", role: "operador" as UserRole })
   const [createPermisos, setCreatePermisos] = useState<string[]>(ROLE_MODULE_DEFAULTS["operador"])
   const [creating,       setCreating]       = useState(false)
   const [createMsg,      setCreateMsg]      = useState<{ ok: boolean; text: string } | null>(null)
+  const [createdPassword, setCreatedPassword] = useState<string | null>(null)
 
   /* ── Eliminar usuario ── */
   const [deleteTarget,  setDeleteTarget]  = useState<ProfileRow | null>(null)
@@ -203,10 +229,13 @@ export default function ConfiguracionPage() {
 
   const fetchUsers = useCallback(async () => {
     setLoadingUsers(true)
+    setUsersError(null)
     const res = await fetch("/api/admin/users")
     if (res.ok) {
       const data = await res.json()
       setUsers(data as ProfileRow[])
+    } else {
+      setUsersError("No se pudo cargar la lista de usuarios.")
     }
     setLoadingUsers(false)
   }, [])
@@ -215,22 +244,40 @@ export default function ConfiguracionPage() {
 
   async function handleToggleActivo(u: ProfileRow) {
     setTogglingId(u.id)
-    const supabase = createClient()
-    await supabase.from("profiles").update({ activo: !u.activo }).eq("id", u.id)
-    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, activo: !u.activo } : x))
+    setUsersError(null)
+    const res = await fetch("/api/admin/update-user", {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ id: u.id, activo: !u.activo }),
+    })
+    if (res.ok) {
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, activo: !u.activo } : x))
+    } else {
+      const json = await res.json()
+      setUsersError(json.error ?? "Error al cambiar el estado del usuario.")
+    }
     setTogglingId(null)
   }
 
   async function handleChangeRole(id: string, newRole: UserRole) {
     setSavingRoleId(id)
-    const supabase = createClient()
-    await supabase.from("profiles").update({ role: newRole }).eq("id", id)
-    setUsers(prev => prev.map(x => x.id === id ? { ...x, role: newRole } : x))
+    setUsersError(null)
+    const res = await fetch("/api/admin/update-user", {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ id, role: newRole }),
+    })
+    if (res.ok) {
+      setUsers(prev => prev.map(x => x.id === id ? { ...x, role: newRole } : x))
+    } else {
+      const json = await res.json()
+      setUsersError(json.error ?? "Error al cambiar el rol.")
+    }
     setSavingRoleId(null)
   }
 
   async function handleCreateUser() {
-    setCreating(true); setCreateMsg(null)
+    setCreating(true); setCreateMsg(null); setCreatedPassword(null)
     const res  = await fetch("/api/admin/create-user", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
@@ -238,13 +285,14 @@ export default function ConfiguracionPage() {
     })
     const json = await res.json()
     setCreating(false)
-    if (!res.ok) { setCreateMsg({ ok: false, text: json.error }) }
-    else {
+    if (!res.ok) {
+      setCreateMsg({ ok: false, text: json.error })
+    } else {
       setCreateMsg({ ok: true, text: "Usuario creado correctamente" })
-      setNewUser({ nombre: "", email: "", password: "123456", role: "operador" })
+      setCreatedPassword(json.tempPassword ?? null)
+      setNewUser({ nombre: "", email: "", role: "operador" })
       setCreatePermisos(ROLE_MODULE_DEFAULTS["operador"])
       fetchUsers()
-      setTimeout(() => { setCreateOpen(false); setCreateMsg(null) }, 1500)
     }
   }
 
@@ -274,14 +322,16 @@ export default function ConfiguracionPage() {
   async function handleSavePermisos() {
     if (!permisosUser) return
     setSavingPermisos(true); setPermisosMsg(null)
-    const supabase = createClient()
-    const { error } = await supabase
-      .from("profiles")
-      .update({ permisos: editPermisos })
-      .eq("id", permisosUser.id)
+    const res = await fetch("/api/admin/update-user", {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ id: permisosUser.id, permisos: editPermisos }),
+    })
+    const json = await res.json()
     setSavingPermisos(false)
-    if (error) { setPermisosMsg({ ok: false, text: error.message }) }
-    else {
+    if (!res.ok) {
+      setPermisosMsg({ ok: false, text: json.error ?? "Error al actualizar accesos." })
+    } else {
       setUsers(prev => prev.map(x => x.id === permisosUser.id ? { ...x, permisos: editPermisos } : x))
       setPermisosMsg({ ok: true, text: "Accesos actualizados" })
       setTimeout(() => { setPermisosUser(null); setPermisosMsg(null) }, 1200)
@@ -387,7 +437,7 @@ export default function ConfiguracionPage() {
                   <KeyRound className="h-4 w-4 text-muted-foreground" />
                   <div>
                     <h2 className="text-sm font-bold text-foreground">Cambiar contraseña</h2>
-                    <p className="text-xs text-muted-foreground">Mínimo 6 caracteres</p>
+                    <p className="text-xs text-muted-foreground">Mínimo 8 caracteres</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -421,7 +471,7 @@ export default function ConfiguracionPage() {
                 <div className="flex justify-end">
                   <Button
                     onClick={handleChangePassword}
-                    disabled={savingPass || !newPass || !confirmPass || newPass !== confirmPass}
+                    disabled={savingPass || !newPass || !confirmPass || newPass !== confirmPass || newPass.length < 8}
                     size="sm"
                     className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white px-5">
                     {savingPass ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
@@ -442,12 +492,18 @@ export default function ConfiguracionPage() {
                     {users.length} usuario{users.length !== 1 ? "s" : ""} registrado{users.length !== 1 ? "s" : ""}
                   </p>
                 </div>
-                <Button size="sm" onClick={() => { setCreateMsg(null); setCreateOpen(true) }}
+                <Button size="sm" onClick={() => { setCreateMsg(null); setCreatedPassword(null); setCreateOpen(true) }}
                   className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
                   <Plus className="h-3.5 w-3.5" />
                   Nuevo usuario
                 </Button>
               </div>
+
+              {usersError && (
+                <div className="mx-5 mt-4">
+                  <StatusMsg msg={{ ok: false, text: usersError }} />
+                </div>
+              )}
 
               {loadingUsers ? (
                 <div className="flex items-center justify-center h-40">
@@ -557,7 +613,7 @@ export default function ConfiguracionPage() {
                       </tr>
                     ))}
                     {users.length === 0 && (
-                      <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-muted-foreground">No hay usuarios registrados</td></tr>
+                      <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-muted-foreground">No hay usuarios registrados</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -570,7 +626,7 @@ export default function ConfiguracionPage() {
     </div>
 
     {/* ── Dialog crear usuario ── */}
-    <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+    <Dialog open={createOpen} onOpenChange={open => { if (!open) { setCreateOpen(false); setCreatedPassword(null); setCreateMsg(null) } }}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nuevo usuario</DialogTitle>
@@ -581,12 +637,6 @@ export default function ConfiguracionPage() {
           </Field>
           <Field label="Correo electrónico">
             <Input type="email" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} placeholder="correo@ejemplo.com" className="h-9" />
-          </Field>
-          <Field label="Contraseña inicial">
-            <Input type="password" value={newUser.password} readOnly className="h-9 bg-muted/40 cursor-not-allowed opacity-70" />
-            <p className="text-[11px] text-muted-foreground mt-1">
-              La contraseña por defecto para nuevos usuarios es <span className="font-semibold text-foreground">123456</span>. El usuario deberá cambiarla en su primer ingreso.
-            </p>
           </Field>
           <Field label="Rol">
             <select
@@ -628,16 +678,24 @@ export default function ConfiguracionPage() {
             )}
           </div>
 
+          {createdPassword && (
+            <CopyablePassword password={createdPassword} />
+          )}
+
           <StatusMsg msg={createMsg} />
         </div>
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)}>Cancelar</Button>
-          <Button size="sm" disabled={creating || !newUser.nombre || !newUser.email || !newUser.password}
-            onClick={handleCreateUser}
-            className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
-            {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-            Crear usuario
+          <Button variant="outline" size="sm" onClick={() => { setCreateOpen(false); setCreatedPassword(null); setCreateMsg(null) }}>
+            {createdPassword ? "Cerrar" : "Cancelar"}
           </Button>
+          {!createdPassword && (
+            <Button size="sm" disabled={creating || !newUser.nombre || !newUser.email}
+              onClick={handleCreateUser}
+              className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+              {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              Crear usuario
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

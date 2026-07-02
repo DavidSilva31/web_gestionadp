@@ -50,6 +50,11 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse
   }
 
+  // Restablecimiento de contraseña: pública (llega con ?code= de Supabase)
+  if (pathname === '/reset-password') {
+    return supabaseResponse
+  }
+
   // Sin sesión → login
   if (!user) {
     const loginUrl = new URL('/login', request.url)
@@ -80,6 +85,10 @@ export async function proxy(request: NextRequest) {
   if (!canAccess(role, pathname, permisos)) {
     return NextResponse.redirect(new URL(DEFAULT_ROUTE[role], request.url))
   }
+
+  // Impedir que el browser guarde páginas autenticadas en bfcache.
+  // Sin esto, el botón Atrás restaura el dashboard aunque la sesión haya cerrado.
+  supabaseResponse.headers.set("Cache-Control", "no-store")
 
   return supabaseResponse
 }

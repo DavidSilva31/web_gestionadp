@@ -129,7 +129,7 @@ export default function ClientesPage() {
       </PageHeader>
 
       {/* Search */}
-      <div className="px-6 pt-4 pb-3 flex-shrink-0">
+      <div className="px-4 sm:px-6 pt-4 pb-3 flex-shrink-0">
         <div className="relative max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input placeholder="Buscar empresa o RUT..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs" />
@@ -137,7 +137,7 @@ export default function ClientesPage() {
       </div>
 
       {/* Table */}
-      <div className="flex-1 min-h-0 overflow-hidden px-6 pb-4">
+      <div className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6 pb-4">
         <div className="h-full bg-card rounded-xl border overflow-hidden flex flex-col">
           {loading ? (
             <div className="flex-1 flex items-center justify-center">
@@ -145,24 +145,15 @@ export default function ClientesPage() {
             </div>
           ) : (
             <div className="overflow-y-auto flex-1">
-              <table className="w-full text-sm table-fixed">
-                <colgroup>
-                  <col style={{ width: "26%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "15%" }} />
-                  <col style={{ width: "19%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "6%" }}  />
-                </colgroup>
+              <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-muted/60 border-b z-10">
                   <tr>
                     <th className="text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Empresa</th>
-                    <th className="text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">RUT</th>
-                    <th className="text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contacto</th>
-                    <th className="text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email</th>
-                    <th className="text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sector</th>
-                    <th className="text-center px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Inventario</th>
+                    <th className="hidden sm:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">RUT</th>
+                    <th className="hidden md:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contacto</th>
+                    <th className="hidden lg:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email</th>
+                    <th className="hidden sm:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sector</th>
+                    <th className="text-center px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bodega</th>
                     <th className="text-center px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Estado</th>
                   </tr>
                 </thead>
@@ -182,16 +173,16 @@ export default function ClientesPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 text-xs font-mono text-muted-foreground overflow-hidden">
+                      <td className="hidden sm:table-cell px-4 py-3.5 text-xs font-mono text-muted-foreground">
                         <span className="truncate block">{c.rut}</span>
                       </td>
-                      <td className="px-4 py-3.5 text-xs overflow-hidden">
+                      <td className="hidden md:table-cell px-4 py-3.5 text-xs">
                         <span className="truncate block">{c.contacto ?? "—"}</span>
                       </td>
-                      <td className="px-4 py-3.5 text-xs text-muted-foreground overflow-hidden">
+                      <td className="hidden lg:table-cell px-4 py-3.5 text-xs text-muted-foreground">
                         <span className="truncate block">{c.email ?? "—"}</span>
                       </td>
-                      <td className="px-4 py-3.5 overflow-hidden">
+                      <td className="hidden sm:table-cell px-4 py-3.5">
                         {c.sector ? (
                           <Badge className={cn("text-[10px] px-2 py-0 border-0 font-medium", SECTOR_COLOR[c.sector] ?? "bg-muted text-muted-foreground")}>
                             {c.sector}
@@ -201,9 +192,9 @@ export default function ClientesPage() {
                       <td className="px-4 py-3.5 text-center">
                         <Link href={`/inventario?cliente=${c.id}`}>
                           <Button variant="ghost" size="sm"
-                            className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.35_0.12_240)]/10">
+                            className="h-7 w-7 sm:w-auto sm:gap-1.5 text-xs text-muted-foreground hover:text-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.35_0.12_240)]/10 p-0 sm:px-2">
                             <Warehouse className="h-3.5 w-3.5" />
-                            Ver
+                            <span className="hidden sm:inline">Ver</span>
                           </Button>
                         </Link>
                       </td>
@@ -211,13 +202,11 @@ export default function ClientesPage() {
                         <div className="flex items-center justify-center gap-1.5">
                           <span className={cn(
                             "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full",
-                            c.activo
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                              : "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400"
+                            c.activo ? "badge-success" : "badge-danger"
                           )}>
                             {c.activo
-                              ? <><CheckCircle2 className="h-3 w-3" />Activo</>
-                              : <><XCircle className="h-3 w-3" />Inactivo</>
+                              ? <><CheckCircle2 className="h-3 w-3" /><span className="hidden sm:inline">Activo</span></>
+                              : <><XCircle className="h-3 w-3" /><span className="hidden sm:inline">Inactivo</span></>
                             }
                           </span>
                           <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"

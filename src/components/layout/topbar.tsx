@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, useCallback } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Separator } from "@/components/ui/separator"
+import { SidebarTrigger } from "@/components/ui/sidebar"
 import {
   Bell, Search, ArrowDownCircle, ArrowUpCircle, FileText,
   Loader2, CheckCheck, Package, Users, ArrowLeftRight, ClipboardList,
@@ -71,7 +72,9 @@ const TYPE_META: Record<ResultType, { label: string; Icon: React.ElementType; co
 
 async function globalSearch(q: string): Promise<GroupedResults> {
   const supabase = createClient()
-  const term = `%${q}%`
+  // Eliminar caracteres que PostgREST interpreta como separadores de filtro
+  const sanitized = q.replace(/[,()]/g, "")
+  const term = `%${sanitized}%`
 
   const [
     { data: clientes },
@@ -270,7 +273,10 @@ export function Topbar() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <header className="relative flex h-[52px] items-center border-b border-border/60 bg-background px-4 flex-shrink-0 z-20">
+    <header className="relative flex h-[52px] items-center border-b border-border/60 bg-background px-3 sm:px-4 flex-shrink-0 z-20">
+
+      {/* Hamburguesa — solo móvil */}
+      <SidebarTrigger className="md:hidden mr-1 h-8 w-8" />
 
       {/* Buscador — centrado absolutamente */}
       <div

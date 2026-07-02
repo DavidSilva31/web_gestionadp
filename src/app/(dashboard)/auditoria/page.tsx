@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { Search, RefreshCw, Loader2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ExternalLink, ScanLine, PackagePlus, PackageMinus } from "lucide-react"
+import { Search, RefreshCw, Loader2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ExternalLink, ScanLine, PackagePlus, PackageMinus, ChevronLeft, ChevronRight, UserPlus, UserMinus, UserCog } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PageHeader } from "@/components/layout/page-header"
@@ -20,6 +20,7 @@ const ACCION_FILTERS: { value: AuditAccion | "all"; label: string }[] = [
   { value: "report.eliminar",           label: "Eliminados"      },
   { value: "inventario.ingreso",        label: "Ing. inventario" },
   { value: "inventario.despacho",       label: "Des. inventario" },
+  { value: "admin.crear_usuario",       label: "Admin usuarios"  },
 ]
 
 const ACCION_STYLE: Record<string, { icon: React.ReactNode; pill: string }> = {
@@ -31,29 +32,43 @@ const ACCION_STYLE: Record<string, { icon: React.ReactNode; pill: string }> = {
   "report.eliminar":           { icon: <Trash2      className="h-3.5 w-3.5" />, pill: "bg-red-100    text-red-700    dark:bg-red-900/30    dark:text-red-400"    },
   "inventario.ingreso":        { icon: <PackagePlus  className="h-3.5 w-3.5" />, pill: "bg-sky-100    text-sky-700    dark:bg-sky-900/30    dark:text-sky-400"    },
   "inventario.despacho":       { icon: <PackageMinus className="h-3.5 w-3.5" />, pill: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
+  "admin.crear_usuario":       { icon: <UserPlus    className="h-3.5 w-3.5" />, pill: "bg-teal-100   text-teal-700   dark:bg-teal-900/30   dark:text-teal-400"   },
+  "admin.eliminar_usuario":    { icon: <UserMinus   className="h-3.5 w-3.5" />, pill: "bg-rose-100   text-rose-700   dark:bg-rose-900/30   dark:text-rose-400"   },
+  "admin.actualizar_usuario":  { icon: <UserCog     className="h-3.5 w-3.5" />, pill: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400" },
 }
 
 const PAGE_SIZE = 50
 
 export default function AuditoriaPage() {
-  const [logs,        setLogs]        = useState<AuditLog[]>([])
-  const [loading,     setLoading]     = useState(true)
-  const [total,       setTotal]       = useState(0)
-  const [search,      setSearch]      = useState("")
+  const [logs,         setLogs]         = useState<AuditLog[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [total,        setTotal]        = useState(0)
+  const [page,         setPage]         = useState(0)
+  const [search,       setSearch]       = useState("")
   const [accionFilter, setAccionFilter] = useState<AuditAccion | "all">("all")
 
-  const fetchLogs = useCallback(async () => {
+  const fetchLogs = useCallback(async (currentPage: number) => {
     setLoading(true)
     const supabase = createClient()
+
+    const from = currentPage * PAGE_SIZE
+    const to   = from + PAGE_SIZE - 1
 
     let query = supabase
       .from("audit_logs")
       .select("*", { count: "exact" })
-      .in("tabla", ["reports", "inventario_items"])
+      .in("tabla", ["reports", "inventario_items", "profiles"])
       .order("created_at", { ascending: false })
-      .limit(PAGE_SIZE)
+      .range(from, to)
 
-    if (accionFilter !== "all") query = query.eq("accion", accionFilter)
+    if (accionFilter !== "all") {
+      // El filtro "admin.crear_usuario" agrupa todas las acciones admin
+      if (accionFilter === "admin.crear_usuario") {
+        query = query.in("accion", ["admin.crear_usuario", "admin.eliminar_usuario", "admin.actualizar_usuario"])
+      } else {
+        query = query.eq("accion", accionFilter)
+      }
+    }
     if (search.trim())          query = query.ilike("descripcion", `%${search.trim()}%`)
 
     const { data, count } = await query
@@ -63,16 +78,24 @@ export default function AuditoriaPage() {
   }, [accionFilter, search])
 
   useEffect(() => {
-    const t = setTimeout(fetchLogs, search ? 400 : 0)
+    setPage(0)
+  }, [accionFilter, search])
+
+  useEffect(() => {
+    const t = setTimeout(() => fetchLogs(page), search ? 400 : 0)
     return () => clearTimeout(t)
-  }, [fetchLogs, search])
+  }, [fetchLogs, page, search])
+
+  const totalPages  = Math.ceil(total / PAGE_SIZE)
+  const pageStart   = page * PAGE_SIZE + 1
+  const pageEnd     = Math.min((page + 1) * PAGE_SIZE, total)
 
   const reportIdFromLog = (log: AuditLog) => log.registro_id
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <PageHeader title="Auditoría" subtitle="Registro de actividad en reports e inventario">
-        <Button variant="ghost" size="sm" onClick={fetchLogs} disabled={loading} className="h-10 w-10 p-0 text-muted-foreground">
+        <Button variant="ghost" size="sm" onClick={() => fetchLogs(page)} disabled={loading} className="h-10 w-10 p-0 text-muted-foreground">
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
       </PageHeader>
@@ -110,11 +133,37 @@ export default function AuditoriaPage() {
       <div className="flex-1 min-h-0 overflow-hidden px-6 pb-4">
         <div className="h-full bg-card rounded-xl border overflow-hidden flex flex-col">
 
-          {/* Contador */}
-          <div className="px-5 py-2.5 border-b bg-muted/20 flex-shrink-0">
+          {/* Contador y paginación */}
+          <div className="px-5 py-2.5 border-b bg-muted/20 flex-shrink-0 flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              {loading ? "Cargando..." : `${total} evento${total !== 1 ? "s" : ""} registrado${total !== 1 ? "s" : ""}${total > PAGE_SIZE ? ` (mostrando ${PAGE_SIZE})` : ""}`}
+              {loading
+                ? "Cargando..."
+                : total === 0
+                ? "Sin eventos registrados"
+                : `${pageStart}–${pageEnd} de ${total} evento${total !== 1 ? "s" : ""}`
+              }
             </p>
+            {total > PAGE_SIZE && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0 || loading}
+                  className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="text-xs text-muted-foreground px-1 tabular-nums">
+                  {page + 1} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1 || loading}
+                  className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
           </div>
 
           {loading ? (
@@ -187,6 +236,35 @@ export default function AuditoriaPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Paginación inferior */}
+          {total > PAGE_SIZE && !loading && (
+            <div className="flex items-center justify-between px-5 py-2.5 border-t bg-muted/10 flex-shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="h-7 gap-1 text-xs"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                Anterior
+              </Button>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                Página {page + 1} de {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                className="h-7 gap-1 text-xs"
+              >
+                Siguiente
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
             </div>
           )}
         </div>

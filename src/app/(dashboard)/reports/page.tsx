@@ -39,9 +39,9 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
 ]
 
 const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> = {
-  borrador:           { label: "Borrador",       className: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
-  pendiente_despacho: { label: "Pend. despacho", className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
-  despachado:         { label: "Despachado",     className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+  borrador:           { label: "Borrador",       className: "badge-neutral" },
+  pendiente_despacho: { label: "Pend. despacho", className: "badge-warning" },
+  despachado:         { label: "Despachado",     className: "badge-success" },
 }
 
 function seccionesTag(r: ReportRow) {
@@ -395,7 +395,7 @@ export default function ReportsPage() {
                       <td className="px-4 py-4 text-center overflow-hidden">
                         <div className="flex gap-1 flex-wrap justify-center">
                           {seccionesTag(r).map(t => (
-                            <span key={t} className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap">{t}</span>
+                            <span key={t} className="bg-[var(--color-status-info-bg)] text-[var(--color-status-info-text)] px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap">{t}</span>
                           ))}
                         </div>
                       </td>
