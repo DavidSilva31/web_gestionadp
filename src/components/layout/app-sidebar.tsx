@@ -100,7 +100,7 @@ export function AppSidebar() {
     : 'AD'
 
   return (
-    <Sidebar collapsible="none">
+    <Sidebar collapsible="offcanvas">
       <SidebarHeader className="p-5 flex items-center justify-center">
         <Image
           src="/adp_logo.png"

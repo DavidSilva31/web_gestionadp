@@ -406,47 +406,35 @@ export default function NuevoReportPage() {
       form.sec3_inventario_item_id &&
       form.sec3_tipo
     ) {
-      const delta = Number(form.sec3_numero_pallets) || 1
+      const delta    = Number(form.sec3_numero_pallets) || 1
+      // Operación atómica: evita race condition entre reports concurrentes
+      const signedDelta = form.sec3_tipo === "ingreso" ? delta : -delta
 
-      const { data: item } = await supabase
-        .from("inventario_items")
-        .select("stock_actual")
-        .eq("id", form.sec3_inventario_item_id)
-        .single()
+      await supabase.rpc("update_stock", {
+        item_id: form.sec3_inventario_item_id,
+        delta:   signedDelta,
+      })
 
-      if (item) {
-        const nuevoStock = form.sec3_tipo === "ingreso"
-          ? item.stock_actual + delta
-          : Math.max(0, item.stock_actual - delta)
+      const invAccion = form.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
+      const invDesc   = `Stock ${form.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${form.sec3_producto}`
 
-        await supabase
-          .from("inventario_items")
-          .update({ stock_actual: nuevoStock })
-          .eq("id", form.sec3_inventario_item_id)
+      await logAudit({
+        tabla:          "inventario_items",
+        registro_id:    form.sec3_inventario_item_id,
+        accion:         invAccion,
+        descripcion:    `${invDesc} via Report #${inserted.numero}`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
 
-        const invAccion = form.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
-        const invDesc   = `Stock ${form.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${form.sec3_producto}`
-
-        // Log contra el ítem de inventario (para auditoría global)
-        await logAudit({
-          tabla:          "inventario_items",
-          registro_id:    form.sec3_inventario_item_id,
-          accion:         invAccion,
-          descripcion:    `${invDesc} via Report #${inserted.numero}`,
-          usuario_id:     user?.id,
-          usuario_nombre: profile?.nombre ?? user?.email,
-        })
-
-        // Log contra el report (para el historial de este report)
-        await logAudit({
-          tabla:          "reports",
-          registro_id:    inserted.id,
-          accion:         invAccion,
-          descripcion:    invDesc,
-          usuario_id:     user?.id,
-          usuario_nombre: profile?.nombre ?? user?.email,
-        })
-      }
+      await logAudit({
+        tabla:          "reports",
+        registro_id:    inserted.id,
+        accion:         invAccion,
+        descripcion:    invDesc,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
     }
 
     await logAudit({

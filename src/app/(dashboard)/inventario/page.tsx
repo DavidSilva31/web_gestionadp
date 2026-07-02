@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import {
-  Package, Plus, Search, RefreshCw, ChevronRight,
-  Loader2, Pencil, Warehouse, Trash2,
+  Package, Plus, Search, RefreshCw, ChevronRight, ArrowLeft,
+  Loader2, Pencil, Warehouse, Trash2, Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
+import { exportToExcel } from "@/lib/excel"
 import { cn } from "@/lib/utils"
 import type {
   Cliente,
@@ -33,16 +34,16 @@ const AREAS: InventarioArea[] = [
 const UNIDADES = ["unidad", "pallets", "contenedor", "isotanque", "kg", "ton"]
 
 const AREA_COLOR: Record<string, string> = {
-  "Bodega IMO":      "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
-  "Zona Isotanques": "bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400",
-  "Zona RESPEL":     "bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400",
-  "Bodega General":  "bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-400",
+  "Bodega IMO":      "bg-[var(--color-status-info-bg)] text-[var(--color-status-info-text)]",
+  "Zona Isotanques": "bg-[var(--color-adp-celeste-light)] text-[var(--color-adp-blue-mid)]",
+  "Zona RESPEL":     "bg-[var(--color-status-warning-bg)] text-[var(--color-status-warning-text)]",
+  "Bodega General":  "bg-[var(--color-status-neutral-bg)] text-[var(--color-status-neutral-text)]",
 }
 
 const ESTADO_BADGE: Record<string, string> = {
-  Normal:  "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400",
-  Bajo:    "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400",
-  Crítico: "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400",
+  Normal:  "badge-success",
+  Bajo:    "badge-warning",
+  Crítico: "badge-danger",
 }
 
 const AVATAR_COLORS = [
@@ -219,6 +220,25 @@ function InventarioContent() {
     }
   }
 
+  function handleExport() {
+    if (!selected || !items.length) return
+    const rows = items.map(item => ({
+      "Código":        codigo(item.numero),
+      "Descripción":   item.descripcion,
+      "Categoría":     item.categoria,
+      "Área":          item.area,
+      "Clase IMO":     item.clase_imo ?? "—",
+      "N° ONU":        item.nu ?? "—",
+      "Stock Actual":  item.stock_actual,
+      "Stock Mínimo":  item.stock_minimo,
+      "Unidad":        item.unidad,
+      "Estado":        getEstado(item),
+      "Observaciones": item.observaciones ?? "",
+    }))
+    const today = new Date().toLocaleDateString("es-CL").replace(/\//g, "-")
+    exportToExcel(rows, `Inventario_${selected.nombre}_${today}`, "Inventario")
+  }
+
   const items = selected ? (clienteItems[selected.id] ?? []) : []
   const totalItems = Object.values(clienteItems).flat().length
   const filteredClientes = clientes.filter(c =>
@@ -245,10 +265,14 @@ function InventarioContent() {
           )}
         </PageHeader>
 
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 flex-col md:flex-row">
 
           {/* ── Panel izquierdo: lista de clientes ── */}
-          <div className="w-72 flex-shrink-0 border-r flex flex-col bg-muted/10">
+          <div className={cn(
+            "flex-shrink-0 border-b md:border-b-0 md:border-r flex flex-col bg-muted/10",
+            "w-full md:w-72",
+            selected ? "hidden md:flex" : "flex"
+          )}>
             <div className="p-3 border-b">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -326,7 +350,20 @@ function InventarioContent() {
           </div>
 
           {/* ── Panel derecho: inventario del cliente seleccionado ── */}
-          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+          <div className={cn(
+            "flex-1 flex flex-col min-h-0 min-w-0",
+            !selected && "hidden md:flex"
+          )}>
+            {/* Botón volver — solo móvil */}
+            {selected && (
+              <button
+                onClick={() => setSelected(null)}
+                className="md:hidden flex items-center gap-1.5 px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground border-b bg-muted/5 flex-shrink-0"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Volver a clientes
+              </button>
+            )}
             {!selected ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
                 <Warehouse className="h-12 w-12 opacity-20" />
@@ -345,14 +382,25 @@ function InventarioContent() {
                       {items.length} ítem{items.length !== 1 ? "s" : ""} en bodega
                     </p>
                   </div>
-                  {getClienteEstado(items) && (
-                    <Badge className={cn(
-                      "text-[10px] px-2 py-0.5 border-0 font-semibold",
-                      ESTADO_BADGE[getClienteEstado(items)!]
-                    )}>
-                      {getClienteEstado(items)}
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={handleExport}
+                      disabled={items.length === 0}
+                      className="gap-1.5 text-xs h-7"
+                    >
+                      <Download className="h-3 w-3" />
+                      Excel
+                    </Button>
+                    {getClienteEstado(items) && (
+                      <Badge className={cn(
+                        "text-[10px] px-2 py-0.5 border-0 font-semibold",
+                        ESTADO_BADGE[getClienteEstado(items)!]
+                      )}>
+                        {getClienteEstado(items)}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
 
                 {/* Tabla de ítems */}

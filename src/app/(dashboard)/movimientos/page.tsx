@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   ArrowDownCircle, ArrowUpCircle, RefreshCw, Plus, Search,
-  Loader2, CheckCircle2, Pencil, Link2,
+  Loader2, CheckCircle2, Pencil, Link2, Clock, Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
+import { exportToExcel } from "@/lib/excel"
 import { cn } from "@/lib/utils"
 import type {
   Movimiento, MovimientoInsert, MovimientoTipo, MovimientoServicio,
@@ -23,17 +24,17 @@ const SERVICIOS: MovimientoServicio[] = ["Almacenaje", "Transporte", "Porteo", "
 const AREAS: InventarioArea[] = ["Bodega IMO", "Zona Isotanques", "Zona RESPEL", "Bodega General"]
 
 const SERVICIO_BADGE: Record<string, string> = {
-  Almacenaje: "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
-  Transporte: "bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400",
-  Porteo:     "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400",
-  Logística:  "bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400",
+  Almacenaje: "bg-[var(--color-status-info-bg)] text-[var(--color-status-info-text)]",
+  Transporte: "bg-[var(--color-adp-celeste-light)] text-[var(--color-adp-blue-mid)]",
+  Porteo:     "bg-[var(--color-status-neutral-bg)] text-[var(--color-status-neutral-text)]",
+  Logística:  "bg-[var(--color-status-success-bg)] text-[var(--color-status-success-text)]",
 }
 
 const AREA_COLOR: Record<string, string> = {
-  "Bodega IMO":      "bg-blue-50 text-blue-700",
-  "Zona Isotanques": "bg-purple-50 text-purple-700",
-  "Zona RESPEL":     "bg-orange-50 text-orange-700",
-  "Bodega General":  "bg-teal-50 text-teal-700",
+  "Bodega IMO":      "bg-[var(--color-status-info-bg)] text-[var(--color-status-info-text)]",
+  "Zona Isotanques": "bg-[var(--color-adp-celeste-light)] text-[var(--color-adp-blue-mid)]",
+  "Zona RESPEL":     "bg-[var(--color-status-warning-bg)] text-[var(--color-status-warning-text)]",
+  "Bodega General":  "bg-[var(--color-status-neutral-bg)] text-[var(--color-status-neutral-text)]",
 }
 
 const movCodigo = (n: number) => `MOV-${String(n).padStart(3, "0")}`
@@ -214,6 +215,28 @@ export default function MovimientosPage() {
   const dialogTipo = isNewDialog ? (dialog as MovimientoTipo) : (isEditDialog ? (dialog as Movimiento).tipo : "ingreso")
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  const statsIngresos  = movimientos.filter(m => m.tipo === "ingreso").length
+  const statsDespachos = movimientos.filter(m => m.tipo === "despacho").length
+  const statsEnProceso = movimientos.filter(m => m.estado === "en_proceso").length
+
+  function handleExport() {
+    const rows = filtered.map(m => ({
+      "Código":        movCodigo(m.numero),
+      "Tipo":          m.tipo.charAt(0).toUpperCase() + m.tipo.slice(1),
+      "Servicio":      m.servicio,
+      "Cliente":       m.cliente_nombre ?? "—",
+      "Carga":         m.carga,
+      "Área":          m.area ?? "—",
+      "Unidades":      m.unidades ?? "—",
+      "Operador":      m.operador ?? "—",
+      "Estado":        m.estado === "completado" ? "Completado" : "En proceso",
+      "Fecha":         formatFecha(m.fecha),
+      "Observaciones": m.observaciones ?? "",
+    }))
+    const today = new Date().toLocaleDateString("es-CL").replace(/\//g, "-")
+    exportToExcel(rows, `Movimientos_${today}`, "Movimientos")
+  }
+
   return (
     <>
       <div className="flex flex-col h-full overflow-hidden">
@@ -225,18 +248,45 @@ export default function MovimientosPage() {
             className="h-10 w-10 p-0 text-muted-foreground">
             <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           </Button>
+          <Button variant="outline" size="sm"
+            onClick={handleExport}
+            disabled={loading || filtered.length === 0}
+            className="gap-1.5 text-xs h-9">
+            <Download className="h-3.5 w-3.5" />
+            Exportar Excel
+          </Button>
           <Button size="sm" onClick={() => openNew("ingreso")}
-            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
+            className="gap-1.5 bg-[var(--color-status-success-text)] hover:opacity-90 text-white">
             <ArrowDownCircle className="h-3.5 w-3.5" /> Nuevo ingreso
           </Button>
           <Button size="sm" onClick={() => openNew("despacho")}
-            className="gap-1.5 bg-amber-500 hover:bg-amber-600 text-white">
+            className="gap-1.5 bg-[var(--color-status-warning-text)] hover:opacity-90 text-white">
             <ArrowUpCircle className="h-3.5 w-3.5" /> Nuevo despacho
           </Button>
         </PageHeader>
 
+        {/* Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 sm:px-6 pt-4 pb-3 flex-shrink-0">
+          {[
+            { label: "Total registros", count: movimientos.length, Icon: RefreshCw,       ibg: "bg-[var(--color-status-info-bg)]",         icl: "text-[var(--color-status-info-text)]"    },
+            { label: "Ingresos",        count: statsIngresos,      Icon: ArrowDownCircle, ibg: "bg-[var(--color-status-success-bg)]",      icl: "text-[var(--color-status-success-text)]" },
+            { label: "Despachos",       count: statsDespachos,     Icon: ArrowUpCircle,   ibg: "bg-[var(--color-status-warning-bg)]",      icl: "text-[var(--color-status-warning-text)]" },
+            { label: "En proceso",      count: statsEnProceso,     Icon: Clock,           ibg: "bg-[var(--color-adp-celeste-light)]",      icl: "text-[var(--color-adp-blue-mid)]"        },
+          ].map(s => (
+            <div key={s.label} className="flex-1 bg-card rounded-lg border p-3 flex items-center gap-3">
+              <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0", s.ibg)}>
+                <s.Icon className={cn("h-4 w-4", s.icl)} />
+              </div>
+              <div>
+                <p className="text-base font-bold text-foreground leading-none tabular-nums">{loading ? "—" : s.count}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* Filtros y búsqueda */}
-        <div className="px-6 pt-4 pb-3 flex items-center gap-3 flex-shrink-0 flex-wrap">
+        <div className="px-4 sm:px-6 pb-3 flex items-center gap-3 flex-shrink-0 flex-wrap">
           <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
             {(["todos", "ingreso", "despacho"] as const).map(f => (
               <button key={f} onClick={() => setFiltroTipo(f)}
@@ -262,7 +312,7 @@ export default function MovimientosPage() {
         </div>
 
         {/* Tabla */}
-        <div className="flex-1 min-h-0 overflow-hidden px-6 pb-4">
+        <div className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6 pb-4">
           <div className="h-full bg-card rounded-xl border overflow-hidden flex flex-col">
             {loading ? (
               <div className="flex-1 flex items-center justify-center">
@@ -270,25 +320,14 @@ export default function MovimientosPage() {
               </div>
             ) : (
               <div className="overflow-y-auto flex-1">
-                <table className="w-full text-sm table-fixed">
-                  <colgroup>
-                    <col style={{ width: "11%" }} />
-                    <col style={{ width: "11%" }} />
-                    <col style={{ width: "18%" }} />
-                    <col style={{ width: "22%" }} />
-                    <col style={{ width: "12%" }} />
-                    <col style={{ width: "14%" }} />
-                    <col style={{ width: "9%" }} />
-                    <col style={{ width: "3%" }} />
-                  </colgroup>
+                <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-muted/60 border-b z-10">
                     <tr>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Movimiento</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Servicio</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cliente</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Carga</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Área</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Fecha</th>
+                      <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Servicio</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cliente / Carga</th>
+                      <th className="hidden lg:table-cell text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Área</th>
+                      <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Fecha</th>
                       <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Estado</th>
                       <th />
                     </tr>
@@ -304,31 +343,30 @@ export default function MovimientosPage() {
                           <div className="flex items-center gap-2">
                             <div className={cn(
                               "h-6 w-6 rounded-md flex items-center justify-center flex-shrink-0",
-                              m.tipo === "ingreso" ? "bg-emerald-50" : "bg-amber-50"
+                              m.tipo === "ingreso"
+                                ? "bg-[var(--color-status-success-bg)]"
+                                : "bg-[var(--color-status-warning-bg)]"
                             )}>
                               {m.tipo === "ingreso"
-                                ? <ArrowDownCircle className="h-3.5 w-3.5 text-emerald-600" />
-                                : <ArrowUpCircle className="h-3.5 w-3.5 text-amber-600" />
+                                ? <ArrowDownCircle className="h-3.5 w-3.5 text-[var(--color-status-success-text)]" />
+                                : <ArrowUpCircle   className="h-3.5 w-3.5 text-[var(--color-status-warning-text)]" />
                               }
                             </div>
                             <div>
                               <p className={cn(
                                 "text-xs font-semibold",
-                                m.tipo === "ingreso" ? "text-emerald-700" : "text-amber-700"
+                                m.tipo === "ingreso"
+                                  ? "text-[var(--color-status-success-text)]"
+                                  : "text-[var(--color-status-warning-text)]"
                               )}>
                                 {m.tipo.charAt(0).toUpperCase() + m.tipo.slice(1)}
                               </p>
-                              <p className="text-[10px] text-muted-foreground font-mono">
-                                {movCodigo(m.numero)}
-                              </p>
+                              <p className="text-[10px] text-muted-foreground font-mono">{movCodigo(m.numero)}</p>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <Badge className={cn(
-                            "text-[10px] px-1.5 py-0 border-0 font-medium",
-                            SERVICIO_BADGE[m.servicio] ?? "bg-muted text-muted-foreground"
-                          )}>
+                        <td className="hidden sm:table-cell px-4 py-3">
+                          <Badge className={cn("text-[10px] px-1.5 py-0 border-0 font-medium", SERVICIO_BADGE[m.servicio] ?? "bg-muted text-muted-foreground")}>
                             {m.servicio}
                           </Badge>
                           {m.report_id && (
@@ -337,44 +375,36 @@ export default function MovimientosPage() {
                             </p>
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 max-w-[140px] sm:max-w-none">
                           <p className="text-xs font-medium truncate">{m.cliente_nombre ?? "—"}</p>
-                          {m.operador && (
-                            <p className="text-[10px] text-muted-foreground">{m.operador}</p>
-                          )}
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {m.carga}{m.unidades ? ` · ${m.unidades} ud.` : ""}
+                          </p>
                         </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs truncate">{m.carga}</p>
-                          {m.unidades && (
-                            <p className="text-[10px] text-muted-foreground">{m.unidades} unid.</p>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
+                        <td className="hidden lg:table-cell px-4 py-3">
                           {m.area ? (
-                            <Badge className={cn(
-                              "text-[10px] px-1.5 py-0 border-0 font-medium",
-                              AREA_COLOR[m.area] ?? "bg-muted text-muted-foreground"
-                            )}>
+                            <Badge className={cn("text-[10px] px-1.5 py-0 border-0 font-medium", AREA_COLOR[m.area] ?? "bg-muted text-muted-foreground")}>
                               {m.area}
                             </Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
                         </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">
+                        <td className="hidden md:table-cell px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                           {formatFecha(m.fecha)}
                         </td>
                         <td className="px-4 py-3 text-center">
                           {m.estado === "completado" ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                              <CheckCircle2 className="h-3 w-3" /> Completado
+                            <span className="badge-success inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+                              <CheckCircle2 className="h-3 w-3" />
+                              <span className="hidden sm:inline">Completado</span>
                             </span>
                           ) : (
                             <button
                               onClick={() => marcarCompletado(m)}
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors dark:bg-amber-900/30 dark:text-amber-400"
+                              className="badge-warning inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full hover:opacity-80 transition-opacity"
+                              title="Clic para marcar como completado"
                             >
-                              En proceso
+                              <Clock className="h-3 w-3" />
+                              <span className="hidden sm:inline">En proceso</span>
                             </button>
                           )}
                         </td>
@@ -391,7 +421,7 @@ export default function MovimientosPage() {
                     ))}
                     {filtered.length === 0 && !loading && (
                       <tr>
-                        <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                        <td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">
                           {search || filtroTipo !== "todos"
                             ? "No se encontraron movimientos con ese filtro"
                             : "No hay movimientos registrados"}
@@ -577,8 +607,8 @@ export default function MovimientosPage() {
               className={cn(
                 "gap-1.5 text-white",
                 dialogTipo === "ingreso"
-                  ? "bg-emerald-600 hover:bg-emerald-700"
-                  : "bg-amber-500 hover:bg-amber-600"
+                  ? "bg-[var(--color-status-success-text)] hover:opacity-90"
+                  : "bg-[var(--color-status-warning-text)] hover:opacity-90"
               )}
             >
               {saving
