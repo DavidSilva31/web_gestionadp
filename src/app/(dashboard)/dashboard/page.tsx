@@ -152,6 +152,7 @@ export default function DashboardPage() {
   const nombre = profile?.nombre?.split(" ")[0] ?? "Admin"
 
   const [loading,    setLoading]    = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [stock,      setStock]      = useState(0)
   const [entradas,   setEntradas]   = useState(0)
   const [salidas,    setSalidas]    = useState(0)
@@ -168,6 +169,7 @@ export default function DashboardPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
+    setFetchError(null)
     const supabase = createClient()
     const now  = new Date()
     const yr   = now.getFullYear()
@@ -177,9 +179,9 @@ export default function DashboardPage() {
     const sixMonthsAgo = new Date(yr, mo - 11, 1).toISOString()
 
     const [
-      { data: itemsRaw },
-      { data: movsRaw },
-      { count: clientTotal },
+      { data: itemsRaw,      error: e1 },
+      { data: movsRaw,       error: e2 },
+      { count: clientTotal,  error: e3 },
       { count: clientNewCount },
     ] = await Promise.all([
       supabase.from("inventario_items").select("area, stock_actual, stock_minimo").eq("activo", true),
@@ -187,6 +189,9 @@ export default function DashboardPage() {
       supabase.from("clientes").select("*", { count: "exact", head: true }).eq("activo", true),
       supabase.from("clientes").select("*", { count: "exact", head: true }).gte("created_at", curr),
     ])
+
+    const queryError = e1 ?? e2 ?? e3
+    if (queryError) { setFetchError(queryError.message); setLoading(false); return }
 
     const items = (itemsRaw ?? []) as StockRow[]
     const movs  = (movsRaw  ?? []) as MovRow[]
@@ -232,7 +237,6 @@ export default function DashboardPage() {
     setAllMovs(movs)
     setAlertas(al)
     setOcupacion(areaStocks)
-    setChartData(buildChartData(movs, chartMonths))
     setLoading(false)
   }, [])
 
@@ -278,6 +282,18 @@ export default function DashboardPage() {
             </Button>
           </div>
         </div>
+
+        {/* ── Error ── */}
+        {fetchError && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[12px]">
+            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="flex-1">Error al cargar datos: {fetchError}</span>
+            <Button variant="ghost" size="sm" onClick={fetchData}
+              className="h-6 px-2 text-[11px] text-destructive hover:bg-destructive/10">
+              Reintentar
+            </Button>
+          </div>
+        )}
 
         {/* ── KPIs ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

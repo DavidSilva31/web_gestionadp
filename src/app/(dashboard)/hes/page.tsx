@@ -129,7 +129,8 @@ function TarifaDialog({
   onClose: () => void
   onSaved: (t: TarifaCliente) => void
 }) {
-  const [saving, setSaving] = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<TarifaClienteInsert>>({
     cliente_id:            clienteId,
     cotizacion_numero:     existing?.cotizacion_numero     ?? "",
@@ -154,6 +155,7 @@ function TarifaDialog({
   async function handleSave() {
     if (!form.cotizacion_numero?.trim()) return
     setSaving(true)
+    setSaveError(null)
     const supabase = createClient()
     const payload = { ...form, cliente_id: clienteId, activo: true }
     let data, error
@@ -163,7 +165,8 @@ function TarifaDialog({
       ;({ data, error } = await supabase.from("tarifas_cliente").insert(payload).select().single())
     }
     setSaving(false)
-    if (!error && data) onSaved(data as TarifaCliente)
+    if (error) { setSaveError(error.message); return }
+    if (data) onSaved(data as TarifaCliente)
   }
 
   const fieldCls = "h-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1"
@@ -219,6 +222,9 @@ function TarifaDialog({
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-border/40">
+          {saveError && (
+            <p className="text-[11px] text-destructive flex-1">{saveError}</p>
+          )}
           <Button variant="ghost" size="sm" onClick={onClose} className="h-8 text-[12px]">Cancelar</Button>
           <Button size="sm" onClick={handleSave} disabled={saving || !form.cotizacion_numero?.trim()} className="h-8 text-[12px]">
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
@@ -241,7 +247,8 @@ export default function HesPage() {
   const [movs,           setMovs]           = useState<MovRaw[]>([])
   const [selectedMonth,  setSelectedMonth]  = useState(CURRENT_MONTH)
   const [selectedYear,   setSelectedYear]   = useState(CURRENT_YEAR)
-  const [ufValue,        setUfValue]        = useState<string>("40120.20")
+  const [ufValue,        setUfValue]        = useState<string>("")
+  const [ufLoading,      setUfLoading]      = useState(true)
   const [tarifaDialog,   setTarifaDialog]   = useState(false)
   const [loading,        setLoading]        = useState(false)
   const [exporting,      setExporting]      = useState(false)
@@ -250,14 +257,26 @@ export default function HesPage() {
 
   const selectedCliente = useMemo(() => clientes.find(c => c.id === selectedId) ?? null, [clientes, selectedId])
 
+  // ── Fetch UF del día desde mindicador.cl ───────────────────────────────────
+  useEffect(() => {
+    fetch("https://mindicador.cl/api/uf")
+      .then(r => r.json())
+      .then(data => {
+        const val = data?.serie?.[0]?.valor
+        if (typeof val === "number") setUfValue(val.toFixed(2))
+      })
+      .catch(() => setUfValue("38000.00"))
+      .finally(() => setUfLoading(false))
+  }, [])
+
   // ── Load clientes + tarifa map ──────────────────────────────────────────────
   useEffect(() => {
     const supabase = createClient()
     Promise.all([
-      supabase.from("clientes").select("*").eq("activo", true).order("nombre"),
+      supabase.from("clientes").select("id, nombre, rut, email, contacto").eq("activo", true).order("nombre"),
       supabase.from("tarifas_cliente").select("cliente_id").eq("activo", true),
     ]).then(([{ data: cls }, { data: tars }]) => {
-      setClientes(cls ?? [])
+      setClientes((cls ?? []) as unknown as Cliente[])
       const map: Record<string, boolean> = {}
       for (const t of tars ?? []) map[t.cliente_id] = true
       setTarifaMap(map)
@@ -290,14 +309,15 @@ export default function HesPage() {
   const loadMovimientos = useCallback(async () => {
     if (!selectedId) return
     setLoading(true)
+    setMovs([])  // reset to prevent stale prior-client data during fetch
     const supabase = createClient()
-    // Load all movimientos up to end of selected month (for stock reconstruction)
-    const endDate = `${selectedYear}-${pad(selectedMonth + 1)}-${pad(daysInMonth(selectedYear, selectedMonth))}`
+    // Use first instant of next month with .lt() to include the entire last day
+    const nextMonth = new Date(selectedYear, selectedMonth + 1, 1)
     const { data } = await supabase
       .from("movimientos")
       .select("id, numero, tipo, unidades, operador, fecha, report_id, reports(numero, sec1_guia_numero, sec3_numero_guia)")
       .eq("cliente_id", selectedId)
-      .lte("fecha", endDate)
+      .lt("fecha", nextMonth.toISOString())
       .order("fecha")
     setMovs((data as unknown as MovRaw[]) ?? [])
     setLoading(false)
@@ -524,7 +544,8 @@ export default function HesPage() {
                           <div className="flex items-center gap-1.5 mt-2 justify-end">
                             <span className="text-[10px] text-muted-foreground">UF al {pad(daysInMonth(selectedYear, selectedMonth))}/{pad(selectedMonth+1)}/{selectedYear}</span>
                             <Input value={ufValue} onChange={e => setUfValue(e.target.value)}
-                              className="h-6 w-28 text-[11px] text-right bg-muted/40 border-border/50 print:hidden" placeholder="$40.120,20" />
+                              className="h-6 w-28 text-[11px] text-right bg-muted/40 border-border/50 print:hidden"
+                              placeholder={ufLoading ? "Cargando…" : "$38.000,00"} />
                             <span className="hidden print:inline text-[11px] font-semibold">${parseFloat(ufValue).toLocaleString("es-CL")}</span>
                           </div>
                         </div>

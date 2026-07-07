@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Upload, X } from "lucide-react"
@@ -61,6 +61,7 @@ export default function ReportsPage() {
   const [search,      setSearch]      = useState("")
   const [pdfLoading,  setPdfLoading]  = useState<string | null>(null)
   const [xlsxLoading, setXlsxLoading] = useState(false)
+  const [fetchError,  setFetchError]  = useState<string | null>(null)
 
   // Estado del modal de despacho
   const [dispatchFor,    setDispatchFor]    = useState<ReportRow | null>(null)
@@ -73,13 +74,15 @@ export default function ReportsPage() {
 
   const fetchReports = useCallback(async () => {
     setLoading(true)
+    setFetchError(null)
     const supabase = createClient()
-    const { data, error } = await supabase
+    const { data, error: err } = await supabase
       .from("reports")
       .select("id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa")
       .order("numero", { ascending: false })
 
-    if (!error && data) setReports(data as ReportRow[])
+    if (err) { setFetchError(err.message); setLoading(false); return }
+    if (data) setReports(data as ReportRow[])
     setLoading(false)
   }, [])
 
@@ -103,11 +106,14 @@ export default function ReportsPage() {
   }
 
   async function handleExportExcel() {
+    if (filtered.length === 0) return
     setXlsxLoading(true)
     const supabase = createClient()
+    const ids = filtered.map(r => r.id)
     const { data } = await supabase
       .from("reports")
       .select("*")
+      .in("id", ids)
       .order("numero", { ascending: true })
     if (data && data.length > 0) exportReportsToExcel(data as Report[])
     setXlsxLoading(false)
@@ -145,6 +151,8 @@ export default function ReportsPage() {
       .eq("id", dispatchFor.id)
 
     if (updateErr) {
+      // Rollback: remove orphaned file so storage stays consistent
+      await supabase.storage.from("reports-firmados").remove([path])
       setDispatchError("Error al despachar: " + updateErr.message)
       setDispatchLoading(false)
       return
@@ -164,7 +172,7 @@ export default function ReportsPage() {
     fetchReports()
   }
 
-  const filtered = reports.filter(r => {
+  const filtered = useMemo(() => reports.filter(r => {
     if (activeTab !== "todos" && r.estado !== activeTab) return false
     if (search) {
       const q = search.toLowerCase()
@@ -174,14 +182,14 @@ export default function ReportsPage() {
              String(r.numero).includes(q)
     }
     return true
-  })
+  }), [reports, activeTab, search])
 
-  const counts = {
+  const counts = useMemo(() => ({
     todos:              reports.length,
     pendiente_despacho: reports.filter(r => r.estado === "pendiente_despacho").length,
     despachado:         reports.filter(r => r.estado === "despachado").length,
     borrador:           reports.filter(r => r.estado === "borrador").length,
-  }
+  }), [reports])
 
   return (
     <>
@@ -284,7 +292,7 @@ export default function ReportsPage() {
         <Button variant="ghost" size="sm" onClick={fetchReports} disabled={loading} className="h-10 w-10 p-0 text-muted-foreground">
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
-        <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={xlsxLoading || reports.length === 0}
+        <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={xlsxLoading || filtered.length === 0}
           className="gap-1.5 text-emerald-700 border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-400 dark:border-emerald-700 dark:hover:bg-emerald-900/20">
           {xlsxLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sheet className="h-3.5 w-3.5" />}
           Exportar Excel
@@ -296,6 +304,12 @@ export default function ReportsPage() {
           </Button>
         </Link>
       </PageHeader>
+
+      {fetchError && (
+        <div className="mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+          Error al cargar reports: {fetchError}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="flex gap-3 px-6 pt-4 pb-3 flex-shrink-0">

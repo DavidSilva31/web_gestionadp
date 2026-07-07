@@ -42,6 +42,7 @@ const PAGE_SIZE = 50
 export default function AuditoriaPage() {
   const [logs,         setLogs]         = useState<AuditLog[]>([])
   const [loading,      setLoading]      = useState(true)
+  const [fetchError,   setFetchError]   = useState<string | null>(null)
   const [total,        setTotal]        = useState(0)
   const [page,         setPage]         = useState(0)
   const [search,       setSearch]       = useState("")
@@ -71,7 +72,15 @@ export default function AuditoriaPage() {
     }
     if (search.trim())          query = query.ilike("descripcion", `%${search.trim()}%`)
 
-    const { data, count } = await query
+    const { data, count, error } = await query
+    if (error) {
+      setFetchError(error.message)
+      setLogs([])
+      setTotal(0)
+      setLoading(false)
+      return
+    }
+    setFetchError(null)
     if (data) setLogs(data as AuditLog[])
     setTotal(count ?? 0)
     setLoading(false)
@@ -99,6 +108,12 @@ export default function AuditoriaPage() {
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
       </PageHeader>
+
+      {fetchError && (
+        <div className="mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+          Error al cargar logs: {fetchError}
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="flex items-center gap-3 px-6 pt-4 pb-4 flex-shrink-0 overflow-x-auto">

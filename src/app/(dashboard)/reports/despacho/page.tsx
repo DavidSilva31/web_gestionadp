@@ -52,7 +52,7 @@ function SeccionTag({ active, label }: { active: boolean; label: string }) {
   )
 }
 
-function ReportCard({ report, onDispatch }: { report: PendingReport; onDispatch: (id: string, nombre: string, docPath: string) => Promise<void> }) {
+function ReportCard({ report, onDispatch }: { report: PendingReport; onDispatch: (id: string, nombre: string, docPath: string) => Promise<string | null> }) {
   const [expanded,    setExpanded]    = useState(false)
   const [nombre,      setNombre]      = useState("")
   const [file,        setFile]        = useState<File | null>(null)
@@ -91,7 +91,12 @@ function ReportCard({ report, onDispatch }: { report: PendingReport; onDispatch:
       return
     }
 
-    await onDispatch(report.id, nombre, path)
+    const dispatchErr = await onDispatch(report.id, nombre, path)
+    if (dispatchErr) {
+      setUploadError(dispatchErr)
+      setDispatching(false)
+      return
+    }
     setDispatching(false)
   }
 
@@ -253,10 +258,12 @@ export default function DespachoPage() {
   const [pending,    setPending]    = useState<PendingReport[]>([])
   const [dispatched, setDispatched] = useState<DispatchedReport[]>([])
   const [loading,    setLoading]    = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [search,     setSearch]     = useState("")
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
+    setFetchError(null)
     const supabase = createClient()
 
     const [pendingRes, dispatchedRes] = await Promise.all([
@@ -274,6 +281,11 @@ export default function DespachoPage() {
         .order("fecha_despacho", { ascending: false }),
     ])
 
+    if (pendingRes.error ?? dispatchedRes.error) {
+      setFetchError((pendingRes.error ?? dispatchedRes.error)!.message)
+      setLoading(false)
+      return
+    }
     if (pendingRes.data)    setPending(pendingRes.data as PendingReport[])
     if (dispatchedRes.data) setDispatched(dispatchedRes.data as DispatchedReport[])
     setLoading(false)
@@ -281,7 +293,7 @@ export default function DespachoPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  async function handleDispatch(id: string, nombre: string, docPath: string) {
+  async function handleDispatch(id: string, nombre: string, docPath: string): Promise<string | null> {
     const supabase = createClient()
     const now = new Date().toISOString()
     const { error } = await supabase
@@ -295,30 +307,31 @@ export default function DespachoPage() {
       })
       .eq("id", id)
 
-    if (!error) {
-      const r = pending.find(x => x.id === id)
-      if (r) {
-        setDispatched(prev => [{
-          id:                 r.id,
-          numero:             r.numero,
-          cliente:            r.cliente,
-          patente:            r.patente,
-          conductor:          r.conductor,
-          fecha_despacho:     now,
-          nombre_despachador: nombre,
-        }, ...prev])
-      }
-      // Siempre registrar, aunque r no esté en memoria
-      await logAudit({
-        tabla:          "reports",
-        registro_id:    id,
-        accion:         "report.despachar",
-        descripcion:    `Vehículo despachado${r ? ` — ${r.cliente} (${r.patente})` : ""} · doc: ${docPath}`,
-        usuario_id:     user?.id,
-        usuario_nombre: nombre,
-      })
-      setPending(prev => prev.filter(x => x.id !== id))
+    if (error) return "Error al registrar el despacho: " + error.message
+
+    const r = pending.find(x => x.id === id)
+    if (r) {
+      setDispatched(prev => [{
+        id:                 r.id,
+        numero:             r.numero,
+        cliente:            r.cliente,
+        patente:            r.patente,
+        conductor:          r.conductor,
+        fecha_despacho:     now,
+        nombre_despachador: nombre,
+      }, ...prev])
     }
+    // fire-and-forget — siempre registrar aunque r no esté en memoria
+    logAudit({
+      tabla:          "reports",
+      registro_id:    id,
+      accion:         "report.despachar",
+      descripcion:    `Vehículo despachado${r ? ` — ${r.cliente} (${r.patente})` : ""} · doc: ${docPath}`,
+      usuario_id:     user?.id,
+      usuario_nombre: nombre,
+    })
+    setPending(prev => prev.filter(x => x.id !== id))
+    return null
   }
 
   const filtered = pending.filter(r => {
@@ -334,6 +347,12 @@ export default function DespachoPage() {
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
       </PageHeader>
+
+      {fetchError && (
+        <div className="mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+          Error al cargar la cola: {fetchError}
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-auto px-6 pt-4 pb-4 flex flex-col xl:flex-row gap-4">
         {/* Cola de espera */}

@@ -6,7 +6,6 @@ import { ArrowLeft, Save, Send, ChevronRight, Loader2, Eye, Clock, CheckCircle2,
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -19,28 +18,11 @@ import { useAuth } from "@/contexts/auth-context"
 import { logAudit, accionLabel } from "@/lib/audit"
 import type { AuditLog } from "@/lib/audit"
 import type { ReportEstado } from "@/types/database"
+import { dbToForm } from "@/components/reports/report-form-types"
+import type { ReportFormData } from "@/components/reports/report-form-types"
+import { Field, Sec1Content, Sec2Content, Sec3Content } from "@/components/reports/report-form-sections"
 
-type TipoMovimiento = "ingreso" | "despacho"
-type TipoContenedor = "20ft" | "40ft" | "isotanque"
-type SolicitadoPor  = "clientes" | "hds" | "operaciones" | "cuyd"
-
-interface FormData {
-  cliente: string; fecha: string; patente: string; conductor: string
-  rut_conductor: string; empresa_transporte: string; hds_header: boolean
-  sec1_activa: boolean; sec1_tipo_movimiento: TipoMovimiento | ""; sec1_tipo_contenedor: TipoContenedor | ""
-  sec1_carga_normal: boolean; sec1_carga_imo: boolean; sec1_clase_imo: string; sec1_nu: string
-  sec1_hora_inicio: string; sec1_hora_termino: string; sec1_sigla: string
-  sec1_guia_numero: string; sec1_interchange: string; sec1_hds: boolean
-  sec2_activa: boolean; sec2_consolidado: boolean; sec2_desconsolidado: boolean
-  sec2_picking: boolean; sec2_paletizado: boolean; sec2_etiquetado: boolean; sec2_otro: boolean
-  sec2_hora_inicio: string; sec2_hora_termino: string; sec2_sigla_numero: string; sec2_observaciones: string
-  sec3_activa: boolean; sec3_producto: string; sec3_clase_imo: string
-  sec3_hora_inicio: string; sec3_hora_termino: string; sec3_numero_bodega: string; sec3_nu: string
-  sec3_tipo: TipoMovimiento | ""; sec3_numero_pallets: string; sec3_numero_guia: string
-  sec3_solicitado_por: SolicitadoPor | ""; sec3_cuyd_detalle: string; sec3_observaciones: string
-  nombre_operador: string
-}
-
+type FormData = ReportFormData
 type Tab = "antecedentes" | "sec1" | "sec2" | "sec3" | "historial"
 
 const TABS: { key: Tab; label: string; subtitle: string }[] = [
@@ -66,82 +48,16 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   despachado:         { label: "Despachado",     className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
 }
 
-function Field({ label, required, children, className }: { label: string; required?: boolean; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn("flex flex-col gap-1", className)}>
-      <Label className="text-xs font-medium text-gray-600">
-        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
-      </Label>
-      {children}
-    </div>
-  )
-}
-
-function RadioGroup<T extends string>({ value, onChange, options, vertical, readOnly }: {
-  value: T | ""; onChange: (v: T) => void; options: { value: T; label: string }[]; vertical?: boolean; readOnly?: boolean
-}) {
-  return (
-    <div className={vertical ? "flex flex-col gap-2" : "flex gap-3"}>
-      {options.map(opt => (
-        <label
-          key={opt.value}
-          onClick={() => !readOnly && onChange(opt.value)}
-          className={cn("flex items-center gap-1.5 select-none", readOnly ? "cursor-default" : "cursor-pointer group")}
-        >
-          <div className={cn(
-            "h-4 w-4 rounded-full border-2 flex items-center justify-center transition-colors",
-            value === opt.value ? "border-[oklch(0.35_0.12_240)] bg-[oklch(0.35_0.12_240)]" : "border-gray-300",
-            !readOnly && "group-hover:border-gray-400"
-          )}>
-            {value === opt.value && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-          </div>
-          <span className="text-xs text-gray-700">{opt.label}</span>
-        </label>
-      ))}
-    </div>
-  )
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function dbToForm(data: Record<string, any>): FormData {
-  const s = (v: unknown) => (v ?? "") as string
-  const b = (v: unknown) => Boolean(v)
-  return {
-    cliente: s(data.cliente), fecha: s(data.fecha), patente: s(data.patente), conductor: s(data.conductor),
-    rut_conductor: s(data.rut_conductor), empresa_transporte: s(data.empresa_transporte), hds_header: b(data.hds_header),
-    sec1_activa: b(data.sec1_activa), sec1_tipo_movimiento: s(data.sec1_tipo_movimiento) as TipoMovimiento | "",
-    sec1_tipo_contenedor: s(data.sec1_tipo_contenedor) as TipoContenedor | "",
-    sec1_carga_normal: b(data.sec1_carga_normal), sec1_carga_imo: b(data.sec1_carga_imo),
-    sec1_clase_imo: s(data.sec1_clase_imo), sec1_nu: s(data.sec1_nu),
-    sec1_hora_inicio: s(data.sec1_hora_inicio), sec1_hora_termino: s(data.sec1_hora_termino),
-    sec1_sigla: s(data.sec1_sigla), sec1_guia_numero: s(data.sec1_guia_numero),
-    sec1_interchange: s(data.sec1_interchange), sec1_hds: b(data.sec1_hds),
-    sec2_activa: b(data.sec2_activa), sec2_consolidado: b(data.sec2_consolidado),
-    sec2_desconsolidado: b(data.sec2_desconsolidado), sec2_picking: b(data.sec2_picking),
-    sec2_paletizado: b(data.sec2_paletizado), sec2_etiquetado: b(data.sec2_etiquetado), sec2_otro: b(data.sec2_otro),
-    sec2_hora_inicio: s(data.sec2_hora_inicio), sec2_hora_termino: s(data.sec2_hora_termino),
-    sec2_sigla_numero: s(data.sec2_sigla_numero), sec2_observaciones: s(data.sec2_observaciones),
-    sec3_activa: b(data.sec3_activa), sec3_producto: s(data.sec3_producto),
-    sec3_clase_imo: s(data.sec3_clase_imo), sec3_hora_inicio: s(data.sec3_hora_inicio),
-    sec3_hora_termino: s(data.sec3_hora_termino), sec3_numero_bodega: s(data.sec3_numero_bodega),
-    sec3_nu: s(data.sec3_nu), sec3_tipo: s(data.sec3_tipo) as TipoMovimiento | "",
-    sec3_numero_pallets: data.sec3_numero_pallets != null ? String(data.sec3_numero_pallets) : "",
-    sec3_numero_guia: s(data.sec3_numero_guia),
-    sec3_solicitado_por: s(data.sec3_solicitado_por) as SolicitadoPor | "",
-    sec3_cuyd_detalle: s(data.sec3_cuyd_detalle), sec3_observaciones: s(data.sec3_observaciones),
-    nombre_operador: s(data.nombre_operador),
-  }
-}
-
 export default function ReportDetailPage() {
   const router   = useRouter()
   const params   = useParams()
   const { user, profile } = useAuth()
   const id = params.id as string
 
-  const [tab,     setTab]     = useState<Tab>("antecedentes")
-  const [form,    setForm]    = useState<FormData | null>(null)
-  const [estado,  setEstado]  = useState<ReportEstado>("borrador")
+  const [tab,       setTab]      = useState<Tab>("antecedentes")
+  const [form,      setForm]     = useState<FormData | null>(null)
+  const [estado,    setEstado]   = useState<ReportEstado>("borrador")
+  const [sec3ItemId, setSec3ItemId] = useState<string | null>(null)
   const [numero,  setNumero]  = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving,        setSaving]        = useState(false)
@@ -190,6 +106,7 @@ export default function ReportDetailPage() {
       setEstado(data.estado as ReportEstado)
       setNumero(data.numero)
       setForm(dbToForm(data as Record<string, unknown>))
+      setSec3ItemId((data.sec3_inventario_item_id as string | null) ?? null)
       if (data.documento_firmado_url) setDocPath(data.documento_firmado_url as string)
       setLoading(false)
     }
@@ -262,8 +179,13 @@ export default function ReportDetailPage() {
   async function handleDelete() {
     setDeleting(true)
     const supabase = createClient()
-    await supabase.from("reports").delete().eq("id", id)
-    await logAudit({
+    const { error: delErr } = await supabase.from("reports").delete().eq("id", id)
+    if (delErr) {
+      setError(`No se pudo eliminar: ${delErr.message}`)
+      setDeleting(false)
+      return
+    }
+    logAudit({
       tabla:          "reports",
       registro_id:    id,
       accion:         "report.eliminar",
@@ -285,20 +207,44 @@ export default function ReportDetailPage() {
     setSaving(true)
     const supabase = createClient()
     const { error: err } = await supabase.from("reports").update(buildPayload(newEstado)).eq("id", id)
-    setSaving(false)
     if (err) {
       setError(err.message)
-    } else {
-      await logAudit({
-        tabla:          "reports",
-        registro_id:    id,
-        accion:         newEstado === "pendiente_despacho" ? "report.enviar_despacho" : "report.actualizar",
-        descripcion:    `Report #${numero} — ${form.cliente} (${form.patente})`,
-        usuario_id:     user?.id,
-        usuario_nombre: profile?.nombre ?? user?.email,
-      })
-      router.push("/reports")
+      setSaving(false)
+      return
     }
+
+    // update_stock cuando borrador → pendiente_despacho con ítem vinculado
+    if (newEstado === "pendiente_despacho" && estado === "borrador" &&
+        form.sec3_activa && sec3ItemId && form.sec3_tipo) {
+      const delta = Number(form.sec3_numero_pallets)
+      if (!delta || delta <= 0) {
+        await supabase.from("reports").update({ estado: "borrador" }).eq("id", id)
+        setEstado("borrador")
+        setError("Número de pallets requerido para enviar a despacho.")
+        setSaving(false)
+        return
+      }
+      const signedDelta = form.sec3_tipo === "ingreso" ? delta : -delta
+      const { error: rpcErr } = await supabase.rpc("update_stock", { item_id: sec3ItemId, delta: signedDelta })
+      if (rpcErr) {
+        await supabase.from("reports").update({ estado: "borrador" }).eq("id", id)
+        setEstado("borrador")
+        setError("Error al actualizar stock. No se envió a despacho.")
+        setSaving(false)
+        return
+      }
+    }
+
+    logAudit({
+      tabla:          "reports",
+      registro_id:    id,
+      accion:         newEstado === "pendiente_despacho" ? "report.enviar_despacho" : "report.actualizar",
+      descripcion:    `Report #${numero} — ${form.cliente} (${form.patente})`,
+      usuario_id:     user?.id,
+      usuario_nombre: profile?.nombre ?? user?.email,
+    })
+    setSaving(false)
+    router.push("/reports")
   }
 
   if (loading) {
@@ -475,144 +421,24 @@ export default function ReportDetailPage() {
               </div>
             )}
 
-            {tab === "sec1" && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox id="sec1_activa" checked={form.sec1_activa} onCheckedChange={v => !readOnly && set("sec1_activa", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
-                  <label htmlFor="sec1_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">Activar Sección 1 — Depósito de Contenedores</label>
-                </div>
-                <div className={cn("space-y-4 transition-opacity", !form.sec1_activa && "opacity-40 pointer-events-none")}>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Tipo de movimiento">
-                      <RadioGroup<TipoMovimiento> value={form.sec1_tipo_movimiento} onChange={v => set("sec1_tipo_movimiento", v)} options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]} readOnly={readOnly} />
-                    </Field>
-                    <Field label="Tipo de contenedor">
-                      <RadioGroup<TipoContenedor> value={form.sec1_tipo_contenedor} onChange={v => set("sec1_tipo_contenedor", v)} options={[{ value: "20ft", label: "20ft" }, { value: "40ft", label: "40ft" }, { value: "isotanque", label: "Isotanque" }]} readOnly={readOnly} />
-                    </Field>
-                  </div>
-                  <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-2">
-                      <Checkbox id="sec1_carga_normal" checked={form.sec1_carga_normal} onCheckedChange={v => !readOnly && set("sec1_carga_normal", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
-                      <label htmlFor="sec1_carga_normal" className="text-xs text-gray-700 cursor-pointer">Carga normal</label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox id="sec1_carga_imo" checked={form.sec1_carga_imo} onCheckedChange={v => !readOnly && set("sec1_carga_imo", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
-                      <label htmlFor="sec1_carga_imo" className="text-xs text-gray-700 cursor-pointer">Carga IMO</label>
-                    </div>
-                  </div>
-                  {form.sec1_carga_imo && (
-                    <div className="grid grid-cols-2 gap-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                      <Field label="Clase IMO">
-                        <Input value={form.sec1_clase_imo} onChange={e => set("sec1_clase_imo", e.target.value)} placeholder="Ej: 3, 6.1, 8..." className="h-8 text-xs" readOnly={readOnly} />
-                      </Field>
-                      <Field label="NU">
-                        <Input value={form.sec1_nu} onChange={e => set("sec1_nu", e.target.value)} className="h-8 text-xs font-mono" readOnly={readOnly} />
-                      </Field>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Hora inicio"><Input type="time" value={form.sec1_hora_inicio} onChange={e => set("sec1_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="Hora término"><Input type="time" value={form.sec1_hora_termino} onChange={e => set("sec1_hora_termino", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="Sigla"><Input value={form.sec1_sigla} onChange={e => set("sec1_sigla", e.target.value)} placeholder="Sigla del contenedor" className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="N° Guía"><Input value={form.sec1_guia_numero} onChange={e => set("sec1_guia_numero", e.target.value)} placeholder="Número de guía" className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="Interchange"><Input value={form.sec1_interchange} onChange={e => set("sec1_interchange", e.target.value)} placeholder="N° Interchange" className="h-8 text-xs" readOnly={readOnly} /></Field>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="sec1_hds" checked={form.sec1_hds} onCheckedChange={v => !readOnly && set("sec1_hds", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
-                    <label htmlFor="sec1_hds" className="text-xs text-gray-700 cursor-pointer">HDS adjunto</label>
-                  </div>
-                </div>
-              </div>
-            )}
+            {tab === "sec1" && <Sec1Content form={form} set={set} readOnly={readOnly} />}
 
-            {tab === "sec2" && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox id="sec2_activa" checked={form.sec2_activa} onCheckedChange={v => !readOnly && set("sec2_activa", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
-                  <label htmlFor="sec2_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">Activar Sección 2 — Consolidado / Desconsolidado / Otros</label>
-                </div>
-                <div className={cn("space-y-4 transition-opacity", !form.sec2_activa && "opacity-40 pointer-events-none")}>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg">
-                    {([
-                      ["sec2_consolidado", "Consolidado"], ["sec2_desconsolidado", "Desconsolidado"],
-                      ["sec2_picking", "Picking"], ["sec2_paletizado", "Paletizado"],
-                      ["sec2_etiquetado", "Etiquetado"], ["sec2_otro", "Otro"],
-                    ] as [keyof FormData, string][]).map(([key, label]) => (
-                      <div key={key} className="flex items-center gap-2">
-                        <Checkbox id={key} checked={form[key] as boolean} onCheckedChange={v => !readOnly && set(key, v === true as FormData[typeof key])} className="h-3.5 w-3.5" disabled={readOnly} />
-                        <label htmlFor={key} className="text-xs text-gray-700 cursor-pointer">{label}</label>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Hora inicio"><Input type="time" value={form.sec2_hora_inicio} onChange={e => set("sec2_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="Hora término"><Input type="time" value={form.sec2_hora_termino} onChange={e => set("sec2_hora_termino", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="Sigla / N°" className="col-span-2"><Input value={form.sec2_sigla_numero} onChange={e => set("sec2_sigla_numero", e.target.value)} placeholder="Sigla o número" className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="Observaciones" className="col-span-2">
-                      <textarea value={form.sec2_observaciones} onChange={e => set("sec2_observaciones", e.target.value)} placeholder="Observaciones adicionales..." rows={3} readOnly={readOnly}
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
-                    </Field>
-                  </div>
-                </div>
-              </div>
-            )}
+            {tab === "sec2" && <Sec2Content form={form} set={set} readOnly={readOnly} />}
 
             {tab === "sec3" && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox id="sec3_activa" checked={form.sec3_activa} onCheckedChange={v => !readOnly && set("sec3_activa", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
-                  <label htmlFor="sec3_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">Activar Sección 3 — Bodegaje</label>
-                </div>
-                <div className={cn("space-y-4 transition-opacity", !form.sec3_activa && "opacity-40 pointer-events-none")}>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Producto" className="col-span-2 sm:col-span-2"><Input value={form.sec3_producto} onChange={e => set("sec3_producto", e.target.value)} placeholder="Nombre del producto" className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="Clase IMO"><Input value={form.sec3_clase_imo} onChange={e => set("sec3_clase_imo", e.target.value)} placeholder="Clase IMO si aplica" className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="NU"><Input value={form.sec3_nu} onChange={e => set("sec3_nu", e.target.value)} className="h-8 text-xs font-mono" readOnly={readOnly} /></Field>
-                    <Field label="Hora inicio"><Input type="time" value={form.sec3_hora_inicio} onChange={e => set("sec3_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="Hora término"><Input type="time" value={form.sec3_hora_termino} onChange={e => set("sec3_hora_termino", e.target.value)} className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="N° Bodega"><Input value={form.sec3_numero_bodega} onChange={e => set("sec3_numero_bodega", e.target.value)} placeholder="Número de bodega" className="h-8 text-xs" readOnly={readOnly} /></Field>
-                    <Field label="N° Guía" className="col-span-2"><Input value={form.sec3_numero_guia} onChange={e => set("sec3_numero_guia", e.target.value)} placeholder="Número de guía" className="h-8 text-xs" readOnly={readOnly} /></Field>
-
-                    <div className="col-span-2 flex flex-wrap items-start gap-6 sm:gap-8 pt-1">
-                      <Field label="Tipo de movimiento">
-                        <RadioGroup<TipoMovimiento> value={form.sec3_tipo} onChange={v => set("sec3_tipo", v)}
-                          options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]} vertical readOnly={readOnly} />
-                      </Field>
-                      <Field label="N° Pallets">
-                        <Input type="number" min={0} value={form.sec3_numero_pallets} onChange={e => set("sec3_numero_pallets", e.target.value)} placeholder="0" className="h-8 text-xs w-28" readOnly={readOnly} />
-                      </Field>
-                      <Field label="Solicitado por">
-                        <select value={form.sec3_solicitado_por}
-                          onChange={e => { set("sec3_solicitado_por", e.target.value as SolicitadoPor); if (e.target.value !== "cuyd") set("sec3_cuyd_detalle", "") }}
-                          disabled={readOnly}
-                          className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 disabled:cursor-default"
-                        >
-                          <option value="">Seleccionar...</option>
-                          <option value="clientes">Clientes</option>
-                          <option value="hds">HDS</option>
-                          <option value="operaciones">Operaciones</option>
-                          <option value="cuyd">CUyD</option>
-                        </select>
-                        {form.sec3_solicitado_por === "cuyd" && (
-                          <Input value={form.sec3_cuyd_detalle} onChange={e => set("sec3_cuyd_detalle", e.target.value)}
-                            placeholder="Detalle CUyD..." className="h-7 text-xs mt-1.5 w-36" readOnly={readOnly} />
-                        )}
-                      </Field>
-                    </div>
-
-                    <Field label="Observaciones" className="col-span-2">
-                      <textarea value={form.sec3_observaciones} onChange={e => set("sec3_observaciones", e.target.value)}
-                        placeholder="Observaciones adicionales..." rows={3} readOnly={readOnly}
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
-                    </Field>
-                  </div>
-                  <div className="border-t pt-4">
-                    <Field label="Nombre operador de carga" required>
-                      <Input value={form.nombre_operador} onChange={e => set("nombre_operador", e.target.value)} placeholder="Nombre completo del operador" className="h-8 text-xs" readOnly={readOnly} />
-                    </Field>
-                  </div>
-                </div>
-              </div>
+              <Sec3Content
+                form={form}
+                set={set}
+                readOnly={readOnly}
+                productoNode={
+                  <Input value={form.sec3_producto} onChange={e => set("sec3_producto", e.target.value)}
+                    placeholder="Nombre del producto" className="h-8 text-xs" readOnly={readOnly} />
+                }
+                operadorNode={
+                  <Input value={form.nombre_operador} onChange={e => set("nombre_operador", e.target.value)}
+                    placeholder="Nombre completo del operador" className="h-8 text-xs" readOnly={readOnly} />
+                }
+              />
             )}
           </div>
 

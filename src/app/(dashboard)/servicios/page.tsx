@@ -25,7 +25,8 @@ function ServiceForm({
   onSave: (s: ServicioCliente) => void
   onCancel: () => void
 }) {
-  const [saving, setSaving] = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [form, setForm] = useState({
     nombre:      existing?.nombre      ?? "",
     descripcion: existing?.descripcion ?? "",
@@ -40,6 +41,7 @@ function ServiceForm({
   async function handleSave() {
     if (!form.nombre.trim()) return
     setSaving(true)
+    setSaveError(null)
     const supabase = createClient()
     const payload: ServicioClienteInsert = {
       cliente_id:  clienteId,
@@ -59,7 +61,8 @@ function ServiceForm({
         .from("servicios_cliente").insert(payload).select().single())
     }
     setSaving(false)
-    if (!error && data) onSave(data as ServicioCliente)
+    if (error) { setSaveError(error.message); return }
+    if (data) onSave(data as ServicioCliente)
   }
 
   const inp = "h-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1"
@@ -101,6 +104,9 @@ function ServiceForm({
         </div>
       </div>
 
+      {saveError && (
+        <p className="text-[11px] text-destructive">{saveError}</p>
+      )}
       <div className="flex gap-2 justify-end">
         <Button variant="ghost" size="sm" onClick={onCancel} className="h-7 text-[12px]">
           <X className="h-3 w-3 mr-1" /> Cancelar
@@ -129,7 +135,9 @@ function ServiceCard({
     if (!confirm(`¿Eliminar servicio "${srv.nombre}"?`)) return
     setDeleting(true)
     const supabase = createClient()
-    await supabase.from("servicios_cliente").update({ activo: false }).eq("id", srv.id)
+    const { error } = await supabase.from("servicios_cliente").update({ activo: false }).eq("id", srv.id)
+    setDeleting(false)
+    if (error) { alert("Error al eliminar: " + error.message); return }
     onDelete()
   }
 
@@ -184,7 +192,7 @@ export default function ServiciosPage() {
   useEffect(() => {
     const supabase = createClient()
     Promise.all([
-      supabase.from("clientes").select("*").eq("activo", true).order("nombre"),
+      supabase.from("clientes").select("id, nombre, rut").eq("activo", true).order("nombre"),
       supabase.from("servicios_cliente").select("cliente_id").eq("activo", true),
     ]).then(([{ data: cls }, { data: srvs }]) => {
       setClientes((cls ?? []) as Cliente[])
@@ -228,7 +236,15 @@ export default function ServiciosPage() {
     setAddingNew(false)
     setEditingId(null)
     loadServicios()
-    setServicioMap(m => ({ ...m, [srv.cliente_id]: (m[srv.cliente_id] ?? 0) + 1 }))
+    // Reload count from DB to keep badge accurate on both create and edit
+    createClient()
+      .from("servicios_cliente")
+      .select("*", { count: "exact", head: true })
+      .eq("cliente_id", srv.cliente_id)
+      .eq("activo", true)
+      .then(({ count }) => {
+        if (count !== null) setServicioMap(m => ({ ...m, [srv.cliente_id]: count }))
+      })
   }
 
   function handleDeleted(srvId: string) {

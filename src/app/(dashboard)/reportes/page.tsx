@@ -32,6 +32,7 @@ export default function ReportesPage() {
   const mesActual = MESES[monthIdx]
 
   const [loading,     setLoading]     = useState(true)
+  const [fetchError,  setFetchError]  = useState<string | null>(null)
   const [kpis,        setKpis]        = useState({ total: 0, entradas: 0, salidas: 0, clientes: 0, entPct: null as number | null, salPct: null as number | null })
   const [mensual,     setMensual]     = useState<{ mes: string; entradas: number; salidas: number }[]>([])
   const [topItems,    setTopItems]    = useState<{ nombre: string; entradas: number; salidas: number; total: number; pct: number }[]>([])
@@ -39,12 +40,13 @@ export default function ReportesPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
+    setFetchError(null)
     const supabase = createClient()
 
     const currentMonthStart = new Date(year, monthIdx, 1).toISOString()
     const prevMonthStart    = new Date(year, monthIdx - 1, 1).toISOString()
 
-    const [{ data: movData }, { count: clientesCount }] = await Promise.all([
+    const [{ data: movData, error: e1 }, { count: clientesCount, error: e2 }] = await Promise.all([
       supabase
         .from("movimientos")
         .select("tipo, fecha, carga, cliente_nombre")
@@ -55,6 +57,8 @@ export default function ReportesPage() {
         .select("*", { count: "exact", head: true })
         .eq("activo", true),
     ])
+
+    if (e1 ?? e2) { setFetchError((e1 ?? e2)!.message); setLoading(false); return }
 
     const movs = movData ?? []
 
@@ -125,23 +129,38 @@ export default function ReportesPage() {
   ]
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 min-h-0 grid grid-rows-[auto_auto_1fr] gap-3 p-4 bg-muted/20">
+    <>
+    <style jsx global>{`
+      @media print {
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        nav, aside, header, [data-sidebar] { display: none !important; }
+        .print\\:hidden { display: none !important; }
+      }
+    `}</style>
+    <div className="h-full overflow-y-auto md:overflow-hidden">
+      <div className="flex flex-col gap-3 p-3 sm:p-4 bg-muted/20 md:h-full md:grid md:grid-rows-[auto_auto_1fr]">
 
         {/* Cabecera */}
-        <div className="flex items-center justify-between flex-shrink-0">
-          <div>
-            <h2 className="text-base font-bold tracking-tight">Reportes del almacén</h2>
-            <p className="text-xs text-muted-foreground">Resumen estadístico — {mesActual} {year}</p>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold tracking-tight">Analítica del almacén</h2>
+              <p className="text-xs text-muted-foreground">Resumen estadístico — {mesActual} {year}</p>
+            </div>
+            <div className="flex items-center gap-2 print:hidden">
+              <Button variant="ghost" size="sm" onClick={fetchData} disabled={loading} className="h-7 w-7 p-0 text-muted-foreground">
+                <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => window.print()} className="h-7 gap-1.5 text-xs border-border/60">
+                <FileDown className="h-3 w-3" /> Exportar PDF
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={fetchData} disabled={loading} className="h-7 w-7 p-0 text-muted-foreground">
-              <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs border-border/60">
-              <FileDown className="h-3 w-3" /> Exportar PDF
-            </Button>
-          </div>
+          {fetchError && (
+            <div className="px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+              Error al cargar datos: {fetchError}
+            </div>
+          )}
         </div>
 
         {/* KPI cards */}
@@ -151,22 +170,22 @@ export default function ReportesPage() {
             : summaryCards.map((s) => (
                 <div key={s.label} className={`relative overflow-hidden rounded-xl bg-gradient-to-br ${s.gradient} px-4 py-3 text-white shadow-sm`}>
                   <div className="absolute top-0 right-0 h-14 w-14 rounded-full bg-white/5 -translate-y-5 translate-x-5" />
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="p-1.5 rounded-lg bg-white/20"><s.icon className="h-3.5 w-3.5 text-white" /></div>
+                  <div className="mb-2">
+                    <div className="p-1.5 rounded-lg bg-white/20 inline-flex"><s.icon className="h-3.5 w-3.5 text-white" /></div>
                   </div>
                   <p className="text-2xl font-bold tracking-tight leading-none">{s.value}</p>
-                  <p className="text-white/65 text-[11px] mt-1">{s.label}</p>
-                  <p className="text-white/45 text-[10px] mt-0.5">{s.sub}</p>
+                  <p className="text-white/75 text-[11px] mt-1 leading-tight">{s.label}</p>
+                  <p className="text-white/45 text-[10px] mt-0.5 truncate">{s.sub}</p>
                 </div>
               ))
           }
         </div>
 
         {/* Gráficos */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 min-h-0">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 md:min-h-0">
 
           {/* Gráfico mensual */}
-          <Card className="border-border/40 shadow-sm bg-background flex flex-col min-h-0">
+          <Card className="border-border/40 shadow-sm bg-background md:flex md:flex-col md:min-h-0">
             <CardHeader className="py-3 px-4 border-b border-border/30 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-primary/10"><BarChart3 className="h-3.5 w-3.5 text-primary" /></div>
@@ -176,24 +195,26 @@ export default function ReportesPage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 flex flex-col px-4 py-3 gap-3">
+            <CardContent className="flex flex-col px-4 py-3 gap-3 md:flex-1 md:min-h-0">
               {loading ? (
-                <div className="flex-1 flex items-center justify-center">
+                <div className="h-32 md:flex-1 flex items-center justify-center">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : mensual.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center">
+                <div className="h-32 md:flex-1 flex flex-col items-center justify-center gap-2">
+                  <div className="p-3 rounded-xl bg-muted/50">
+                    <BarChart3 className="h-6 w-6 text-muted-foreground/25" />
+                  </div>
                   <p className="text-xs text-muted-foreground">Sin movimientos registrados</p>
                 </div>
               ) : (
                 <>
-                  {/* Barras */}
-                  <div className="flex-1 min-h-0 flex items-end gap-1.5">
+                  {/* Barras — altura fija en mobile, flex en desktop */}
+                  <div className="flex items-end gap-0.5 sm:gap-1.5 h-[120px] md:flex-1 md:h-auto md:min-h-0">
                     {mensual.map((m) => {
                       const total = m.entradas + m.salidas
                       return (
                         <div key={m.mes} className="flex-1 flex flex-col items-center gap-0.5 h-full group relative">
-                          {/* Label flotante on hover */}
                           <div className="absolute -top-1 left-1/2 -translate-x-1/2 z-10 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
                             {total > 0 && (
                               <div className="bg-foreground text-background rounded px-1.5 py-1 shadow-lg text-center whitespace-nowrap">
@@ -202,20 +223,20 @@ export default function ReportesPage() {
                               </div>
                             )}
                           </div>
-                          <div className="w-full flex gap-0.5 items-end flex-1">
+                          <div className="w-full flex gap-px items-end flex-1">
                             <div className="flex-1 bg-primary rounded-t-sm transition-all"
                               style={{ height: `${(m.entradas / maxVal) * 100}%` }} />
                             <div className="flex-1 rounded-t-sm transition-all"
                               style={{ height: `${(m.salidas / maxVal) * 100}%`, backgroundColor: "#29ABE2" }} />
                           </div>
-                          <span className="text-[10px] text-muted-foreground font-medium flex-shrink-0">{m.mes}</span>
+                          <span className="text-[9px] sm:text-[10px] text-muted-foreground font-medium flex-shrink-0">{m.mes}</span>
                         </div>
                       )
                     })}
                   </div>
 
                   {/* Leyenda */}
-                  <div className="flex gap-4 flex-shrink-0">
+                  <div className="flex gap-4">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <span className="h-2 w-3 rounded-sm bg-primary inline-block" /> Entradas
                     </div>
@@ -226,7 +247,7 @@ export default function ReportesPage() {
 
                   {/* Resumen mes actual */}
                   {currMes && (
-                    <div className="border-t border-border/30 pt-3 flex-shrink-0">
+                    <div className="border-t border-border/30 pt-3">
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">{currMes.mes} {year}</p>
                       <div className="grid grid-cols-3 gap-2 text-center">
                         <div>
@@ -244,7 +265,7 @@ export default function ReportesPage() {
                       </div>
                       {prevMes && (
                         <p className="text-[10px] text-muted-foreground mt-2 text-center">
-                          {prevMes.mes}: {prevMes.entradas + prevMes.salidas} movimientos · {prevMes.entradas} entradas · {prevMes.salidas} salidas
+                          {prevMes.mes}: {prevMes.entradas + prevMes.salidas} mov · ↓{prevMes.entradas} ent · ↑{prevMes.salidas} sal
                         </p>
                       )}
                     </div>
@@ -255,10 +276,10 @@ export default function ReportesPage() {
           </Card>
 
           {/* Columna derecha: dos cards apiladas */}
-          <div className="flex flex-col gap-3 min-h-0">
+          <div className="flex flex-col gap-3 md:min-h-0">
 
             {/* Top cargas con desglose */}
-            <Card className="border-border/40 shadow-sm bg-background flex flex-col flex-1 min-h-0">
+            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] md:min-h-0 md:flex md:flex-col md:flex-1">
               <CardHeader className="py-3 px-4 border-b border-border/30 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -268,50 +289,56 @@ export default function ReportesPage() {
                       <CardDescription className="text-xs">Por movimientos — {year}</CardDescription>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />Entradas</span>
-                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400 inline-block" />Salidas</span>
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />Ent.</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400 inline-block" />Sal.</span>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex-1 min-h-0 flex flex-col justify-between px-4 py-3">
+              <CardContent className="flex flex-col justify-between px-4 py-3 md:flex-1 md:min-h-0">
                 {loading ? (
-                  <div className="flex-1 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                  <div className="flex-1 flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
                 ) : topItems.length === 0 ? (
-                  <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted-foreground">Sin movimientos registrados aún</p></div>
+                  <div className="flex flex-col items-center justify-center gap-2 py-8">
+                    <div className="p-3 rounded-xl bg-muted/50">
+                      <TrendingUp className="h-6 w-6 text-muted-foreground/25" />
+                    </div>
+                    <p className="text-xs text-muted-foreground">Sin movimientos registrados aún</p>
+                  </div>
                 ) : (
-                  topItems.map((p, i) => {
-                    const entrRatio = p.total > 0 ? Math.round((p.entradas / p.total) * 100) : 0
-                    return (
-                      <div key={p.nombre}>
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-[10px] font-bold text-muted-foreground/40 w-4 flex-shrink-0">#{i + 1}</span>
-                            <div className="p-1 bg-muted rounded flex-shrink-0"><Package className="h-2.5 w-2.5 text-muted-foreground" /></div>
-                            <span className="text-xs font-medium truncate">{p.nombre}</span>
+                  <div className="flex flex-col gap-3">
+                    {topItems.map((p, i) => {
+                      const entrRatio = p.total > 0 ? Math.round((p.entradas / p.total) * 100) : 0
+                      return (
+                        <div key={p.nombre}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] font-bold text-muted-foreground/40 w-4 flex-shrink-0">#{i + 1}</span>
+                              <div className="p-1 bg-muted rounded flex-shrink-0"><Package className="h-2.5 w-2.5 text-muted-foreground" /></div>
+                              <span className="text-xs font-medium truncate">{p.nombre}</span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                              <span className="text-[10px] text-emerald-600 font-medium">↓{p.entradas}</span>
+                              <span className="text-[10px] text-amber-500 font-medium">↑{p.salidas}</span>
+                              <span className="text-xs font-bold text-foreground w-4 text-right">{p.total}</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                            <span className="text-[10px] text-emerald-600 font-medium">↓{p.entradas}</span>
-                            <span className="text-[10px] text-amber-500 font-medium">↑{p.salidas}</span>
-                            <span className="text-xs font-bold text-foreground w-4 text-right">{p.total}</span>
+                          <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                            <div className="h-full flex overflow-hidden" style={{ width: `${p.pct}%` }}>
+                              <div className="h-full bg-emerald-500" style={{ width: `${entrRatio}%` }} />
+                              <div className="h-full bg-amber-400 flex-1" />
+                            </div>
                           </div>
                         </div>
-                        {/* Barra apilada entradas/salidas, ancho relativo al máximo */}
-                        <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                          <div className="h-full flex overflow-hidden" style={{ width: `${p.pct}%` }}>
-                            <div className="h-full bg-emerald-500" style={{ width: `${entrRatio}%` }} />
-                            <div className="h-full bg-amber-400 flex-1" />
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })
+                      )
+                    })}
+                  </div>
                 )}
               </CardContent>
             </Card>
 
             {/* Top clientes */}
-            <Card className="border-border/40 shadow-sm bg-background flex flex-col flex-1 min-h-0">
+            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] md:min-h-0 md:flex md:flex-col md:flex-1">
               <CardHeader className="py-3 px-4 border-b border-border/30 flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-[#29ABE2]/10"><Users className="h-3.5 w-3.5 text-[#29ABE2]" /></div>
@@ -321,29 +348,36 @@ export default function ReportesPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex-1 min-h-0 flex flex-col justify-between px-4 py-3">
+              <CardContent className="flex flex-col justify-between px-4 py-3 md:flex-1 md:min-h-0">
                 {loading ? (
-                  <div className="flex-1 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                  <div className="flex-1 flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
                 ) : topClientes.length === 0 ? (
-                  <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted-foreground">Sin movimientos registrados aún</p></div>
-                ) : (
-                  topClientes.map((c, i) => (
-                    <div key={c.nombre}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-[10px] font-bold text-muted-foreground/40 w-4 flex-shrink-0">#{i + 1}</span>
-                          <div className="h-5 w-5 rounded-full bg-[#29ABE2]/10 flex items-center justify-center flex-shrink-0">
-                            <Users className="h-2.5 w-2.5 text-[#29ABE2]" />
-                          </div>
-                          <span className="text-xs font-medium truncate">{c.nombre}</span>
-                        </div>
-                        <span className="text-xs font-bold ml-2 flex-shrink-0">{c.total}</span>
-                      </div>
-                      <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
-                        <div className="h-full rounded-full bg-[#29ABE2]" style={{ width: `${c.pct}%` }} />
-                      </div>
+                  <div className="flex flex-col items-center justify-center gap-2 py-8">
+                    <div className="p-3 rounded-xl bg-muted/50">
+                      <Users className="h-6 w-6 text-muted-foreground/25" />
                     </div>
-                  ))
+                    <p className="text-xs text-muted-foreground">Sin movimientos registrados aún</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {topClientes.map((c, i) => (
+                      <div key={c.nombre}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[10px] font-bold text-muted-foreground/40 w-4 flex-shrink-0">#{i + 1}</span>
+                            <div className="h-5 w-5 rounded-full bg-[#29ABE2]/10 flex items-center justify-center flex-shrink-0">
+                              <Users className="h-2.5 w-2.5 text-[#29ABE2]" />
+                            </div>
+                            <span className="text-xs font-medium truncate">{c.nombre}</span>
+                          </div>
+                          <span className="text-xs font-bold ml-2 flex-shrink-0">{c.total}</span>
+                        </div>
+                        <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                          <div className="h-full rounded-full bg-[#29ABE2]" style={{ width: `${c.pct}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -352,5 +386,6 @@ export default function ReportesPage() {
         </div>
       </div>
     </div>
+    </>
   )
 }

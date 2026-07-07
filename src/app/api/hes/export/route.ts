@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import ExcelJS from "exceljs"
 import path from "path"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
 
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
                "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
@@ -101,7 +102,16 @@ interface ReqBody {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+
   const { cliente, tarifa, billing, hes, servicios: srvs = [], mes, anio, ufValue } = await req.json() as ReqBody
+
+  if (!Number.isInteger(mes) || mes < 0 || mes > 11)
+    return NextResponse.json({ error: "Mes inválido" }, { status: 400 })
+  if (!Number.isInteger(anio) || anio < 2020 || anio > 2100)
+    return NextResponse.json({ error: "Año inválido" }, { status: 400 })
 
   const uf      = parseFloat(ufValue) || 0
   const lastDay = daysInMonth(anio, mes)

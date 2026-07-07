@@ -98,17 +98,20 @@ function InventarioContent() {
   const [search,       setSearch]       = useState("")
   const [saving,       setSaving]       = useState(false)
   const [error,        setError]        = useState<string | null>(null)
+  const [fetchError,   setFetchError]   = useState<string | null>(null)
   const [dialog,       setDialog]       = useState<null | "new" | InventarioItem>(null)
   const [form,         setForm]         = useState<InventarioItemInsert>(EMPTY_FORM)
   const [deleting,     setDeleting]     = useState<InventarioItem | null>(null)
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)
+    setFetchError(null)
     const supabase = createClient()
-    const [{ data: cData }, { data: iData }] = await Promise.all([
-      supabase.from("clientes").select("*").eq("activo", true).order("nombre"),
+    const [{ data: cData, error: e1 }, { data: iData, error: e2 }] = await Promise.all([
+      supabase.from("clientes").select("id, nombre").eq("activo", true).order("nombre"),
       supabase.from("inventario_items").select("*").eq("activo", true).order("numero"),
     ])
+    if (e1 ?? e2) { setFetchError((e1 ?? e2)!.message); setLoading(false); return }
     const clientes = (cData ?? []) as Cliente[]
     if (clientes.length) setClientes(clientes)
     const grouped: Record<string, InventarioItem[]> = {}
@@ -185,7 +188,8 @@ function InventarioContent() {
   async function handleDelete() {
     if (!deleting) return
     const supabase = createClient()
-    await supabase.from("inventario_items").update({ activo: false }).eq("id", deleting.id)
+    const { error } = await supabase.from("inventario_items").update({ activo: false }).eq("id", deleting.id)
+    if (error) { setError(error.message); setDeleting(null); return }
     setDeleting(null)
     if (selected) fetchItemsForCliente(selected.id)
   }
@@ -208,7 +212,10 @@ function InventarioContent() {
         const { error: err } = await supabase.from("inventario_items").insert(payload)
         if (err) { setError(err.message); setSaving(false); return }
       } else if (dialog) {
-        const { error: err } = await supabase.from("inventario_items").update(payload).eq("id", dialog.id)
+        // Exclude stock_actual from edit — stock must change only through movimientos
+        const { stock_actual, ...editPayload } = payload
+        void stock_actual
+        const { error: err } = await supabase.from("inventario_items").update(editPayload).eq("id", dialog.id)
         if (err) { setError(err.message); setSaving(false); return }
       }
       setSaving(false)
@@ -264,6 +271,12 @@ function InventarioContent() {
             </Button>
           )}
         </PageHeader>
+
+        {fetchError && (
+          <div className="mx-4 sm:mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+            Error al cargar inventario: {fetchError}
+          </div>
+        )}
 
         <div className="flex flex-1 min-h-0 flex-col md:flex-row">
 
@@ -604,13 +617,15 @@ function InventarioContent() {
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Stock actual
+                {dialog !== "new" && <span className="font-normal text-muted-foreground normal-case ml-1">(vía movimientos)</span>}
               </Label>
               <Input
                 type="number"
                 min={0}
                 value={form.stock_actual}
-                onChange={e => setForm(p => ({ ...p, stock_actual: parseInt(e.target.value) || 0 }))}
-                className="h-9"
+                onChange={dialog === "new" ? e => setForm(p => ({ ...p, stock_actual: parseInt(e.target.value) || 0 })) : undefined}
+                readOnly={dialog !== "new"}
+                className={cn("h-9", dialog !== "new" && "opacity-60 cursor-not-allowed")}
               />
             </div>
 
