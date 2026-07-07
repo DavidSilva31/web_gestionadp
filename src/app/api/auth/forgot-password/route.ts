@@ -19,15 +19,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "not_registered" }, { status: 404 })
   }
 
-  // Enviar correo de recuperación con redirect a nuestra página
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  const origin = req.headers.get("origin") ?? ""
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:4400"
   const { error } = await supabase.auth.resetPasswordForEmail(normalized, {
-    redirectTo: `${origin}/reset-password`,
+    redirectTo: `${siteUrl}/reset-password`,
   })
 
   if (error) {

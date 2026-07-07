@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   ArrowDownCircle, ArrowUpCircle, RefreshCw, Plus, Search,
   Loader2, CheckCircle2, Pencil, Link2, Clock, Download,
@@ -69,31 +69,38 @@ export default function MovimientosPage() {
   const [clientes,      setClientes]      = useState<Cliente[]>([])
   const [clienteItems,  setClienteItems]  = useState<InventarioItem[]>([])
   const [loading,       setLoading]       = useState(true)
+  const currentYear = new Date().getFullYear()
+  const [yearFilter,    setYearFilter]    = useState(currentYear)
   const [loadingItems,  setLoadingItems]  = useState(false)
   const [saving,        setSaving]        = useState(false)
   const [search,        setSearch]        = useState("")
   const [filtroTipo,    setFiltroTipo]    = useState<"todos" | MovimientoTipo>("todos")
   const [error,         setError]         = useState<string | null>(null)
+  const [fetchError,    setFetchError]    = useState<string | null>(null)
   const [dialog,        setDialog]        = useState<null | MovimientoTipo | Movimiento>(null)
   const [form,          setForm]          = useState<MovimientoInsert>(EMPTY_FORM("ingreso"))
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchMovimientos = useCallback(async () => {
     setLoading(true)
+    setFetchError(null)
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error: err } = await supabase
       .from("movimientos")
       .select("*")
+      .gte("fecha", `${yearFilter}-01-01`)
+      .lt("fecha",  `${yearFilter + 1}-01-01`)
       .order("fecha", { ascending: false })
+    if (err) { setFetchError(err.message); setLoading(false); return }
     if (data) setMovimientos(data as Movimiento[])
     setLoading(false)
-  }, [])
+  }, [yearFilter])
 
   const fetchClientes = useCallback(async () => {
     const supabase = createClient()
     const { data } = await supabase
       .from("clientes")
-      .select("*")
+      .select("id, nombre")
       .eq("activo", true)
       .order("nombre")
     if (data) setClientes(data as Cliente[])
@@ -110,7 +117,7 @@ export default function MovimientosPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from("inventario_items")
-      .select("*")
+      .select("id, numero, descripcion, stock_actual, area")
       .eq("cliente_id", clienteId)
       .eq("activo", true)
       .order("numero")
@@ -163,7 +170,8 @@ export default function MovimientosPage() {
 
   async function marcarCompletado(m: Movimiento) {
     const supabase = createClient()
-    await supabase.from("movimientos").update({ estado: "completado" }).eq("id", m.id)
+    const { error } = await supabase.from("movimientos").update({ estado: "completado" }).eq("id", m.id)
+    if (error) { setError("Error al actualizar estado: " + error.message); return }
     fetchMovimientos()
   }
 
@@ -182,8 +190,23 @@ export default function MovimientosPage() {
     try {
       const supabase = createClient()
       if (dialog === "ingreso" || dialog === "despacho") {
-        const { error: err } = await supabase.from("movimientos").insert(payload)
+        const { data: inserted, error: err } = await supabase
+          .from("movimientos").insert(payload).select("id").single()
         if (err) { setError(err.message); setSaving(false); return }
+
+        if (payload.inventario_item_id && payload.unidades && payload.unidades > 0) {
+          const signedDelta = payload.tipo === "ingreso" ? payload.unidades : -payload.unidades
+          const { error: rpcErr } = await supabase.rpc("update_stock", {
+            item_id: payload.inventario_item_id,
+            delta:   signedDelta,
+          })
+          if (rpcErr) {
+            await supabase.from("movimientos").delete().eq("id", inserted!.id)
+            setError("Error al actualizar stock. El movimiento no fue registrado.")
+            setSaving(false)
+            return
+          }
+        }
       } else if (dialog && typeof dialog === "object") {
         const { error: err } = await supabase.from("movimientos").update(payload).eq("id", dialog.id)
         if (err) { setError(err.message); setSaving(false); return }
@@ -198,7 +221,7 @@ export default function MovimientosPage() {
   }
 
   // ── Filtrado ───────────────────────────────────────────────────────────────
-  const filtered = movimientos.filter(m => {
+  const filtered = useMemo(() => movimientos.filter(m => {
     if (filtroTipo !== "todos" && m.tipo !== filtroTipo) return false
     if (!search) return true
     const q = search.toLowerCase()
@@ -208,16 +231,16 @@ export default function MovimientosPage() {
       movCodigo(m.numero).toLowerCase().includes(q) ||
       m.servicio.toLowerCase().includes(q)
     )
-  })
+  }), [movimientos, filtroTipo, search])
 
   const isNewDialog = dialog === "ingreso" || dialog === "despacho"
   const isEditDialog = dialog !== null && !isNewDialog
   const dialogTipo = isNewDialog ? (dialog as MovimientoTipo) : (isEditDialog ? (dialog as Movimiento).tipo : "ingreso")
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  const statsIngresos  = movimientos.filter(m => m.tipo === "ingreso").length
-  const statsDespachos = movimientos.filter(m => m.tipo === "despacho").length
-  const statsEnProceso = movimientos.filter(m => m.estado === "en_proceso").length
+  const statsIngresos  = useMemo(() => movimientos.filter(m => m.tipo === "ingreso").length,    [movimientos])
+  const statsDespachos = useMemo(() => movimientos.filter(m => m.tipo === "despacho").length,   [movimientos])
+  const statsEnProceso = useMemo(() => movimientos.filter(m => m.estado === "en_proceso").length, [movimientos])
 
   function handleExport() {
     const rows = filtered.map(m => ({
@@ -265,6 +288,12 @@ export default function MovimientosPage() {
           </Button>
         </PageHeader>
 
+        {fetchError && (
+          <div className="mx-4 sm:mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+            Error al cargar movimientos: {fetchError}
+          </div>
+        )}
+
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 sm:px-6 pt-4 pb-3 flex-shrink-0">
           {[
@@ -300,6 +329,15 @@ export default function MovimientosPage() {
               </button>
             ))}
           </div>
+          <select
+            value={yearFilter}
+            onChange={e => setYearFilter(Number(e.target.value))}
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {Array.from({ length: currentYear - 2023 }, (_, i) => 2024 + i).map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
           <div className="relative ml-auto">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input

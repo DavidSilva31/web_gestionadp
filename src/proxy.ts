@@ -17,6 +17,9 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Las rutas /api nunca pasan por auth ni redirecciones
+  if (pathname.startsWith('/api/')) return NextResponse.next({ request })
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -72,9 +75,6 @@ export async function proxy(request: NextRequest) {
   const role               = (profile?.role ?? 'operador') as UserRole
   const permisos           = (profile?.permisos ?? null) as string[] | null
   const mustChangePassword = profile?.must_change_password === true
-
-  // Las rutas /api nunca se bloquean por permisos ni por must_change_password
-  if (pathname.startsWith('/api/')) return supabaseResponse
 
   // Si debe cambiar contraseña, solo puede acceder a /configuracion
   if (mustChangePassword && !pathname.startsWith('/configuracion')) {

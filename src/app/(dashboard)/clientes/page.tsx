@@ -44,6 +44,7 @@ export default function ClientesPage() {
   const [search,     setSearch]     = useState("")
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState<string | null>(null)
+  const [fetchError, setFetchError] = useState<string | null>(null)
 
   // Dialog: null = cerrado, "new" = nuevo, Cliente = editar
   const [dialog,     setDialog]     = useState<null | "new" | Cliente>(null)
@@ -51,11 +52,13 @@ export default function ClientesPage() {
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)
+    setFetchError(null)
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error: err } = await supabase
       .from("clientes")
       .select("*")
       .order("numero", { ascending: true })
+    if (err) { setFetchError(err.message); setLoading(false); return }
     if (data) setClientes(data as Cliente[])
     setLoading(false)
   }, [])
@@ -127,6 +130,12 @@ export default function ClientesPage() {
           Nuevo cliente
         </Button>
       </PageHeader>
+
+      {fetchError && (
+        <div className="mx-4 sm:mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+          Error al cargar clientes: {fetchError}
+        </div>
+      )}
 
       {/* Search */}
       <div className="px-4 sm:px-6 pt-4 pb-3 flex-shrink-0">

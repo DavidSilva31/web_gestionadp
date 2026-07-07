@@ -211,7 +211,7 @@ export function Topbar() {
   const initials    = profile?.nombre
     ? profile.nombre.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()
     : "AD"
-  const displayName = profile?.nombre?.split(" ")[0] ?? "Admin"
+  const displayName = profile?.nombre ?? "Admin"
 
   // ── Búsqueda global con debounce ───────────────────────────────────────────
   useEffect(() => {
@@ -433,13 +433,13 @@ export function Topbar() {
 
         <Separator orientation="vertical" className="h-4 bg-border/60 mx-0.5" />
 
-        <div className="flex items-center gap-2 pl-1 cursor-pointer group">
+        <div className="flex items-center gap-2 pl-1">
           <Avatar className="h-6 w-6">
             <AvatarFallback className="bg-primary text-[9px] font-bold text-primary-foreground">
               {initials}
             </AvatarFallback>
           </Avatar>
-          <span className="text-[12px] font-medium text-foreground hidden sm:block group-hover:text-primary transition-colors">
+          <span className="text-[12px] font-medium text-foreground hidden sm:block">
             {displayName}
           </span>
         </div>

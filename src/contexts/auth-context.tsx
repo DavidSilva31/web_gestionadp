@@ -76,10 +76,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
-    setUser(null)
-    setProfile(null)
-    router.replace("/login")
-  }, [router])
+    // onAuthStateChange "SIGNED_OUT" handles state reset and navigation
+  }, [])
 
   return (
     <AuthContext.Provider value={{ user, profile, role: profile?.role ?? null, loading, signOut }}>

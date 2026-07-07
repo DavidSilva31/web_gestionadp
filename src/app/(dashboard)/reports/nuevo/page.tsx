@@ -6,73 +6,17 @@ import { ArrowLeft, Save, Send, ChevronRight, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
+import type { ReportFormData } from "@/components/reports/report-form-types"
+import { Field, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
 
-type TipoMovimiento = "ingreso" | "despacho"
-type TipoContenedor = "20ft" | "40ft" | "isotanque"
-type SolicitadoPor  = "clientes" | "hds" | "operaciones" | "cuyd"
-
-interface FormData {
-  // Antecedentes
-  cliente:            string
-  cliente_id:         string
-  fecha:              string
-  patente:            string
-  conductor:          string
-  rut_conductor:      string
-  empresa_transporte: string
-  hds_header:         boolean
-
-  // Sección 1
-  sec1_activa:          boolean
-  sec1_tipo_movimiento: TipoMovimiento | ""
-  sec1_tipo_contenedor: TipoContenedor | ""
-  sec1_carga_normal:    boolean
-  sec1_carga_imo:       boolean
-  sec1_clase_imo:       string
-  sec1_nu:              string
-  sec1_hora_inicio:     string
-  sec1_hora_termino:    string
-  sec1_sigla:           string
-  sec1_guia_numero:     string
-  sec1_interchange:     string
-  sec1_hds:             boolean
-
-  // Sección 2
-  sec2_activa:         boolean
-  sec2_consolidado:    boolean
-  sec2_desconsolidado: boolean
-  sec2_picking:        boolean
-  sec2_paletizado:     boolean
-  sec2_etiquetado:     boolean
-  sec2_otro:           boolean
-  sec2_hora_inicio:    string
-  sec2_hora_termino:   string
-  sec2_sigla_numero:   string
-  sec2_observaciones:  string
-
-  // Sección 3
-  sec3_activa:              boolean
-  sec3_inventario_item_id:  string
-  sec3_producto:            string
-  sec3_clase_imo:       string
-  sec3_hora_inicio:     string
-  sec3_hora_termino:    string
-  sec3_numero_bodega:   string
-  sec3_nu:              string
-  sec3_tipo:            TipoMovimiento | ""
-  sec3_numero_pallets:  string
-  sec3_numero_guia:     string
-  sec3_solicitado_por:  SolicitadoPor | ""
-  sec3_cuyd_detalle:    string
-  sec3_observaciones:   string
-
-  nombre_operador: string
+interface FormData extends ReportFormData {
+  cliente_id:              string
+  sec3_inventario_item_id: string
 }
 
 const INITIAL: FormData = {
@@ -99,39 +43,6 @@ const TABS: { key: Tab; label: string; subtitle: string }[] = [
   { key: "sec2",         label: "Sección 2",              subtitle: "Consolidado / Desconsolidado / Otros"   },
   { key: "sec3",         label: "Sección 3",              subtitle: "Bodegaje"                               },
 ]
-
-function Field({ label, required, children, className }: { label: string; required?: boolean; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn("flex flex-col gap-1", className)}>
-      <Label className="text-xs font-medium text-gray-600">
-        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
-      </Label>
-      {children}
-    </div>
-  )
-}
-
-function RadioGroup<T extends string>({ value, onChange, options, vertical }: { value: T | ""; onChange: (v: T) => void; options: { value: T; label: string }[]; vertical?: boolean }) {
-  return (
-    <div className={vertical ? "flex flex-col gap-2" : "flex gap-3"}>
-      {options.map(opt => (
-        <label
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          className="flex items-center gap-1.5 cursor-pointer group select-none"
-        >
-          <div className={cn(
-            "h-4 w-4 rounded-full border-2 flex items-center justify-center transition-colors",
-            value === opt.value ? "border-[oklch(0.35_0.12_240)] bg-[oklch(0.35_0.12_240)]" : "border-gray-300 group-hover:border-gray-400"
-          )}>
-            {value === opt.value && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-          </div>
-          <span className="text-xs text-gray-700">{opt.label}</span>
-        </label>
-      ))}
-    </div>
-  )
-}
 
 interface ClienteOption { id: string; nombre: string; rut: string }
 
@@ -406,19 +317,31 @@ export default function NuevoReportPage() {
       form.sec3_inventario_item_id &&
       form.sec3_tipo
     ) {
-      const delta    = Number(form.sec3_numero_pallets) || 1
-      // Operación atómica: evita race condition entre reports concurrentes
+      const delta = Number(form.sec3_numero_pallets)
+      if (!delta || delta <= 0) {
+        await supabase.from("reports").delete().eq("id", inserted.id)
+        setError("Número de pallets debe ser mayor a 0. El report no fue guardado.")
+        setSaving(false)
+        return
+      }
       const signedDelta = form.sec3_tipo === "ingreso" ? delta : -delta
 
-      await supabase.rpc("update_stock", {
+      const { error: rpcErr } = await supabase.rpc("update_stock", {
         item_id: form.sec3_inventario_item_id,
         delta:   signedDelta,
       })
+      if (rpcErr) {
+        await supabase.from("reports").delete().eq("id", inserted.id)
+        setError("Error al actualizar stock. El report no fue guardado.")
+        setSaving(false)
+        return
+      }
 
       const invAccion = form.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
       const invDesc   = `Stock ${form.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${form.sec3_producto}`
 
-      await logAudit({
+      // fire-and-forget — audit failures no bloquean el flujo
+      logAudit({
         tabla:          "inventario_items",
         registro_id:    form.sec3_inventario_item_id,
         accion:         invAccion,
@@ -426,8 +349,7 @@ export default function NuevoReportPage() {
         usuario_id:     user?.id,
         usuario_nombre: profile?.nombre ?? user?.email,
       })
-
-      await logAudit({
+      logAudit({
         tabla:          "reports",
         registro_id:    inserted.id,
         accion:         invAccion,
@@ -437,7 +359,8 @@ export default function NuevoReportPage() {
       })
     }
 
-    await logAudit({
+    // fire-and-forget
+    logAudit({
       tabla:          "reports",
       registro_id:    inserted.id,
       accion:         estado === "borrador" ? "report.crear_borrador" : "report.enviar_despacho",
@@ -557,225 +480,34 @@ export default function NuevoReportPage() {
             )}
 
             {tab === "sec1" && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox id="sec1_activa" checked={form.sec1_activa} onCheckedChange={v => set("sec1_activa", v === true)} className="h-3.5 w-3.5" />
-                  <label htmlFor="sec1_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">Activar Sección 1 — Depósito de Contenedores</label>
-                </div>
-
-                <div className={cn("space-y-4 transition-opacity", !form.sec1_activa && "opacity-40 pointer-events-none")}>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Tipo de movimiento">
-                      <RadioGroup<TipoMovimiento>
-                        value={form.sec1_tipo_movimiento}
-                        onChange={v => set("sec1_tipo_movimiento", v)}
-                        options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]}
-                      />
-                    </Field>
-                    <Field label="Tipo de contenedor">
-                      <RadioGroup<TipoContenedor>
-                        value={form.sec1_tipo_contenedor}
-                        onChange={v => set("sec1_tipo_contenedor", v)}
-                        options={[{ value: "20ft", label: "20ft" }, { value: "40ft", label: "40ft" }, { value: "isotanque", label: "Isotanque" }]}
-                      />
-                    </Field>
-                  </div>
-
-                  <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-2">
-                      <Checkbox id="sec1_carga_normal" checked={form.sec1_carga_normal} onCheckedChange={v => set("sec1_carga_normal", v === true)} className="h-3.5 w-3.5" />
-                      <label htmlFor="sec1_carga_normal" className="text-xs text-gray-700 cursor-pointer">Carga normal</label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox id="sec1_carga_imo" checked={form.sec1_carga_imo} onCheckedChange={v => set("sec1_carga_imo", v === true)} className="h-3.5 w-3.5" />
-                      <label htmlFor="sec1_carga_imo" className="text-xs text-gray-700 cursor-pointer">Carga IMO</label>
-                    </div>
-                  </div>
-
-                  {form.sec1_carga_imo && (
-                    <div className="grid grid-cols-2 gap-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                      <Field label="Clase IMO">
-                        <Input value={form.sec1_clase_imo} onChange={e => setUpper("sec1_clase_imo", e.target.value)} placeholder="Ej: 3, 6.1, 8..." className="h-8 text-xs" />
-                      </Field>
-                      <Field label="NU">
-                        <Input value={form.sec1_nu} onChange={e => setUpper("sec1_nu", e.target.value)} placeholder="" className="h-8 text-xs font-mono" />
-                      </Field>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Hora inicio">
-                      <Input type="time" value={form.sec1_hora_inicio} onChange={e => set("sec1_hora_inicio", e.target.value)} className="h-8 text-xs" />
-                    </Field>
-                    <Field label="Hora término">
-                      <Input type="time" value={form.sec1_hora_termino} onChange={e => set("sec1_hora_termino", e.target.value)} className="h-8 text-xs" />
-                    </Field>
-                    <Field label="Sigla">
-                      <Input value={form.sec1_sigla} onChange={e => setUpper("sec1_sigla", e.target.value)} placeholder="Sigla del contenedor" className="h-8 text-xs" />
-                    </Field>
-                    <Field label="N° Guía">
-                      <Input value={form.sec1_guia_numero} onChange={e => setUpper("sec1_guia_numero", e.target.value)} placeholder="Número de guía" className="h-8 text-xs" />
-                    </Field>
-                    <Field label="Interchange">
-                      <Input value={form.sec1_interchange} onChange={e => setUpper("sec1_interchange", e.target.value)} placeholder="N° Interchange" className="h-8 text-xs" />
-                    </Field>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="sec1_hds" checked={form.sec1_hds} onCheckedChange={v => set("sec1_hds", v === true)} className="h-3.5 w-3.5" />
-                    <label htmlFor="sec1_hds" className="text-xs text-gray-700 cursor-pointer">HDS adjunto</label>
-                  </div>
-                </div>
-              </div>
+              <Sec1Content form={form} set={set as unknown as FormSetter} readOnly={false} toUpperCase />
             )}
 
             {tab === "sec2" && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox id="sec2_activa" checked={form.sec2_activa} onCheckedChange={v => set("sec2_activa", v === true)} className="h-3.5 w-3.5" />
-                  <label htmlFor="sec2_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">Activar Sección 2 — Consolidado / Desconsolidado / Otros</label>
-                </div>
-
-                <div className={cn("space-y-4 transition-opacity", !form.sec2_activa && "opacity-40 pointer-events-none")}>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg">
-                    {([
-                      ["sec2_consolidado",    "Consolidado"],
-                      ["sec2_desconsolidado", "Desconsolidado"],
-                      ["sec2_picking",        "Picking"],
-                      ["sec2_paletizado",     "Paletizado"],
-                      ["sec2_etiquetado",     "Etiquetado"],
-                      ["sec2_otro",           "Otro"],
-                    ] as [keyof FormData, string][]).map(([key, label]) => (
-                      <div key={key} className="flex items-center gap-2">
-                        <Checkbox
-                          id={key}
-                          checked={form[key] as boolean}
-                          onCheckedChange={v => set(key, v === true as FormData[typeof key])}
-                          className="h-3.5 w-3.5"
-                        />
-                        <label htmlFor={key} className="text-xs text-gray-700 cursor-pointer">{label}</label>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Hora inicio">
-                      <Input type="time" value={form.sec2_hora_inicio} onChange={e => set("sec2_hora_inicio", e.target.value)} className="h-8 text-xs" />
-                    </Field>
-                    <Field label="Hora término">
-                      <Input type="time" value={form.sec2_hora_termino} onChange={e => set("sec2_hora_termino", e.target.value)} className="h-8 text-xs" />
-                    </Field>
-                    <Field label="Sigla / N°" className="col-span-2">
-                      <Input value={form.sec2_sigla_numero} onChange={e => setUpper("sec2_sigla_numero", e.target.value)} placeholder="Sigla o número" className="h-8 text-xs" />
-                    </Field>
-                    <Field label="Observaciones" className="col-span-2">
-                      <textarea
-                        value={form.sec2_observaciones}
-                        onChange={e => setUpper("sec2_observaciones", e.target.value)}
-                        placeholder="Observaciones adicionales..."
-                        rows={3}
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </Field>
-                  </div>
-                </div>
-              </div>
+              <Sec2Content form={form} set={set as unknown as FormSetter} readOnly={false} toUpperCase />
             )}
 
             {tab === "sec3" && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox id="sec3_activa" checked={form.sec3_activa} onCheckedChange={v => set("sec3_activa", v === true)} className="h-3.5 w-3.5" />
-                  <label htmlFor="sec3_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">Activar Sección 3 — Bodegaje</label>
-                </div>
-
-                <div className={cn("space-y-4 transition-opacity", !form.sec3_activa && "opacity-40 pointer-events-none")}>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Producto" className="col-span-2 sm:col-span-2">
-                      <ProductoCombobox
-                        clienteId={form.cliente_id}
-                        value={form.sec3_producto}
-                        onChange={v => set("sec3_producto", v)}
-                        onSelect={item => setForm(prev => ({
-                          ...prev,
-                          sec3_inventario_item_id: item.id,
-                          sec3_producto:           item.descripcion,
-                          sec3_clase_imo:          item.clase_imo ?? "",
-                          sec3_nu:                 item.nu        ?? "",
-                        }))}
-                      />
-                    </Field>
-                    <Field label="Clase IMO">
-                      <Input value={form.sec3_clase_imo} onChange={e => setUpper("sec3_clase_imo", e.target.value)} placeholder="Clase IMO si aplica" className="h-8 text-xs" />
-                    </Field>
-                    <Field label="NU">
-                      <Input value={form.sec3_nu} onChange={e => setUpper("sec3_nu", e.target.value)} placeholder="" className="h-8 text-xs font-mono" />
-                    </Field>
-                    <Field label="Hora inicio">
-                      <Input type="time" value={form.sec3_hora_inicio} onChange={e => set("sec3_hora_inicio", e.target.value)} className="h-8 text-xs" />
-                    </Field>
-                    <Field label="Hora término">
-                      <Input type="time" value={form.sec3_hora_termino} onChange={e => set("sec3_hora_termino", e.target.value)} className="h-8 text-xs" />
-                    </Field>
-                    <Field label="N° Bodega">
-                      <Input value={form.sec3_numero_bodega} onChange={e => setUpper("sec3_numero_bodega", e.target.value)} placeholder="Número de bodega" className="h-8 text-xs" />
-                    </Field>
-                    <Field label="N° Guía" className="col-span-2">
-                      <Input value={form.sec3_numero_guia} onChange={e => setUpper("sec3_numero_guia", e.target.value)} placeholder="Número de guía" className="h-8 text-xs" />
-                    </Field>
-
-                    {/* Tipo de movimiento + N° Pallets + Solicitado por — encima de observaciones */}
-                    <div className="col-span-2 flex flex-wrap items-start gap-6 sm:gap-8 pt-1">
-                      <Field label="Tipo de movimiento">
-                        <RadioGroup<TipoMovimiento>
-                          value={form.sec3_tipo}
-                          onChange={v => set("sec3_tipo", v)}
-                          options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]}
-                          vertical
-                        />
-                      </Field>
-                      <Field label="N° Pallets">
-                        <Input type="number" min={0} value={form.sec3_numero_pallets} onChange={e => set("sec3_numero_pallets", e.target.value)} placeholder="0" className="h-8 text-xs w-28" />
-                      </Field>
-                      <Field label="Solicitado por">
-                        <select
-                          value={form.sec3_solicitado_por}
-                          onChange={e => {
-                            set("sec3_solicitado_por", e.target.value as SolicitadoPor)
-                            if (e.target.value !== "cuyd") set("sec3_cuyd_detalle", "")
-                          }}
-                          className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                        >
-                          <option value="">Seleccionar...</option>
-                          <option value="clientes">Clientes</option>
-                          <option value="hds">HDS</option>
-                          <option value="operaciones">Operaciones</option>
-                          <option value="cuyd">CUyD</option>
-                        </select>
-                        {form.sec3_solicitado_por === "cuyd" && (
-                          <Input
-                            value={form.sec3_cuyd_detalle}
-                            onChange={e => setUpper("sec3_cuyd_detalle", e.target.value)}
-                            placeholder="Detalle CUyD..."
-                            className="h-7 text-xs mt-1.5 w-36"
-                          />
-                        )}
-                      </Field>
-                    </div>
-
-                    <Field label="Observaciones" className="col-span-2">
-                      <textarea
-                        value={form.sec3_observaciones}
-                        onChange={e => setUpper("sec3_observaciones", e.target.value)}
-                        placeholder="Observaciones adicionales..."
-                        rows={3}
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </Field>
-                  </div>
-
-                </div>
-              </div>
+              <Sec3Content
+                form={form}
+                set={set as unknown as FormSetter}
+                readOnly={false}
+                toUpperCase
+                productoNode={
+                  <ProductoCombobox
+                    clienteId={form.cliente_id}
+                    value={form.sec3_producto}
+                    onChange={v => set("sec3_producto", v)}
+                    onSelect={item => setForm(prev => ({
+                      ...prev,
+                      sec3_inventario_item_id: item.id,
+                      sec3_producto:           item.descripcion,
+                      sec3_clase_imo:          item.clase_imo ?? "",
+                      sec3_nu:                 item.nu        ?? "",
+                    }))}
+                  />
+                }
+              />
             )}
           </div>
 

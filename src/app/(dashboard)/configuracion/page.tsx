@@ -46,7 +46,7 @@ const MODULE_OPTIONS = [
   { href: "/inventario",       label: "Inventario",  group: "Módulos principales"     },
   { href: "/movimientos",      label: "Movimientos", group: "Módulos principales"     },
   { href: "/clientes",         label: "Clientes",    group: "Módulos principales"     },
-  { href: "/reportes",         label: "Reportes",    group: "Módulos principales"     },
+  { href: "/reportes",         label: "Analítica",   group: "Módulos principales"     },
   { href: "/hes",              label: "HES",         group: "Módulos principales"     },
   { href: "/reports",          label: "Reports",     group: "Servicio almacenamiento" },
   { href: "/reports/despacho", label: "Despacho",    group: "Servicio almacenamiento" },
@@ -172,9 +172,10 @@ export default function ConfiguracionPage() {
   useEffect(() => { if (profile?.must_change_password) setTab("perfil") }, [profile?.must_change_password])
 
   async function handleSavePerfil() {
+    if (!user) return
     setSavingPerfil(true); setPerfilMsg(null)
     const supabase = createClient()
-    const { error } = await supabase.from("profiles").update({ nombre }).eq("id", user!.id)
+    const { error } = await supabase.from("profiles").update({ nombre }).eq("id", user.id)
     setSavingPerfil(false)
     setPerfilMsg(error ? { ok: false, text: error.message } : { ok: true, text: "Perfil actualizado correctamente" })
   }
@@ -184,21 +185,22 @@ export default function ConfiguracionPage() {
     if (newPass.length < 8)      { setPassMsg({ ok: false, text: "Mínimo 8 caracteres" });          return }
     setSavingPass(true); setPassMsg(null)
     const supabase = createClient()
+    const { error } = await supabase.auth.updateUser({ password: newPass })
+    if (error) {
+      setSavingPass(false)
+      setPassMsg({ ok: false, text: error.message })
+      return
+    }
     const flagRes  = await fetch("/api/auth/clear-password-flag", { method: "POST" })
     const flagJson = await flagRes.json()
+    setSavingPass(false)
     if (!flagRes.ok) {
-      setSavingPass(false)
       setPassMsg({ ok: false, text: `Error al actualizar: ${flagJson.error ?? flagRes.status}` })
       return
     }
-    const { error } = await supabase.auth.updateUser({ password: newPass })
-    setSavingPass(false)
-    if (error) { setPassMsg({ ok: false, text: error.message }) }
-    else {
-      setPassMsg({ ok: true, text: "Contraseña actualizada" })
-      setNewPass("")
-      setConfirmPass("")
-    }
+    setPassMsg({ ok: true, text: "Contraseña actualizada" })
+    setNewPass("")
+    setConfirmPass("")
   }
 
   /* ── Usuarios ── */
@@ -369,7 +371,7 @@ export default function ConfiguracionPage() {
 
       {/* ── Contenido ── */}
       <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-8 py-8 space-y-6">
+        <div className="max-w-6xl mx-auto px-8 py-8 space-y-6">
 
           {/* ─── Tab Perfil ─── */}
           {tab === "perfil" && (
@@ -510,51 +512,66 @@ export default function ConfiguracionPage() {
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <table className="w-full text-sm">
-                  <thead className="border-b bg-muted/30">
-                    <tr>
-                      <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Usuario</th>
-                      <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Email</th>
-                      <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-40">Rol</th>
-                      <th className="text-left px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-28">Estado</th>
-                      <th className="px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-24 text-center">Accesos</th>
-                      <th className="px-5 py-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-24 text-right">Alta</th>
-                      <th className="px-5 py-3 w-12"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
+                <div>
+                  {/* Cabecera columnas */}
+                  <div className="flex items-center gap-3 px-6 py-2.5 border-b bg-muted/30">
+                    <div className="flex-1 min-w-0 pl-11 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Usuario</div>
+                    <div className="hidden sm:block w-36 flex-shrink-0 text-[10px] font-bold text-muted-foreground uppercase tracking-widest text-center">Rol</div>
+                    <div className="w-24 flex-shrink-0 text-[10px] font-bold text-muted-foreground uppercase tracking-widest text-center">Estado</div>
+                    <div className="hidden lg:block w-24 flex-shrink-0 text-[10px] font-bold text-muted-foreground uppercase tracking-widest text-center">Accesos</div>
+                    <div className="w-8 flex-shrink-0" />
+                  </div>
+
+                  {/* Filas */}
+                  <div className="divide-y divide-border">
+                    {users.length === 0 && (
+                      <p className="px-6 py-12 text-center text-sm text-muted-foreground">No hay usuarios registrados</p>
+                    )}
                     {users.map(u => (
-                      <tr key={u.id} className="hover:bg-muted/20 transition-colors">
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-8 w-8 flex-shrink-0">
-                              <AvatarFallback className={cn(
-                                "text-xs font-bold text-white",
-                                u.id === user?.id ? "bg-[oklch(0.35_0.12_240)]" : "bg-slate-400"
-                              )}>
-                                {initials(u.nombre)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
+                      <div key={u.id} className="flex items-center gap-3 px-6 py-3.5 hover:bg-muted/20 transition-colors">
+
+                        {/* Identidad */}
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <Avatar className="h-8 w-8 flex-shrink-0">
+                            <AvatarFallback className={cn(
+                              "text-xs font-bold text-white",
+                              u.id === user?.id ? "bg-[oklch(0.35_0.12_240)]" : "bg-slate-400"
+                            )}>
+                              {initials(u.nombre)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="font-semibold text-foreground text-xs leading-none">{u.nombre}</p>
-                              {u.id === user?.id && <span className="text-[10px] text-muted-foreground">tú</span>}
+                              {u.id === user?.id && (
+                                <span className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground leading-none">tú</span>
+                              )}
                             </div>
+                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{u.email}</p>
+                            {/* Rol en mobile (sm-) */}
+                            <p className="text-[10px] text-muted-foreground/70 mt-0.5 sm:hidden">{ROLE_LABELS[u.role]}</p>
                           </div>
-                        </td>
-                        <td className="px-5 py-3.5 text-xs text-muted-foreground">{u.email}</td>
-                        <td className="px-5 py-3.5">
+                        </div>
+
+                        {/* Rol — select en sm+ */}
+                        <div className="hidden sm:block w-36 flex-shrink-0">
                           {savingRoleId === u.id
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground mx-auto" />
                             : (
-                              <select value={u.role} disabled={u.id === user?.id}
+                              <select
+                                value={u.role}
+                                disabled={u.id === user?.id}
                                 onChange={e => handleChangeRole(u.id, e.target.value as UserRole)}
-                                className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed w-full">
+                                className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
                                 {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                               </select>
                             )
                           }
-                        </td>
-                        <td className="px-5 py-3.5">
+                        </div>
+
+                        {/* Estado */}
+                        <div className="w-24 flex-shrink-0 flex justify-center">
                           <button
                             onClick={() => u.id !== user?.id && handleToggleActivo(u)}
                             disabled={togglingId === u.id || u.id === user?.id}
@@ -573,12 +590,13 @@ export default function ConfiguracionPage() {
                                 : <><XCircle className="h-3 w-3" />Inactivo</>
                             }
                           </button>
-                        </td>
-                        <td className="px-5 py-3.5 text-center">
+                        </div>
+
+                        {/* Accesos — lg+ */}
+                        <div className="hidden lg:flex w-24 flex-shrink-0 justify-center">
                           {u.role === "super_admin" ? (
                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                              <ShieldCheck className="h-3 w-3" />
-                              Todos
+                              <ShieldCheck className="h-3 w-3" />Todos
                             </span>
                           ) : (
                             <button
@@ -595,11 +613,10 @@ export default function ConfiguracionPage() {
                               {u.permisos ? `${u.permisos.length}` : "Rol"}
                             </button>
                           )}
-                        </td>
-                        <td className="px-5 py-3.5 text-[11px] text-muted-foreground text-right whitespace-nowrap">
-                          {new Date(u.created_at).toLocaleDateString("es-CL")}
-                        </td>
-                        <td className="px-3 py-3.5 text-center">
+                        </div>
+
+                        {/* Eliminar */}
+                        <div className="w-8 flex-shrink-0 flex justify-center">
                           {u.id !== user?.id && (
                             <button
                               onClick={() => { setDeleteMsg(null); setDeleteTarget(u) }}
@@ -609,14 +626,12 @@ export default function ConfiguracionPage() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           )}
-                        </td>
-                      </tr>
+                        </div>
+
+                      </div>
                     ))}
-                    {users.length === 0 && (
-                      <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-muted-foreground">No hay usuarios registrados</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                  </div>
+                </div>
               )}
             </div>
           )}

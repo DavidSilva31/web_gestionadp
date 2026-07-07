@@ -41,7 +41,7 @@ const ALL_NAV_ITEMS = [
   { href: "/servicios",        label: "Servicios",   icon: Wrench,          group: "main"    },
   { href: "/movimientos",      label: "Movimientos", icon: ArrowLeftRight,  group: "main"    },
   { href: "/clientes",         label: "Clientes",    icon: Users,           group: "main"    },
-  { href: "/reportes",         label: "Reportes",    icon: BarChart3,       group: "main"    },
+  { href: "/reportes",         label: "Analítica",   icon: BarChart3,       group: "main"    },
   { href: "/hes",              label: "HES",         icon: FileSpreadsheet, group: "main"    },
   { href: "/reports",          label: "Reports",     icon: ClipboardList,   group: "reports" },
   { href: "/reports/despacho", label: "Despacho",    icon: Truck,           group: "reports" },
@@ -64,7 +64,6 @@ function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] 
     <SidebarMenuItem>
       <SidebarMenuButton
         render={<Link href={item.href} />}
-        isActive={isActive}
         className={cn(
           "h-10 w-full rounded-lg font-medium transition-all flex items-center gap-3 px-3",
           isActive
@@ -82,6 +81,7 @@ function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] 
 
 export function AppSidebar() {
   const { profile, role, signOut } = useAuth()
+  const pathname = usePathname()
 
   const effectiveRole = role ?? 'operador'
   const navItems = ALL_NAV_ITEMS.filter(item => {
@@ -160,10 +160,16 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               render={<Link href="/configuracion" />}
-              className="h-10 w-full rounded-lg text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground flex items-center gap-3 px-3"
+              className={cn(
+                "h-10 w-full rounded-lg font-medium transition-all flex items-center gap-3 px-3",
+                pathname === "/configuracion"
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              )}
             >
               <Settings className="h-4 w-4 flex-shrink-0" />
               <span>Configuración</span>
+              {pathname === "/configuracion" && <ChevronRight className="ml-auto h-3 w-3 opacity-60" />}
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
