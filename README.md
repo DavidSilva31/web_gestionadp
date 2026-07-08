@@ -267,6 +267,17 @@ src/
 
 ---
 
+## Scripts SQL (`supabase/`)
+
+| Archivo | Descripción |
+|---|---|
+| `schema.sql` | Esquema completo de la base de datos (tablas, funciones, RLS, triggers) |
+| `demo_data.sql` | Datos de demostración (Brenntag, BASF, Air Liquide) |
+| `demo_data_cleanup.sql` | Limpieza de datos demo — ejecutar antes de pasar a producción |
+| `supabase_security_fixes.sql` | Fixes de seguridad aplicados (search_path, REVOKE, RLS policies) |
+
+---
+
 ## Base de datos (Supabase)
 
 Tablas principales:
@@ -300,6 +311,14 @@ El proyecto está configurado para desplegarse en Netlify usando `@netlify/plugi
 4. El deploy se dispara automáticamente con cada push a `main`
 
 El archivo `netlify.toml` en la raíz del proyecto define la configuración de build y el plugin.
+
+---
+
+## AI Skills (`.agents/skills/`)
+
+Skills instaladas vía `npx autoskills` para asistir al desarrollo con Claude Code:
+
+`supabase-postgres-best-practices` · `next-best-practices` · `next-cache-components` · `next-upgrade` · `shadcn` · `react-best-practices` · `composition-patterns` · `typescript-advanced-types` · `nodejs-backend-patterns` · `nodejs-best-practices` · `tailwind-css-patterns` · `frontend-design` · `accessibility` · `seo`
 
 ---
 
