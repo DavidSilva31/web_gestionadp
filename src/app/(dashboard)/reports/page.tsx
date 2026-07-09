@@ -312,36 +312,36 @@ export default function ReportsPage() {
       )}
 
       {/* Stats */}
-      <div className="flex gap-3 px-6 pt-4 pb-3 flex-shrink-0">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 px-4 sm:px-6 pt-4 pb-3 flex-shrink-0">
         {[
-          { icon: <FileText className="h-4 w-4 text-[oklch(0.35_0.12_240)]" />, bg: "bg-[oklch(0.35_0.12_240)]/10", count: counts.todos,              label: "Total reports"   },
-          { icon: <Clock className="h-4 w-4 text-amber-600" />,                 bg: "bg-amber-50",                   count: counts.pendiente_despacho, label: "Pend. despacho" },
-          { icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,        bg: "bg-emerald-50",                 count: counts.despachado,         label: "Despachados"    },
+          { icon: <FileText className="h-4 w-4 text-[oklch(0.35_0.12_240)]" />, bg: "bg-[oklch(0.35_0.12_240)]/10", count: counts.todos,              label: "Total"          },
+          { icon: <Clock className="h-4 w-4 text-amber-600" />,                 bg: "bg-amber-50 dark:bg-amber-900/20", count: counts.pendiente_despacho, label: "Pendientes" },
+          { icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,        bg: "bg-emerald-50 dark:bg-emerald-900/20", count: counts.despachado,  label: "Despachados"    },
         ].map(s => (
-          <div key={s.label} className="flex-1 bg-card rounded-lg border p-3 flex items-center gap-3">
-            <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0", s.bg)}>{s.icon}</div>
-            <div>
-              <p className="text-lg font-bold text-foreground leading-none">{loading ? "—" : s.count}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
+          <div key={s.label} className="bg-card rounded-lg border p-2.5 sm:p-3 flex items-center gap-2 sm:gap-3">
+            <div className={cn("h-8 w-8 sm:h-10 sm:w-10 rounded-lg flex items-center justify-center flex-shrink-0", s.bg)}>{s.icon}</div>
+            <div className="min-w-0">
+              <p className="text-base sm:text-lg font-bold text-foreground leading-none">{loading ? "—" : s.count}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 truncate">{s.label}</p>
             </div>
           </div>
         ))}
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 px-6 pb-3 flex-shrink-0 overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-6 pb-3 flex-shrink-0">
         <div className="flex gap-1 bg-muted rounded-lg p-0.5 flex-shrink-0">
           {TABS.map(tab => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                "flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition-all",
                 activeTab === tab.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               )}
             >
               {tab.icon}
-              {tab.label}
+              <span className="hidden sm:inline">{tab.label}</span>
               <span className={cn(
                 "ml-0.5 px-1.5 rounded-full text-[10px] font-semibold",
                 activeTab === tab.key ? "bg-[oklch(0.35_0.12_240)] text-white" : "bg-muted-foreground/20 text-muted-foreground"
@@ -351,9 +351,9 @@ export default function ReportsPage() {
             </button>
           ))}
         </div>
-        <div className="relative flex-1 max-w-xs ml-auto">
+        <div className="relative flex-1 min-w-[140px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input placeholder="Buscar por patente, cliente, conductor o N°..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs" />
+          <Input placeholder="Buscar patente, cliente, N°..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs w-full" />
         </div>
       </div>
 

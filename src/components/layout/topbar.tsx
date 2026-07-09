@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import {
   Bell, Search, ArrowDownCircle, ArrowUpCircle, FileText,
-  Loader2, CheckCheck, Package, Users, ArrowLeftRight, ClipboardList,
+  Loader2, CheckCheck, Package, Users, ArrowLeftRight, ClipboardList, X,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -201,12 +201,14 @@ export function Topbar() {
   const bellRef  = useRef<HTMLButtonElement>(null)
 
   // Búsqueda
-  const [query,      setQuery]      = useState("")
-  const [results,    setResults]    = useState<GroupedResults | null>(null)
-  const [searching,  setSearching]  = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
+  const [query,            setQuery]            = useState("")
+  const [results,          setResults]          = useState<GroupedResults | null>(null)
+  const [searching,        setSearching]        = useState(false)
+  const [searchOpen,       setSearchOpen]       = useState(false)
+  const [mobileSearch,     setMobileSearch]     = useState(false)
   const searchRef    = useRef<HTMLDivElement>(null)
   const inputRef     = useRef<HTMLInputElement>(null)
+  const mobileInputRef = useRef<HTMLInputElement>(null)
 
   const initials    = profile?.nombre
     ? profile.nombre.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()
@@ -251,7 +253,13 @@ export function Topbar() {
     setQuery("")
     setResults(null)
     setSearchOpen(false)
+    setMobileSearch(false)
   }, [])
+
+  function openMobileSearch() {
+    setMobileSearch(true)
+    setTimeout(() => mobileInputRef.current?.focus(), 50)
+  }
 
   // ── Notificaciones ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -273,12 +281,13 @@ export function Topbar() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <header className="relative flex h-[52px] items-center border-b border-border/60 bg-background px-3 sm:px-4 flex-shrink-0 z-20">
+    <header className="relative border-b border-border/60 bg-background flex-shrink-0 z-20">
+      <div className="flex h-[52px] items-center px-3 sm:px-4">
 
       {/* Hamburguesa — solo móvil */}
       <SidebarTrigger className="md:hidden mr-1 h-8 w-8" />
 
-      {/* Buscador — centrado absolutamente */}
+      {/* Buscador — centrado absolutamente en desktop */}
       <div
         ref={searchRef}
         className="absolute left-1/2 -translate-x-1/2 hidden sm:block"
@@ -328,6 +337,14 @@ export function Topbar() {
 
       {/* Controles — derecha */}
       <div className="ml-auto flex items-center gap-1.5">
+        {/* Buscar — solo móvil */}
+        <button
+          onClick={openMobileSearch}
+          className="sm:hidden h-7 w-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+        >
+          <Search className="h-3.5 w-3.5" />
+        </button>
+
         <ThemeToggle />
 
         {/* Campana */}
@@ -444,6 +461,54 @@ export function Topbar() {
           </span>
         </div>
       </div>
+      </div>{/* end flex h-[52px] */}
+
+      {/* Buscador expandido — solo móvil */}
+      {mobileSearch && (
+        <div className="sm:hidden px-3 pb-2 border-t border-border/40 pt-2">
+          <div className="relative">
+            {searching
+              ? <Loader2 className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 animate-spin" />
+              : <Search  className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+            }
+            <Input
+              ref={mobileInputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Buscar clientes, inventario..."
+              className="h-8 pl-8 pr-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1 rounded-lg w-full"
+            />
+            <button
+              onClick={clearSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {searchOpen && (
+            <div className="mt-1 rounded-xl border border-border/60 bg-background shadow-lg overflow-hidden max-h-80 overflow-y-auto">
+              {searching ? (
+                <div className="flex items-center justify-center py-6 gap-2 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-xs">Buscando...</span>
+                </div>
+              ) : results && totalResults(results) === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 gap-1.5">
+                  <Search className="h-6 w-6 text-muted-foreground/30" />
+                  <p className="text-xs text-muted-foreground">Sin resultados para "{query}"</p>
+                </div>
+              ) : results ? (
+                <div className="divide-y divide-border/30">
+                  <SearchResultGroup label="Clientes"    results={results.clientes}    onSelect={clearSearch} />
+                  <SearchResultGroup label="Inventario"  results={results.inventario}  onSelect={clearSearch} />
+                  <SearchResultGroup label="Movimientos" results={results.movimientos} onSelect={clearSearch} />
+                  <SearchResultGroup label="Reports"     results={results.reports}     onSelect={clearSearch} />
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      )}
     </header>
   )
 }
