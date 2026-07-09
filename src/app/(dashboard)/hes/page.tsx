@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  FileSpreadsheet, Search, Settings2, Printer, CheckCircle2,
+  FileSpreadsheet, Search, Settings2, CheckCircle2,
   AlertCircle, Loader2, ChevronRight, FileText, RefreshCw, Download, Wrench,
 } from "lucide-react"
 import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente } from "@/types/database"
@@ -257,17 +257,41 @@ export default function HesPage() {
 
   const selectedCliente = useMemo(() => clientes.find(c => c.id === selectedId) ?? null, [clientes, selectedId])
 
-  // ── Fetch UF del día desde mindicador.cl ───────────────────────────────────
+  // ── Fetch UF según mes/año seleccionado desde mindicador.cl ─────────────────
   useEffect(() => {
-    fetch("https://mindicador.cl/api/uf")
+    setUfLoading(true)
+    setUfValue("")
+    const controller = new AbortController()
+    const timeout    = setTimeout(() => controller.abort(), 8000)
+
+    const today      = new Date(); today.setHours(0, 0, 0, 0)
+    const lastDay    = daysInMonth(selectedYear, selectedMonth)
+    const targetDate = new Date(selectedYear, selectedMonth, lastDay)
+    // Mes pasado → año completo y filtramos; mes actual/futuro → últimos 30 días
+    const url = targetDate < today
+      ? `https://mindicador.cl/api/uf/${selectedYear}`
+      : "https://mindicador.cl/api/uf"
+
+    fetch(url, { signal: controller.signal })
       .then(r => r.json())
       .then(data => {
-        const val = data?.serie?.[0]?.valor
+        const serie: { fecha: string; valor: number }[] = data?.serie ?? []
+        let val: number | undefined
+        if (targetDate < today) {
+          // Buscar el último valor disponible del mes seleccionado
+          const prefix = `${selectedYear}-${pad(selectedMonth + 1)}`
+          const match  = serie.find(e => e.fecha.startsWith(prefix))
+          val = match?.valor
+        } else {
+          val = serie[0]?.valor
+        }
         if (typeof val === "number") setUfValue(val.toFixed(2))
       })
-      .catch(() => setUfValue("38000.00"))
-      .finally(() => setUfLoading(false))
-  }, [])
+      .catch(() => setUfValue(""))
+      .finally(() => { clearTimeout(timeout); setUfLoading(false) })
+
+    return () => { clearTimeout(timeout); controller.abort() }
+  }, [selectedMonth, selectedYear])
 
   // ── Load clientes + tarifa map ──────────────────────────────────────────────
   useEffect(() => {
@@ -369,8 +393,7 @@ export default function HesPage() {
     [clientes, search]
   )
 
-  // ── Print ──────────────────────────────────────────────────────────────────
-  function handlePrint() { window.print() }
+
 
   // ── Export Excel ───────────────────────────────────────────────────────────
   async function handleExportExcel() {
@@ -506,9 +529,7 @@ export default function HesPage() {
                     {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
                     Excel
                   </Button>
-                  <Button size="sm" onClick={handlePrint} className="h-7 gap-1.5 text-[11px]">
-                    <Printer className="h-3 w-3" /> PDF
-                  </Button>
+
                 </div>
               </div>
 

@@ -498,6 +498,10 @@ CREATE TABLE IF NOT EXISTS tarifas_cliente (
   created_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Solo puede existir una tarifa activa por cliente
+CREATE UNIQUE INDEX IF NOT EXISTS tarifas_cliente_activa_unique
+  ON tarifas_cliente (cliente_id) WHERE (activo = true);
+
 ALTER TABLE tarifas_cliente ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Authenticated full access tarifas_cliente"
   ON tarifas_cliente FOR ALL TO authenticated
