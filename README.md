@@ -121,7 +121,7 @@ Informes de recepción de carga:
   - Sección 3 — Bodegaje (vinculado a ítem de inventario)
 - **Detalle** (`/reports/[id]`): vista y edición completa; al pasar borrador → pendiente_despacho llama `update_stock` con rollback si falla
 - **Cola de despacho** (`/reports/despacho`): cards expandibles con upload de documento firmado y confirmación de salida de vehículo
-- Exportar report individual a **PDF**
+- Exportar report individual a **PDF** (con logotipo `adp_logo_hd.png` en cabecera)
 - Exportar listado filtrado a **Excel**
 - Registro de auditoría en cada acción
 
@@ -130,11 +130,11 @@ Informes de recepción de carga:
 Hoja de Estadía — cálculo de almacenaje para facturación mensual:
 
 - Selector de cliente, año y mes
-- **Valor UF del día** obtenido automáticamente desde `mindicador.cl/api/uf` al cargar la página
-- Tarifa de almacenaje por cliente (UF/unidad/día) configurable inline
+- **Valor UF histórico** obtenido automáticamente desde `mindicador.cl/api/uf` — usa el endpoint anual para meses pasados con AbortController de 8s para evitar cuelgues
+- **Múltiples tarifas por cliente**: un cliente puede tener varias tarifas activas simultáneas (ej. clase IMO 8 y clase IMO 3). Selector inline en el header cuando existen más de una. `cotizacion_numero` se auto-genera con formato `COT-YYYY-NNN` mediante secuencia PostgreSQL + trigger si se deja vacío
 - **Cálculo automático**: stock inicial + movimientos diarios del período → pallet-días → monto en UF
 - Tabla día a día con ingresos, despachos, stock al cierre y tarifa
-- Exportar a **Excel** con formato HES oficial de ADP
+- Exportar a **Excel** con formato HES oficial ADP (logotipo `adp_logo_hd.jpg`)
 - Corrección de rango de fechas: usa `.lt(nextMonth.toISOString())` para incluir todos los movimientos del último día del mes
 
 ### Analítica (`/reportes`)
@@ -272,9 +272,12 @@ src/
 | Archivo | Descripción |
 |---|---|
 | `schema.sql` | Esquema completo de la base de datos (tablas, funciones, RLS, triggers) |
-| `demo_data.sql` | Datos de demostración (Brenntag, BASF, Air Liquide) |
+| `demo_data.sql` | Datos de demostración base (usuarios, clientes) |
+| `demo_data_hes.sql` | Datos de demostración para HES: tarifas y movimientos de Brenntag, BASF y Air Liquide (Julio 2026) |
 | `demo_data_cleanup.sql` | Limpieza de datos demo — ejecutar antes de pasar a producción |
 | `supabase_security_fixes.sql` | Fixes de seguridad aplicados (search_path, REVOKE, RLS policies) |
+
+> **Nota de despliegue:** Para aplicar cambios de schema a una BD existente (no desde cero), ejecutar solo los bloques delta en el SQL Editor de Supabase — no correr `schema.sql` completo ya que fallará en tipos y tablas que ya existen.
 
 ---
 
@@ -319,6 +322,18 @@ El archivo `netlify.toml` en la raíz del proyecto define la configuración de b
 Skills instaladas vía `npx autoskills` para asistir al desarrollo con Claude Code:
 
 `supabase-postgres-best-practices` · `next-best-practices` · `next-cache-components` · `next-upgrade` · `shadcn` · `react-best-practices` · `composition-patterns` · `typescript-advanced-types` · `nodejs-backend-patterns` · `nodejs-best-practices` · `tailwind-css-patterns` · `frontend-design` · `accessibility` · `seo`
+
+---
+
+## Responsividad
+
+El sistema está optimizado para escritorio y tablet. Mejoras mobile implementadas:
+
+- **Topbar**: botón 🔍 en mobile despliega buscador global inline con resultados y cierre
+- **HES**: paneles se apilan en mobile; flecha ← para volver a la lista de clientes desde el detalle
+- **Reports**: estadísticas en grid responsive; tabs de filtro muestran solo íconos en pantallas pequeñas
+- **Movimientos**: botones del header colapsados a ícono en mobile; buscador de ancho flexible
+- El sidebar usa `collapsible="offcanvas"` — se oculta en mobile con hamburguesa en la topbar
 
 ---
 
