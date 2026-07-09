@@ -498,9 +498,23 @@ CREATE TABLE IF NOT EXISTS tarifas_cliente (
   created_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Solo puede existir una tarifa activa por cliente
-CREATE UNIQUE INDEX IF NOT EXISTS tarifas_cliente_activa_unique
-  ON tarifas_cliente (cliente_id) WHERE (activo = true);
+-- Secuencia para cotización número (COT-YYYY-NNN)
+CREATE SEQUENCE IF NOT EXISTS cotizacion_seq START WITH 1;
+
+CREATE OR REPLACE FUNCTION generate_cotizacion_numero()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.cotizacion_numero IS NULL OR NEW.cotizacion_numero = '' THEN
+    NEW.cotizacion_numero := 'COT-' || EXTRACT(YEAR FROM NOW())::TEXT
+                             || '-' || LPAD(nextval('cotizacion_seq')::TEXT, 3, '0');
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE OR REPLACE TRIGGER set_cotizacion_numero
+  BEFORE INSERT ON tarifas_cliente
+  FOR EACH ROW EXECUTE FUNCTION generate_cotizacion_numero();
 
 ALTER TABLE tarifas_cliente ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Authenticated full access tarifas_cliente"
