@@ -125,7 +125,7 @@ function TarifaDialog({
   clienteId, clienteNombre, existing, onClose, onSaved,
 }: {
   clienteId: string; clienteNombre: string
-  existing: TarifaCliente | null
+  existing: TarifaCliente | null   // null = nueva tarifa
   onClose: () => void
   onSaved: (t: TarifaCliente) => void
 }) {
@@ -153,10 +153,10 @@ function TarifaDialog({
   function num(v: string) { const n = parseFloat(v); return isNaN(n) ? null : n }
 
   async function handleSave() {
-    if (!form.cotizacion_numero?.trim()) return
     setSaving(true)
     setSaveError(null)
     const supabase = createClient()
+    // cotizacion_numero vacío → lo genera el trigger de la BD
     const payload = { ...form, cliente_id: clienteId, activo: true }
     let data, error
     if (existing) {
@@ -177,7 +177,7 @@ function TarifaDialog({
       <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[520px] max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
           <div>
-            <h2 className="text-[14px] font-semibold">Configurar tarifas</h2>
+            <h2 className="text-[14px] font-semibold">{existing ? "Editar tarifa" : "Nueva tarifa"}</h2>
             <p className="text-[11px] text-muted-foreground mt-0.5">{clienteNombre}</p>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
@@ -186,12 +186,12 @@ function TarifaDialog({
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className={labelCls}>Cotización N°</Label>
-              <Input className={fieldCls} value={form.cotizacion_numero ?? ""} onChange={e => setField("cotizacion_numero", e.target.value)} placeholder="Ej: 1415 del 17/04/2019" />
+              <Label className={labelCls}>Cotización N° <span className="text-muted-foreground/60">(auto si se deja vacío)</span></Label>
+              <Input className={fieldCls} value={form.cotizacion_numero ?? ""} onChange={e => setField("cotizacion_numero", e.target.value)} placeholder="COT-2026-001" />
             </div>
             <div className="space-y-1">
               <Label className={labelCls}>Clase IMO</Label>
-              <Input className={fieldCls} value={form.clase_imo ?? ""} onChange={e => setField("clase_imo", e.target.value)} placeholder="Ej: IMO 9, IMO 8, Normal" />
+              <Input className={fieldCls} value={form.clase_imo ?? ""} onChange={e => setField("clase_imo", e.target.value)} placeholder="Ej: 8, 3, 2.2, Normal" />
             </div>
           </div>
 
@@ -199,14 +199,14 @@ function TarifaDialog({
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tarifas (en UF)</p>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: "Almacenaje (UF/pallet/día)",  key: "tarifa_almacenaje_uf",  ph: "Ej: 0.0045" },
-                { label: "IN / OUT (UF/pallet)",         key: "tarifa_inout_uf",       ph: "Ej: 0.06"   },
-                { label: "Desconsolidación 20\" (UF/cont)", key: "tarifa_descons_20_uf", ph: "Ej: 3.5" },
-                { label: "Desconsolidación 40\" (UF/cont)", key: "tarifa_descons_40_uf", ph: "Ej: 5.0" },
-                { label: "Consolidación 40\" (UF/cont)",    key: "tarifa_consolid_40_uf", ph: "Ej: 4.0" },
-                { label: "Porteo (UF/operación)",           key: "tarifa_porteo_uf",    ph: "Ej: 10.19" },
-                { label: "Palletizado (UF/pallet)",         key: "tarifa_palletizado_uf", ph: "Ej: 0.321" },
-                { label: "Facturación mínima (UF/mes)",     key: "facturacion_minima_uf", ph: "Ej: 5.0" },
+                { label: "Almacenaje (UF/pallet/día)",      key: "tarifa_almacenaje_uf",  ph: "Ej: 0.0045" },
+                { label: "IN / OUT (UF/pallet)",             key: "tarifa_inout_uf",       ph: "Ej: 0.06"   },
+                { label: "Desconsolidación 20\" (UF/cont)", key: "tarifa_descons_20_uf",  ph: "Ej: 3.5"    },
+                { label: "Desconsolidación 40\" (UF/cont)", key: "tarifa_descons_40_uf",  ph: "Ej: 5.0"    },
+                { label: "Consolidación 40\" (UF/cont)",    key: "tarifa_consolid_40_uf", ph: "Ej: 4.0"    },
+                { label: "Porteo (UF/operación)",            key: "tarifa_porteo_uf",      ph: "Ej: 10.19"  },
+                { label: "Palletizado (UF/pallet)",          key: "tarifa_palletizado_uf", ph: "Ej: 0.321"  },
+                { label: "Facturación mínima (UF/mes)",      key: "facturacion_minima_uf", ph: "Ej: 5.0"    },
               ].map(({ label, key, ph }) => (
                 <div key={key} className="space-y-1">
                   <Label className={labelCls}>{label}</Label>
@@ -222,13 +222,11 @@ function TarifaDialog({
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-border/40">
-          {saveError && (
-            <p className="text-[11px] text-destructive flex-1">{saveError}</p>
-          )}
+          {saveError && <p className="text-[11px] text-destructive flex-1">{saveError}</p>}
           <Button variant="ghost" size="sm" onClick={onClose} className="h-8 text-[12px]">Cancelar</Button>
-          <Button size="sm" onClick={handleSave} disabled={saving || !form.cotizacion_numero?.trim()} className="h-8 text-[12px]">
+          <Button size="sm" onClick={handleSave} disabled={saving} className="h-8 text-[12px]">
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-            Guardar tarifas
+            {existing ? "Guardar cambios" : "Crear tarifa"}
           </Button>
         </div>
       </div>
@@ -238,22 +236,30 @@ function TarifaDialog({
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function HesPage() {
-  const [clientes,       setClientes]       = useState<Cliente[]>([])
-  const [search,         setSearch]         = useState("")
-  const [selectedId,     setSelectedId]     = useState<string | null>(null)
-  const [tarifa,         setTarifa]         = useState<TarifaCliente | null>(null)
-  const [servicios,      setServicios]      = useState<ServicioCliente[]>([])
-  const [srvCantidades,  setSrvCantidades]  = useState<Record<string, number>>({})
-  const [movs,           setMovs]           = useState<MovRaw[]>([])
-  const [selectedMonth,  setSelectedMonth]  = useState(CURRENT_MONTH)
-  const [selectedYear,   setSelectedYear]   = useState(CURRENT_YEAR)
-  const [ufValue,        setUfValue]        = useState<string>("")
-  const [ufLoading,      setUfLoading]      = useState(true)
-  const [tarifaDialog,   setTarifaDialog]   = useState(false)
-  const [loading,        setLoading]        = useState(false)
-  const [exporting,      setExporting]      = useState(false)
-  const [clientesLoaded, setClientesLoaded] = useState(false)
-  const [tarifaMap,      setTarifaMap]      = useState<Record<string, boolean>>({})
+  const [clientes,         setClientes]         = useState<Cliente[]>([])
+  const [search,           setSearch]           = useState("")
+  const [selectedId,       setSelectedId]       = useState<string | null>(null)
+  const [tarifas,          setTarifas]          = useState<TarifaCliente[]>([])
+  const [selectedTarifaId, setSelectedTarifaId] = useState<string | null>(null)
+  const [servicios,        setServicios]        = useState<ServicioCliente[]>([])
+  const [srvCantidades,    setSrvCantidades]    = useState<Record<string, number>>({})
+  const [movs,             setMovs]             = useState<MovRaw[]>([])
+  const [selectedMonth,    setSelectedMonth]    = useState(CURRENT_MONTH)
+  const [selectedYear,     setSelectedYear]     = useState(CURRENT_YEAR)
+  const [ufValue,          setUfValue]          = useState<string>("")
+  const [ufLoading,        setUfLoading]        = useState(true)
+  // tarifaDialog: undefined=cerrado | null=nueva tarifa | TarifaCliente=editar existente
+  const [tarifaDialog,     setTarifaDialog]     = useState<TarifaCliente | null | undefined>(undefined)
+  const [loading,          setLoading]          = useState(false)
+  const [exporting,        setExporting]        = useState(false)
+  const [clientesLoaded,   setClientesLoaded]   = useState(false)
+  const [tarifaMap,        setTarifaMap]        = useState<Record<string, boolean>>({})
+
+  // Tarifa actualmente seleccionada (derivada)
+  const tarifa = useMemo<TarifaCliente | null>(
+    () => tarifas.find(t => t.id === selectedTarifaId) ?? tarifas[0] ?? null,
+    [tarifas, selectedTarifaId]
+  )
 
   const selectedCliente = useMemo(() => clientes.find(c => c.id === selectedId) ?? null, [clientes, selectedId])
 
@@ -308,12 +314,16 @@ export default function HesPage() {
     })
   }, [])
 
-  // ── Load tarifa for selected client ────────────────────────────────────────
+  // ── Load tarifas for selected client ──────────────────────────────────────
   useEffect(() => {
-    if (!selectedId) { setTarifa(null); return }
+    if (!selectedId) { setTarifas([]); setSelectedTarifaId(null); return }
     const supabase = createClient()
-    supabase.from("tarifas_cliente").select("*").eq("cliente_id", selectedId).eq("activo", true).single()
-      .then(({ data }) => setTarifa(data ?? null))
+    supabase.from("tarifas_cliente").select("*").eq("cliente_id", selectedId).eq("activo", true).order("cotizacion_numero")
+      .then(({ data }) => {
+        const list = (data ?? []) as TarifaCliente[]
+        setTarifas(list)
+        setSelectedTarifaId(list[0]?.id ?? null)
+      })
   }, [selectedId])
 
   // ── Load servicios for selected client ──────────────────────────────────────
@@ -441,13 +451,21 @@ export default function HesPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      {tarifaDialog && selectedCliente && (
+      {tarifaDialog !== undefined && selectedCliente && (
         <TarifaDialog
           clienteId={selectedCliente.id}
           clienteNombre={selectedCliente.nombre}
-          existing={tarifa}
-          onClose={() => setTarifaDialog(false)}
-          onSaved={t => { setTarifa(t); setTarifaMap(m => ({ ...m, [t.cliente_id]: true })); setTarifaDialog(false) }}
+          existing={tarifaDialog}
+          onClose={() => setTarifaDialog(undefined)}
+          onSaved={t => {
+            setTarifas(prev => {
+              const idx = prev.findIndex(x => x.id === t.id)
+              return idx >= 0 ? prev.with(idx, t) : [...prev, t]
+            })
+            setSelectedTarifaId(t.id)
+            setTarifaMap(m => ({ ...m, [t.cliente_id]: true }))
+            setTarifaDialog(undefined)
+          }}
         />
       )}
 
@@ -504,6 +522,17 @@ export default function HesPage() {
                   <p className="text-[11px] text-muted-foreground">RUT {selectedCliente.rut}{tarifa ? ` · Cot. ${tarifa.cotizacion_numero}` : ""}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Selector de tarifa cuando hay más de una */}
+                  {tarifas.length > 1 && (
+                    <select value={selectedTarifaId ?? ""} onChange={e => setSelectedTarifaId(e.target.value)}
+                      className="h-7 text-[12px] rounded-md border border-border/50 bg-background px-2 focus:outline-none max-w-[180px]">
+                      {tarifas.map(t => (
+                        <option key={t.id} value={t.id}>
+                          {t.cotizacion_numero}{t.clase_imo ? ` · Cl.${t.clase_imo}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   {/* Month + Year selectors */}
                   <select value={selectedMonth} onChange={e => setSelectedMonth(+e.target.value)}
                     className="h-7 text-[12px] rounded-md border border-border/50 bg-background px-2 focus:outline-none">
@@ -516,10 +545,17 @@ export default function HesPage() {
                   <Button variant="ghost" size="sm" onClick={loadMovimientos} disabled={loading} className="h-7 w-7 p-0">
                     <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setTarifaDialog(true)} className="h-7 gap-1.5 text-[11px]">
+                  {/* Editar tarifa actual */}
+                  <Button variant="outline" size="sm" onClick={() => setTarifaDialog(tarifa ?? null)} className="h-7 gap-1.5 text-[11px]">
                     <Settings2 className="h-3 w-3" />
-                    {tarifa ? "Editar tarifas" : "Configurar tarifas"}
+                    {tarifa ? "Editar tarifa" : "Configurar tarifa"}
                   </Button>
+                  {/* Nueva tarifa */}
+                  {tarifa && (
+                    <Button variant="ghost" size="sm" onClick={() => setTarifaDialog(null)} className="h-7 gap-1 text-[11px] text-muted-foreground">
+                      + Nueva
+                    </Button>
+                  )}
                   <Button
                     variant="outline" size="sm"
                     onClick={handleExportExcel}
@@ -544,7 +580,7 @@ export default function HesPage() {
                     <AlertCircle className="h-10 w-10 text-amber-500/60" />
                     <p className="text-sm font-medium">Sin tarifas configuradas</p>
                     <p className="text-xs text-muted-foreground">Configura las tarifas de este cliente para generar el HES</p>
-                    <Button size="sm" onClick={() => setTarifaDialog(true)} className="mt-1 h-8 gap-1.5 text-[12px]">
+                    <Button size="sm" onClick={() => setTarifaDialog(null)} className="mt-1 h-8 gap-1.5 text-[12px]">
                       <Settings2 className="h-3.5 w-3.5" /> Configurar tarifas
                     </Button>
                   </div>
