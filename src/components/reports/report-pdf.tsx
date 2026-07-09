@@ -8,9 +8,7 @@ const s = StyleSheet.create({
 
   // Header
   header: { flexDirection: "row", alignItems: "center", borderBottom: "1.5 solid #000", paddingBottom: 6, marginBottom: 8 },
-  logoBox: { width: 90, height: 36, border: "1 solid #999", alignItems: "center", justifyContent: "center", borderRadius: 3 },
-  logoName: { fontSize: 12, fontFamily: "Helvetica-Bold", color: BLUE },
-  logoSub: { fontSize: 5, color: "#555", marginTop: 1, textAlign: "center" },
+  headerLogo: { width: 120, height: 52, objectFit: "contain" },
   headerCenter: { flex: 1, alignItems: "center" },
   headerTitle: { fontSize: 11, fontFamily: "Helvetica-Bold", letterSpacing: 0.5, textAlign: "center" },
   headerNumRow: { flexDirection: "row", alignItems: "baseline", marginTop: 3, gap: 6 },
@@ -94,20 +92,13 @@ export function ReportPDF({ report }: { report: Report }) {
 
         {/* ── Header ── */}
         <View style={s.header}>
-          <View style={s.logoBox}>
-            <Text style={s.logoName}>INCOMEX</Text>
-            <Text style={s.logoSub}>UNA EMPRESA{"\n"}ALTOS DEL PUERTO</Text>
-          </View>
+          <Image style={s.headerLogo} src={`${window.location.origin}/adp_logo_hd.png`} />
           <View style={s.headerCenter}>
             <Text style={s.headerTitle}>REPORT SERVICIO ALMACENAMIENTO</Text>
             <View style={s.headerNumRow}>
               <Text style={s.headerNumLabel}>N°</Text>
               <Text style={s.headerNum}>{report.numero}</Text>
             </View>
-          </View>
-          <View style={s.logoBox}>
-            <Text style={s.logoName}>MAR AZUL</Text>
-            <Text style={s.logoSub}>UNA EMPRESA{"\n"}ALTOS DEL PUERTO</Text>
           </View>
         </View>
 
