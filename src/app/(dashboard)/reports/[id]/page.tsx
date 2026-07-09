@@ -21,6 +21,8 @@ import type { ReportEstado } from "@/types/database"
 import { dbToForm } from "@/components/reports/report-form-types"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, Sec1Content, Sec2Content, Sec3Content } from "@/components/reports/report-form-sections"
+import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
+import { downloadReportPDF } from "@/lib/download-report-pdf"
 
 type FormData = ReportFormData
 type Tab = "antecedentes" | "sec1" | "sec2" | "sec3" | "historial"
@@ -70,6 +72,8 @@ export default function ReportDetailPage() {
   const [docPath,      setDocPath]      = useState<string | null>(null)
   const [signedDocUrl, setSignedDocUrl] = useState<string | null>(null)
   const [docExpanded,  setDocExpanded]  = useState(false)
+  const [showPreview,   setShowPreview]   = useState(false)
+  const [previewReport, setPreviewReport] = useState<import("@/types/database").Report | null>(null)
 
   const readOnly = estado !== "borrador"
 
@@ -268,6 +272,15 @@ export default function ReportDetailPage() {
 
   return (
     <>
+    {/* Modal vista previa PDF */}
+    {showPreview && previewReport && (
+      <ReportPreviewModal
+        report={previewReport}
+        onClose={() => setShowPreview(false)}
+        onDownload={() => downloadReportPDF(previewReport)}
+      />
+    )}
+
     <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -312,6 +325,21 @@ export default function ReportDetailPage() {
 
         <div className="flex items-center gap-2">
           {error && <p className="text-xs text-red-500 max-w-xs truncate">{error}</p>}
+
+          {/* Vista previa PDF */}
+          <Button
+            variant="outline" size="sm"
+            className="gap-1.5 h-8 text-xs"
+            disabled={saving || deleting}
+            onClick={async () => {
+              const supabase = createClient()
+              const { data } = await supabase.from("reports").select("*").eq("id", id).single()
+              if (data) { setPreviewReport(data as import("@/types/database").Report); setShowPreview(true) }
+            }}
+          >
+            <Eye className="h-3.5 w-3.5" />
+            Vista previa
+          </Button>
 
           <Button
             variant="ghost" size="sm"
