@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Upload, X } from "lucide-react"
+import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Upload, X, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +15,7 @@ import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { exportReportsToExcel } from "@/lib/export-reports-excel"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
+import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 
 type Tab = "todos" | ReportEstado
 
@@ -59,9 +60,10 @@ export default function ReportsPage() {
   const [loading,     setLoading]     = useState(true)
   const [activeTab,   setActiveTab]   = useState<Tab>("todos")
   const [search,      setSearch]      = useState("")
-  const [pdfLoading,  setPdfLoading]  = useState<string | null>(null)
-  const [xlsxLoading, setXlsxLoading] = useState(false)
-  const [fetchError,  setFetchError]  = useState<string | null>(null)
+  const [pdfLoading,   setPdfLoading]   = useState<string | null>(null)
+  const [previewReport, setPreviewReport] = useState<Report | null>(null)
+  const [xlsxLoading,  setXlsxLoading]  = useState(false)
+  const [fetchError,   setFetchError]   = useState<string | null>(null)
 
   // Estado del modal de despacho
   const [dispatchFor,    setDispatchFor]    = useState<ReportRow | null>(null)
@@ -102,6 +104,14 @@ export default function ReportsPage() {
     const supabase = createClient()
     const { data } = await supabase.from("reports").select("*").eq("id", id).single()
     if (data) await downloadReportPDF(data as Report)
+    setPdfLoading(null)
+  }
+
+  async function handlePreviewPDF(id: string) {
+    setPdfLoading(id)
+    const supabase = createClient()
+    const { data } = await supabase.from("reports").select("*").eq("id", id).single()
+    if (data) setPreviewReport(data as Report)
     setPdfLoading(null)
   }
 
@@ -193,6 +203,15 @@ export default function ReportsPage() {
 
   return (
     <>
+    {/* Modal vista previa PDF */}
+    {previewReport && (
+      <ReportPreviewModal
+        report={previewReport}
+        onClose={() => setPreviewReport(null)}
+        onDownload={() => downloadReportPDF(previewReport)}
+      />
+    )}
+
     {/* Modal despacho */}
     {dispatchFor && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -439,14 +458,24 @@ export default function ReportsPage() {
                           )}
                           <Button
                             variant="ghost" size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            className="h-8 w-8 text-muted-foreground hover:text-primary"
                             disabled={pdfLoading === r.id}
-                            onClick={e => { e.stopPropagation(); handleDownloadPDF(r.id) }}
+                            onClick={e => { e.stopPropagation(); handlePreviewPDF(r.id) }}
+                            title="Vista previa"
                           >
                             {pdfLoading === r.id
                               ? <Loader2 className="h-4 w-4 animate-spin" />
-                              : <Download className="h-4 w-4" />
+                              : <Eye className="h-4 w-4" />
                             }
+                          </Button>
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            disabled={pdfLoading === r.id}
+                            onClick={e => { e.stopPropagation(); handleDownloadPDF(r.id) }}
+                            title="Descargar PDF"
+                          >
+                            <Download className="h-4 w-4" />
                           </Button>
                         </div>
                       </td>
