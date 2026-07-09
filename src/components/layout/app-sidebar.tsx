@@ -101,12 +101,12 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="offcanvas">
-      <SidebarHeader className="p-5 flex items-center justify-center">
+      <SidebarHeader className="pt-5 px-5 pb-1 flex items-center justify-center">
         <Image
           src="/adp_logo.png"
           alt="Altos del Puerto"
-          width={148}
-          height={52}
+          width={180}
+          height={64}
           className="object-contain brightness-0 invert"
           priority
         />
