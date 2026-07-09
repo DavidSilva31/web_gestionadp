@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   FileSpreadsheet, Search, Settings2, CheckCircle2,
-  AlertCircle, Loader2, ChevronRight, FileText, RefreshCw, Download, Wrench,
+  AlertCircle, Loader2, ChevronRight, ChevronLeft, FileText, RefreshCw, Download, Wrench,
 } from "lucide-react"
 import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente } from "@/types/database"
 
@@ -472,7 +472,11 @@ export default function HesPage() {
       <div className="flex flex-1 min-h-0 overflow-hidden print:overflow-visible">
 
         {/* ── Panel izquierdo: clientes ── */}
-        <div className="w-64 flex-shrink-0 border-r border-border/60 flex flex-col bg-background print:hidden">
+        <div className={cn(
+          "md:w-64 w-full md:flex-shrink-0 border-r border-border/60 flex flex-col bg-background print:hidden",
+          // En mobile: ocultar lista cuando hay cliente seleccionado
+          selectedId ? "hidden md:flex" : "flex"
+        )}>
           <div className="p-3 border-b border-border/40">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
@@ -507,7 +511,7 @@ export default function HesPage() {
         </div>
 
         {/* ── Panel derecho ── */}
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <div className={cn("flex-1 flex flex-col min-h-0 overflow-hidden", selectedId ? "flex" : "hidden md:flex")}>
           {!selectedCliente ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
               <FileSpreadsheet className="h-12 w-12 opacity-20" />
@@ -516,12 +520,18 @@ export default function HesPage() {
           ) : (
             <>
               {/* Header */}
-              <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 flex-shrink-0 print:hidden">
-                <div>
-                  <h2 className="text-[14px] font-bold tracking-tight">{selectedCliente.nombre}</h2>
-                  <p className="text-[11px] text-muted-foreground">RUT {selectedCliente.rut}{tarifa ? ` · Cot. ${tarifa.cotizacion_numero}` : ""}</p>
+              <div className="flex items-center justify-between px-3 sm:px-5 py-3 border-b border-border/40 flex-shrink-0 print:hidden gap-2 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  {/* Volver — solo mobile */}
+                  <button onClick={() => setSelectedId(null)} className="md:hidden flex-shrink-0 text-muted-foreground hover:text-foreground">
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <div className="min-w-0">
+                    <h2 className="text-[14px] font-bold tracking-tight truncate">{selectedCliente.nombre}</h2>
+                    <p className="text-[11px] text-muted-foreground truncate">RUT {selectedCliente.rut}{tarifa ? ` · Cot. ${tarifa.cotizacion_numero}` : ""}</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap justify-end">
                   {/* Selector de tarifa cuando hay más de una */}
                   {tarifas.length > 1 && (
                     <select value={selectedTarifaId ?? ""} onChange={e => setSelectedTarifaId(e.target.value)}

@@ -276,15 +276,17 @@ export default function MovimientosPage() {
             disabled={loading || filtered.length === 0}
             className="gap-1.5 text-xs h-9">
             <Download className="h-3.5 w-3.5" />
-            Exportar Excel
+            <span className="hidden sm:inline">Exportar Excel</span>
           </Button>
           <Button size="sm" onClick={() => openNew("ingreso")}
             className="gap-1.5 bg-[var(--color-status-success-text)] hover:opacity-90 text-white">
-            <ArrowDownCircle className="h-3.5 w-3.5" /> Nuevo ingreso
+            <ArrowDownCircle className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Nuevo ingreso</span>
           </Button>
           <Button size="sm" onClick={() => openNew("despacho")}
             className="gap-1.5 bg-[var(--color-status-warning-text)] hover:opacity-90 text-white">
-            <ArrowUpCircle className="h-3.5 w-3.5" /> Nuevo despacho
+            <ArrowUpCircle className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Nuevo despacho</span>
           </Button>
         </PageHeader>
 
@@ -338,13 +340,13 @@ export default function MovimientosPage() {
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
-          <div className="relative ml-auto">
+          <div className="relative flex-1 min-w-[140px] sm:max-w-xs ml-auto">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Buscar por cliente, carga o código..."
+              placeholder="Buscar cliente, carga..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="pl-8 h-8 text-xs w-64 bg-background"
+              className="pl-8 h-8 text-xs w-full bg-background"
             />
           </div>
         </div>
