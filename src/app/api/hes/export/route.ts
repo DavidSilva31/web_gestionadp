@@ -165,11 +165,11 @@ export async function POST(req: NextRequest) {
   // Función auxiliar: estiliza la celda A de una fila como separador (vacía)
   function spacerA(r: ExcelJS.Row) { st(r.getCell("A"), { noBorder: true }) }
 
-  // ── Logo incomex (col B, row 2) ──────────────────────────────────────────────
+  // ── Logo ADP (col B, row 2) ──────────────────────────────────────────────────
   try {
-    const logoPath = path.join(process.cwd(), "public", "incomex_logo.png")
-    const logoId   = wb.addImage({ filename: logoPath, extension: "png" })
-    ws.addImage(logoId, { tl: { col: 1, row: 1 }, ext: { width: 140, height: 70 } })
+    const logoPath = path.join(process.cwd(), "public", "adp_logo_hd.jpg")
+    const logoId   = wb.addImage({ filename: logoPath, extension: "jpeg" })
+    ws.addImage(logoId, { tl: { col: 1, row: 1 }, ext: { width: 200, height: 70 } })
   } catch { /* sin logo — continúa */ }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
