@@ -298,8 +298,8 @@ export default function ClientesPage() {
                 className={cn(
                   "flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all",
                   form.activo
-                    ? "border-red-300 bg-white text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:border-red-700 dark:text-red-400"
-                    : "border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400"
+                    ? "border-red-300 bg-transparent text-red-600 hover:bg-red-100 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                    : "border-emerald-300 bg-transparent text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
                 )}
               >
                 {form.activo

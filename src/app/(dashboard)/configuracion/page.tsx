@@ -535,7 +535,7 @@ export default function ConfiguracionPage() {
                           <Avatar className="h-8 w-8 flex-shrink-0">
                             <AvatarFallback className={cn(
                               "text-xs font-bold text-white",
-                              u.id === user?.id ? "bg-[oklch(0.35_0.12_240)]" : "bg-slate-400"
+                              u.id === user?.id ? "bg-[oklch(0.35_0.12_240)]" : "bg-muted-foreground/50"
                             )}>
                               {initials(u.nombre)}
                             </AvatarFallback>

@@ -35,7 +35,7 @@ const UNIDADES = ["unidad", "pallets", "contenedor", "isotanque", "kg", "ton"]
 
 const AREA_COLOR: Record<string, string> = {
   "Bodega IMO":      "bg-[var(--color-status-info-bg)] text-[var(--color-status-info-text)]",
-  "Zona Isotanques": "bg-[var(--color-adp-celeste-light)] text-[var(--color-adp-blue-mid)]",
+  "Zona Isotanques": "bg-[var(--color-adp-celeste-light)] text-[var(--color-status-info-text)]",
   "Zona RESPEL":     "bg-[var(--color-status-warning-bg)] text-[var(--color-status-warning-text)]",
   "Bodega General":  "bg-[var(--color-status-neutral-bg)] text-[var(--color-status-neutral-text)]",
 }
@@ -47,10 +47,13 @@ const ESTADO_BADGE: Record<string, string> = {
 }
 
 const AVATAR_COLORS = [
-  "bg-blue-100 text-blue-700",    "bg-violet-100 text-violet-700",
-  "bg-emerald-100 text-emerald-700", "bg-cyan-100 text-cyan-700",
-  "bg-orange-100 text-orange-700",   "bg-rose-100 text-rose-700",
-  "bg-amber-100 text-amber-700",
+  "bg-blue-100    text-blue-700    dark:bg-blue-900/40    dark:text-blue-300",
+  "bg-violet-100  text-violet-700  dark:bg-violet-900/40  dark:text-violet-300",
+  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+  "bg-cyan-100    text-cyan-700    dark:bg-cyan-900/40    dark:text-cyan-300",
+  "bg-orange-100  text-orange-700  dark:bg-orange-900/40  dark:text-orange-300",
+  "bg-rose-100    text-rose-700    dark:bg-rose-900/40    dark:text-rose-300",
+  "bg-amber-100   text-amber-700   dark:bg-amber-900/40   dark:text-amber-300",
 ]
 
 const codigo = (n: number) => `ALM-${String(n).padStart(3, "0")}`
@@ -102,6 +105,7 @@ function InventarioContent() {
   const [dialog,       setDialog]       = useState<null | "new" | InventarioItem>(null)
   const [form,         setForm]         = useState<InventarioItemInsert>(EMPTY_FORM)
   const [deleting,     setDeleting]     = useState<InventarioItem | null>(null)
+  const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)
@@ -227,8 +231,8 @@ function InventarioContent() {
     }
   }
 
-  function handleExport() {
-    if (!selected || !items.length) return
+  function buildExportRows() {
+    if (!selected || !items.length) return null
     const rows = items.map(item => ({
       "Código":        codigo(item.numero),
       "Descripción":   item.descripcion,
@@ -243,7 +247,18 @@ function InventarioContent() {
       "Observaciones": item.observaciones ?? "",
     }))
     const today = new Date().toLocaleDateString("es-CL").replace(/\//g, "-")
-    exportToExcel(rows, `Inventario_${selected.nombre}_${today}`, "Inventario")
+    return { rows, filename: `Inventario_${selected.nombre}_${today}` }
+  }
+
+  function openExportPreview() {
+    const built = buildExportRows()
+    if (built) setExportPreview(built)
+  }
+
+  function handleDownloadExport() {
+    if (!exportPreview) return
+    exportToExcel(exportPreview.rows, exportPreview.filename, "Inventario")
+    setExportPreview(null)
   }
 
   const items = selected ? (clienteItems[selected.id] ?? []) : []
@@ -398,7 +413,7 @@ function InventarioContent() {
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline" size="sm"
-                      onClick={handleExport}
+                      onClick={openExportPreview}
                       disabled={items.length === 0}
                       className="gap-1.5 text-xs h-7"
                     >
@@ -617,7 +632,6 @@ function InventarioContent() {
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Stock actual
-                {dialog !== "new" && <span className="font-normal text-muted-foreground normal-case ml-1">(vía movimientos)</span>}
               </Label>
               <Input
                 type="number"
@@ -627,6 +641,9 @@ function InventarioContent() {
                 readOnly={dialog !== "new"}
                 className={cn("h-9", dialog !== "new" && "opacity-60 cursor-not-allowed")}
               />
+              {dialog !== "new" && (
+                <p className="text-[10px] text-muted-foreground">Actualizado vía movimientos</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -677,6 +694,50 @@ function InventarioContent() {
                 : <Plus className="h-3.5 w-3.5" />
               }
               {dialog === "new" ? "Registrar ítem" : "Guardar cambios"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Vista previa del Excel antes de descargar ── */}
+      <Dialog open={exportPreview !== null} onOpenChange={open => { if (!open) setExportPreview(null) }}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Vista previa del Excel — {selected?.nombre}</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto border rounded-lg">
+            {exportPreview && (
+              <table className="w-full text-xs border-collapse">
+                <thead className="sticky top-0 bg-muted">
+                  <tr>
+                    {Object.keys(exportPreview.rows[0] ?? {}).map(col => (
+                      <th key={col} className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap border-b">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {exportPreview.rows.map((row, i) => (
+                    <tr key={i} className="border-b last:border-0 hover:bg-muted/40">
+                      {Object.values(row).map((val, j) => (
+                        <td key={j} className="px-3 py-2 whitespace-nowrap">{String(val)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setExportPreview(null)}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleDownloadExport} className="gap-1.5">
+              <Download className="h-3.5 w-3.5" />
+              Descargar Excel
             </Button>
           </DialogFooter>
         </DialogContent>

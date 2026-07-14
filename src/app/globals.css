@@ -196,6 +196,11 @@
   --shadow-md: 0 2px 8px oklch(0 0 0 / 0.30);
   --shadow-card: 0 0 0 1px var(--border);
 
+  /* Brand colors — versiones legibles para dark mode */
+  --color-adp-blue: oklch(0.67 0.13 215);
+  --color-adp-blue-mid: oklch(0.60 0.11 215);
+  --color-adp-celeste-light: oklch(0.22 0.05 215);
+
   /* Status colors adaptadas a dark mode */
   --color-status-success-bg: oklch(0.25 0.06 145);
   --color-status-success-text: oklch(0.82 0.1 145);
