@@ -376,16 +376,16 @@ export default function NuevoReportPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b bg-white flex-shrink-0 flex-wrap gap-2">
+      <div className="flex items-center justify-between px-6 py-4 border-b bg-background flex-shrink-0 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <Link href="/reports">
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-500">
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-base font-bold text-gray-900">Nuevo Report de Servicio</h1>
-            <p className="text-xs text-gray-500">Número se asignará automáticamente al guardar</p>
+            <h1 className="text-base font-bold text-foreground">Nuevo Report de Servicio</h1>
+            <p className="text-xs text-muted-foreground">Número se asignará automáticamente al guardar</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -402,7 +402,7 @@ export default function NuevoReportPage() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex items-end gap-0 px-6 pt-3 border-b bg-gray-50 flex-shrink-0 overflow-x-auto">
+      <div className="flex items-end gap-0 px-6 pt-3 border-b bg-muted/30 flex-shrink-0 overflow-x-auto">
         {TABS.map((t, i) => (
           <button
             key={t.key}
@@ -410,13 +410,13 @@ export default function NuevoReportPage() {
             className={cn(
               "flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all -mb-px",
               tab === t.key
-                ? "border-[oklch(0.35_0.12_240)] text-[oklch(0.35_0.12_240)] bg-white"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-white/60"
+                ? "border-primary text-primary bg-background"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-background/60"
             )}
           >
             <span className={cn(
               "h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center flex-shrink-0",
-              tab === t.key ? "bg-[oklch(0.35_0.12_240)] text-white" : "bg-gray-200 text-gray-500"
+              tab === t.key ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
             )}>
               {i + 1}
             </span>
@@ -426,12 +426,12 @@ export default function NuevoReportPage() {
       </div>
 
       {/* Form area */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-gray-50">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-muted/30">
         <div className="max-w-3xl mx-auto px-6 py-5">
-          <div className="bg-white rounded-xl border p-5">
+          <div className="bg-card rounded-xl border p-5">
             <div className="mb-4 pb-3 border-b">
-              <h2 className="text-sm font-bold text-gray-900">{currentTabInfo.label}</h2>
-              <p className="text-xs text-gray-500 mt-0.5">{currentTabInfo.subtitle}</p>
+              <h2 className="text-sm font-bold text-foreground">{currentTabInfo.label}</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">{currentTabInfo.subtitle}</p>
             </div>
 
             {tab === "antecedentes" && (
@@ -472,7 +472,7 @@ export default function NuevoReportPage() {
                     onCheckedChange={v => set("hds_header", v === true)}
                     className="h-3.5 w-3.5"
                   />
-                  <label htmlFor="hds_header" className="text-xs text-gray-700 cursor-pointer">
+                  <label htmlFor="hds_header" className="text-xs text-foreground/80 cursor-pointer">
                     HDS (Hoja de datos de seguridad presente)
                   </label>
                 </div>
@@ -513,20 +513,23 @@ export default function NuevoReportPage() {
 
           {/* Navigation footer */}
           <div className="flex items-center justify-between mt-4">
-            <button
-              onClick={() => tabIndex > 0 && setTab(TABS[tabIndex - 1].key)}
-              disabled={tabIndex === 0}
-              className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
-            >
-              ← Anterior
-            </button>
+            {tabIndex > 0 ? (
+              <button
+                onClick={() => setTab(TABS[tabIndex - 1].key)}
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              >
+                ← Anterior
+              </button>
+            ) : (
+              <div className="w-16" />
+            )}
             <div className="flex gap-1.5">
               {TABS.map((t, i) => (
-                <div key={t.key} className={cn("h-1.5 rounded-full transition-all", tab === t.key ? "w-6 bg-[oklch(0.35_0.12_240)]" : "w-1.5 bg-gray-300")} />
+                <div key={t.key} className={cn("h-1.5 rounded-full transition-all", tab === t.key ? "w-6 bg-primary" : "w-1.5 bg-muted-foreground/30")} />
               ))}
             </div>
             {tabIndex < TABS.length - 1 ? (
-              <button onClick={nextTab} className="text-xs text-[oklch(0.35_0.12_240)] hover:text-[oklch(0.30_0.12_240)] flex items-center gap-1 font-medium">
+              <button onClick={nextTab} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 font-medium">
                 Siguiente <ChevronRight className="h-3.5 w-3.5" />
               </button>
             ) : (
@@ -534,9 +537,9 @@ export default function NuevoReportPage() {
             )}
           </div>
           {/* Operador de carga — flotante, siempre visible */}
-          <div className="mt-4 bg-white rounded-xl border shadow-md px-5 py-4 flex items-center gap-4">
+          <div className="mt-4 bg-card rounded-xl border shadow-md px-5 py-4 flex items-center gap-4">
             <div className="flex-shrink-0">
-              <p className="text-xs font-semibold text-gray-700">Operador de carga <span className="text-red-500">*</span></p>
+              <p className="text-xs font-semibold text-foreground">Operador de carga <span className="text-red-500">*</span></p>
               <p className="text-[10px] text-muted-foreground mt-0.5">Requerido para enviar a despacho</p>
             </div>
             <div className="flex-1 max-w-sm">

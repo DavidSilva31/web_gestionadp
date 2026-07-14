@@ -31,6 +31,16 @@ export default function RootLayout({
       className={`${inter.variable} ${dmSans.variable} h-full antialiased`}
       suppressHydrationWarning
     >
+      <head>
+        {/* Aplica el tema antes de que React hidrate para evitar flash */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          try {
+            var t = localStorage.getItem("theme");
+            var dark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+            if (dark) { document.documentElement.classList.add("dark"); document.documentElement.style.colorScheme = "dark"; }
+          } catch(e) {}
+        ` }} />
+      </head>
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <ThemeProvider>{children}</ThemeProvider>
       </body>

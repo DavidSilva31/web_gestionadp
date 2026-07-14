@@ -17,7 +17,7 @@ export function Field({ label, required, children, className }: {
 }) {
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <Label className="text-xs font-medium text-gray-600">
+      <Label className="text-xs font-medium text-muted-foreground">
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </Label>
       {children}
@@ -45,13 +45,13 @@ export function RadioGroup<T extends string>({ value, onChange, options, vertica
           <div className={cn(
             "h-4 w-4 rounded-full border-2 flex items-center justify-center transition-colors",
             value === opt.value
-              ? "border-[oklch(0.35_0.12_240)] bg-[oklch(0.35_0.12_240)]"
-              : "border-gray-300",
-            !readOnly && "group-hover:border-gray-400"
+              ? "border-primary bg-primary"
+              : "border-border",
+            !readOnly && "group-hover:border-muted-foreground"
           )}>
-            {value === opt.value && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+            {value === opt.value && <div className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />}
           </div>
-          <span className="text-xs text-gray-700">{opt.label}</span>
+          <span className="text-xs text-foreground/80">{opt.label}</span>
         </label>
       ))}
     </div>
@@ -76,7 +76,7 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc }: {
         <Checkbox id="sec1_activa" checked={form.sec1_activa}
           onCheckedChange={v => !readOnly && set("sec1_activa", v === true)}
           className="h-3.5 w-3.5" disabled={readOnly} />
-        <label htmlFor="sec1_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">
+        <label htmlFor="sec1_activa" className="text-xs font-semibold text-foreground cursor-pointer">
           Activar Sección 1 — Depósito de Contenedores
         </label>
       </div>
@@ -106,18 +106,18 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc }: {
             <Checkbox id="sec1_carga_normal" checked={form.sec1_carga_normal}
               onCheckedChange={v => !readOnly && set("sec1_carga_normal", v === true)}
               className="h-3.5 w-3.5" disabled={readOnly} />
-            <label htmlFor="sec1_carga_normal" className="text-xs text-gray-700 cursor-pointer">Carga normal</label>
+            <label htmlFor="sec1_carga_normal" className="text-xs text-foreground/80 cursor-pointer">Carga normal</label>
           </div>
           <div className="flex items-center gap-2">
             <Checkbox id="sec1_carga_imo" checked={form.sec1_carga_imo}
               onCheckedChange={v => !readOnly && set("sec1_carga_imo", v === true)}
               className="h-3.5 w-3.5" disabled={readOnly} />
-            <label htmlFor="sec1_carga_imo" className="text-xs text-gray-700 cursor-pointer">Carga IMO</label>
+            <label htmlFor="sec1_carga_imo" className="text-xs text-foreground/80 cursor-pointer">Carga IMO</label>
           </div>
         </div>
 
         {form.sec1_carga_imo && (
-          <div className="grid grid-cols-2 gap-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
+          <div className="grid grid-cols-2 gap-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
             <Field label="Clase IMO">
               <Input value={form.sec1_clase_imo} onChange={str("sec1_clase_imo")}
                 placeholder="Ej: 3, 6.1, 8..." className="h-8 text-xs" readOnly={readOnly} />
@@ -156,7 +156,7 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc }: {
           <Checkbox id="sec1_hds" checked={form.sec1_hds}
             onCheckedChange={v => !readOnly && set("sec1_hds", v === true)}
             className="h-3.5 w-3.5" disabled={readOnly} />
-          <label htmlFor="sec1_hds" className="text-xs text-gray-700 cursor-pointer">HDS adjunto</label>
+          <label htmlFor="sec1_hds" className="text-xs text-foreground/80 cursor-pointer">HDS adjunto</label>
         </div>
       </div>
     </div>
@@ -190,19 +190,19 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc }: {
         <Checkbox id="sec2_activa" checked={form.sec2_activa}
           onCheckedChange={v => !readOnly && set("sec2_activa", v === true)}
           className="h-3.5 w-3.5" disabled={readOnly} />
-        <label htmlFor="sec2_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">
+        <label htmlFor="sec2_activa" className="text-xs font-semibold text-foreground cursor-pointer">
           Activar Sección 2 — Consolidado / Desconsolidado / Otros
         </label>
       </div>
 
       <div className={cn("space-y-4 transition-opacity", !form.sec2_activa && "opacity-40 pointer-events-none")}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 bg-muted/40 rounded-lg">
           {checkboxFields.map(([key, label]) => (
             <div key={key} className="flex items-center gap-2">
               <Checkbox id={key} checked={form[key] as boolean}
                 onCheckedChange={v => !readOnly && set(key, v === true as ReportFormData[typeof key])}
                 className="h-3.5 w-3.5" disabled={readOnly} />
-              <label htmlFor={key} className="text-xs text-gray-700 cursor-pointer">{label}</label>
+              <label htmlFor={key} className="text-xs text-foreground/80 cursor-pointer">{label}</label>
             </div>
           ))}
         </div>
@@ -251,7 +251,7 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode
         <Checkbox id="sec3_activa" checked={form.sec3_activa}
           onCheckedChange={v => !readOnly && set("sec3_activa", v === true)}
           className="h-3.5 w-3.5" disabled={readOnly} />
-        <label htmlFor="sec3_activa" className="text-xs font-semibold text-gray-800 cursor-pointer">
+        <label htmlFor="sec3_activa" className="text-xs font-semibold text-foreground cursor-pointer">
           Activar Sección 3 — Bodegaje
         </label>
       </div>

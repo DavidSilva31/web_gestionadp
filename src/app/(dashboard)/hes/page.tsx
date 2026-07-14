@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import ExcelJS from "exceljs"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -11,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   FileSpreadsheet, Search, Settings2, CheckCircle2,
   AlertCircle, Loader2, ChevronRight, ChevronLeft, FileText, RefreshCw, Download, Wrench,
+  Calendar as CalendarIcon,
 } from "lucide-react"
 import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente } from "@/types/database"
 
@@ -21,6 +23,12 @@ const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
 const CURRENT_YEAR  = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth()
 const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - 2 + i)
+
+function todayIsoLocal() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+const TODAY_ISO = todayIsoLocal()
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface MovRaw {
@@ -53,6 +61,7 @@ interface HesResult {
 function fmtUF(v: number) { return v.toFixed(4) }
 function fmtCLP(v: number) { return `$${Math.round(v).toLocaleString("es-CL")}` }
 function pad(n: number) { return String(n).padStart(2, "0") }
+function fmtDateDisplay(iso: string) { return iso.split("-").reverse().join("/") }
 
 function daysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate()
@@ -106,18 +115,153 @@ function computeHES(movs: MovRaw[], year: number, month: number, tarifaAlmacenaj
     const repsOut  = outs.map(m => m.reports?.numero ? `REP-${String(m.reports.numero).padStart(3,"0")}` : `MOV-${String(m.numero).padStart(3,"0")}`).join(" ")
     const operador = dayMovs[0]?.operador ?? ""
 
-    if (dayMovs.length > 0 || dailyLog.length > 0) {
-      dailyLog.push({
-        fecha: dateStr, operador,
-        guias_in: guiasIn, pallets_in: palletsIn, reports_in: repsIn,
-        guias_out: guiasOut, pallets_out: palletsOut, reports_out: repsOut,
-        stock: Math.max(stock, 0),
-        tarifa_dia: Math.max(stock, 0) * tarifaAlmacenaje,
-      })
-    }
+    dailyLog.push({
+      fecha: dateStr, operador,
+      guias_in: guiasIn, pallets_in: palletsIn, reports_in: repsIn,
+      guias_out: guiasOut, pallets_out: palletsOut, reports_out: repsOut,
+      stock: Math.max(stock, 0),
+      tarifa_dia: Math.max(stock, 0) * tarifaAlmacenaje,
+    })
   }
 
   return { palletDays, totalIngresos, totalDespachos, dailyLog }
+}
+
+// ── Render del .xlsx real (vista previa fiel al archivo descargado) ────────────
+interface PreviewCell {
+  key:     string
+  value:   string
+  rowSpan: number
+  colSpan: number
+  style:   React.CSSProperties
+}
+interface PreviewRow { height: number; cells: PreviewCell[] }
+interface PreviewLogo { dataUrl: string; width: number; height: number; leftPx: number; topPx: number }
+interface PreviewSheet { colWidths: number[]; rows: PreviewRow[]; logo: PreviewLogo | null }
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ""
+  const chunkSize = 8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
+}
+
+function argbToCss(argb?: string): string | undefined {
+  if (!argb || argb.length < 6) return undefined
+  return `#${argb.length === 8 ? argb.slice(2) : argb}`
+}
+
+function fmtCellValue(cell: ExcelJS.Cell): string {
+  const v = cell.value
+  if (v === null || v === undefined) return ""
+  if (typeof v === "number") {
+    const fmt = cell.numFmt ?? ""
+    if (fmt.includes("$"))  return `$${Math.round(v).toLocaleString("es-CL")}`
+    if (fmt === "0.0000")   return v.toFixed(4)
+    if (fmt === "0.00")     return v.toFixed(2)
+    return v.toLocaleString("es-CL")
+  }
+  if (v instanceof Date) return v.toLocaleDateString("es-CL")
+  if (typeof v === "object") {
+    if ("richText" in v) return (v.richText as { text: string }[]).map(r => r.text).join("")
+    if ("result"   in v) return String((v as { result?: unknown }).result ?? "")
+  }
+  return String(v)
+}
+
+async function buildPreviewSheet(buffer: ArrayBuffer): Promise<PreviewSheet> {
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(buffer)
+  const ws = wb.worksheets[0]
+
+  const colToNum = (s: string) => s.split("").reduce((a, ch) => a * 26 + (ch.charCodeAt(0) - 64), 0)
+
+  type Span = { rowSpan: number; colSpan: number }
+  const masterSpan = new Map<string, Span>()
+  const covered    = new Set<string>()
+
+  for (const range of (ws.model.merges ?? []) as string[]) {
+    const m = range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/)
+    if (!m) continue
+    const c1 = colToNum(m[1]), r1 = parseInt(m[2]), c2 = colToNum(m[3]), r2 = parseInt(m[4])
+    masterSpan.set(`${r1},${c1}`, { rowSpan: r2 - r1 + 1, colSpan: c2 - c1 + 1 })
+    for (let r = r1; r <= r2; r++)
+      for (let c = c1; c <= c2; c++)
+        if (!(r === r1 && c === c1)) covered.add(`${r},${c}`)
+  }
+
+  const colCount   = ws.columnCount
+  const colWidths  = Array.from({ length: colCount }, (_, i) => (ws.getColumn(i + 1).width ?? 9) * 7)
+
+  // Logo embebido (imagen flotante, no viaja en las celdas al iterar filas)
+  let logo: PreviewLogo | null = null
+  const images = ws.getImages()
+  if (images.length > 0) {
+    const img   = images[0] as (typeof images)[number] & { range: { ext?: { width: number; height: number } } }
+    const media = wb.model.media[Number(img.imageId)] as
+      | { buffer: ArrayBuffer | Uint8Array; extension: string }
+      | undefined
+    if (media?.buffer) {
+      const bytes = media.buffer instanceof Uint8Array ? media.buffer : new Uint8Array(media.buffer)
+      const anchorCol = img.range.tl.nativeCol
+      const anchorRow = img.range.tl.nativeRow
+      let topPx = 0
+      for (let i = 1; i <= anchorRow; i++) topPx += (ws.getRow(i).height ?? 15) * 1.15
+      logo = {
+        dataUrl: `data:image/${media.extension};base64,${bytesToBase64(bytes)}`,
+        width:   img.range.ext?.width  ?? 200,
+        height:  img.range.ext?.height ?? 70,
+        leftPx:  colWidths.slice(0, anchorCol).reduce((a, b) => a + b, 0),
+        topPx,
+      }
+    }
+  }
+
+  const rows: PreviewRow[] = []
+
+  for (let r = 1; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r)
+    const cells: PreviewCell[] = []
+    for (let c = 1; c <= colCount; c++) {
+      if (covered.has(`${r},${c}`)) continue
+      const cell   = row.getCell(c)
+      const span   = masterSpan.get(`${r},${c}`)
+      const align  = cell.alignment
+      const font   = cell.font
+      const fill   = cell.fill as ExcelJS.FillPattern | undefined
+      const border = cell.border
+
+      const bd = (side?: Partial<ExcelJS.Border>) =>
+        side ? `1px solid ${argbToCss(side.color?.argb) ?? "#ccc"}` : "1px solid transparent"
+
+      cells.push({
+        key: `${r}-${c}`,
+        value: fmtCellValue(cell),
+        rowSpan: span?.rowSpan ?? 1,
+        colSpan: span?.colSpan ?? 1,
+        style: {
+          textAlign:      (align?.horizontal as React.CSSProperties["textAlign"]) ?? "left",
+          verticalAlign:  align?.vertical === "middle" ? "middle" : "top",
+          whiteSpace:     align?.wrapText ? "pre-line" : "nowrap",
+          fontWeight:     font?.bold ? 700 : 400,
+          fontStyle:      font?.italic ? "italic" : "normal",
+          textDecoration: font?.underline ? "underline" : "none",
+          fontSize:       font?.size ? `${Math.round(font.size * 0.9)}px` : "11px",
+          color:          argbToCss(font?.color?.argb) ?? "#000",
+          backgroundColor: fill?.type === "pattern" ? argbToCss(fill.fgColor?.argb) : undefined,
+          borderTop:    bd(border?.top),
+          borderBottom: bd(border?.bottom),
+          borderLeft:   bd(border?.left),
+          borderRight:  bd(border?.right),
+        },
+      })
+    }
+    rows.push({ height: (row.height ?? 15) * 1.15, cells })
+  }
+
+  return { colWidths, rows, logo }
 }
 
 // ── Tarifa Dialog ──────────────────────────────────────────────────────────────
@@ -234,6 +378,87 @@ function TarifaDialog({
   )
 }
 
+// ── Preview Dialog (render fiel del .xlsx real, antes de descargarlo) ──────────
+function PreviewDialog({
+  clienteNombre, loading, error, sheet, onClose, onDownload, downloading,
+}: {
+  clienteNombre: string
+  loading:  boolean
+  error:    string | null
+  sheet:    PreviewSheet | null
+  onClose:  () => void
+  onDownload: () => void
+  downloading: boolean
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-fit max-w-[95vw] min-w-[600px] max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            <h2 className="text-[14px] font-semibold">Vista previa del Excel — HES {clienteNombre}</h2>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-5 bg-muted/10">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <p className="text-[12px]">Generando y cargando el archivo…</p>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+              <AlertCircle className="h-8 w-8 text-amber-500/60" />
+              <p className="text-[12px]">{error}</p>
+            </div>
+          ) : sheet ? (
+            <div className="bg-card rounded-lg border border-border/40 shadow-sm inline-block p-2 max-w-full overflow-auto">
+              <div className="relative" style={{ width: "fit-content" }}>
+                {sheet.logo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={sheet.logo.dataUrl}
+                    alt="Logo ADP"
+                    className="absolute pointer-events-none"
+                    style={{ left: sheet.logo.leftPx, top: sheet.logo.topPx, width: sheet.logo.width, height: sheet.logo.height }}
+                  />
+                )}
+                <table style={{ borderCollapse: "collapse", tableLayout: "fixed" }}>
+                  <colgroup>
+                    {sheet.colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
+                  </colgroup>
+                  <tbody>
+                    {sheet.rows.map((row, i) => (
+                      <tr key={i} style={{ height: row.height }}>
+                        {row.cells.map(cell => (
+                          <td key={cell.key} rowSpan={cell.rowSpan} colSpan={cell.colSpan}
+                            style={{ ...cell.style, padding: "2px 4px", overflow: "hidden" }}>
+                            {cell.value}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-border/40 flex-shrink-0">
+          <Button variant="ghost" size="sm" onClick={onClose} className="h-8 text-[12px]">Cerrar</Button>
+          <Button size="sm" onClick={onDownload} disabled={downloading || loading || !sheet}
+            className="h-8 gap-1.5 text-[12px] bg-emerald-600 hover:bg-emerald-700 text-white">
+            {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Descargar Excel
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function HesPage() {
   const [clientes,         setClientes]         = useState<Cliente[]>([])
@@ -248,10 +473,17 @@ export default function HesPage() {
   const [selectedYear,     setSelectedYear]     = useState(CURRENT_YEAR)
   const [ufValue,          setUfValue]          = useState<string>("")
   const [ufLoading,        setUfLoading]        = useState(true)
+  const [ufDate,           setUfDate]           = useState<string>(TODAY_ISO)
+  const ufDateInputRef = useRef<HTMLInputElement>(null)
   // tarifaDialog: undefined=cerrado | null=nueva tarifa | TarifaCliente=editar existente
   const [tarifaDialog,     setTarifaDialog]     = useState<TarifaCliente | null | undefined>(undefined)
   const [loading,          setLoading]          = useState(false)
   const [exporting,        setExporting]        = useState(false)
+  const [showPreview,      setShowPreview]      = useState(false)
+  const [previewLoading,   setPreviewLoading]   = useState(false)
+  const [previewError,     setPreviewError]     = useState<string | null>(null)
+  const [previewSheet,     setPreviewSheet]     = useState<PreviewSheet | null>(null)
+  const [previewBlob,      setPreviewBlob]      = useState<Blob | null>(null)
   const [clientesLoaded,   setClientesLoaded]   = useState(false)
   const [tarifaMap,        setTarifaMap]        = useState<Record<string, boolean>>({})
 
@@ -263,41 +495,36 @@ export default function HesPage() {
 
   const selectedCliente = useMemo(() => clientes.find(c => c.id === selectedId) ?? null, [clientes, selectedId])
 
-  // ── Fetch UF según mes/año seleccionado desde mindicador.cl ─────────────────
+  // ── Fetch UF de la fecha seleccionada desde mindicador.cl ───────────────────
   useEffect(() => {
     setUfLoading(true)
     setUfValue("")
     const controller = new AbortController()
     const timeout    = setTimeout(() => controller.abort(), 8000)
 
-    const today      = new Date(); today.setHours(0, 0, 0, 0)
-    const lastDay    = daysInMonth(selectedYear, selectedMonth)
-    const targetDate = new Date(selectedYear, selectedMonth, lastDay)
-    // Mes pasado → año completo y filtramos; mes actual/futuro → últimos 30 días
-    const url = targetDate < today
-      ? `https://mindicador.cl/api/uf/${selectedYear}`
-      : "https://mindicador.cl/api/uf"
+    const [y, m, d] = ufDate.split("-")
+    const url = `https://mindicador.cl/api/uf/${d}-${m}-${y}`
 
     fetch(url, { signal: controller.signal })
       .then(r => r.json())
       .then(data => {
-        const serie: { fecha: string; valor: number }[] = data?.serie ?? []
-        let val: number | undefined
-        if (targetDate < today) {
-          // Buscar el último valor disponible del mes seleccionado
-          const prefix = `${selectedYear}-${pad(selectedMonth + 1)}`
-          const match  = serie.find(e => e.fecha.startsWith(prefix))
-          val = match?.valor
-        } else {
-          val = serie[0]?.valor
-        }
+        const val = data?.serie?.[0]?.valor
         if (typeof val === "number") setUfValue(val.toFixed(2))
       })
       .catch(() => setUfValue(""))
       .finally(() => { clearTimeout(timeout); setUfLoading(false) })
 
     return () => { clearTimeout(timeout); controller.abort() }
-  }, [selectedMonth, selectedYear])
+  }, [ufDate])
+
+  function openUfDatePicker() {
+    const el = ufDateInputRef.current
+    if (!el) return
+    if (typeof el.showPicker === "function") {
+      try { el.showPicker(); return } catch { /* fall through */ }
+    }
+    el.click()
+  }
 
   // ── Load clientes + tarifa map ──────────────────────────────────────────────
   useEffect(() => {
@@ -406,43 +633,71 @@ export default function HesPage() {
 
 
   // ── Export Excel ───────────────────────────────────────────────────────────
-  async function handleExportExcel() {
+  async function fetchHesExcel(): Promise<Blob> {
+    const res = await fetch("/api/hes/export", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        cliente: {
+          nombre:   selectedCliente!.nombre,
+          rut:      selectedCliente!.rut,
+          email:    selectedCliente!.email,
+          contacto: selectedCliente!.contacto,
+        },
+        tarifa,
+        billing,
+        hes,
+        servicios: servicios.map(s => ({
+          id:       s.id,
+          nombre:   s.nombre,
+          tarifa_uf: s.tarifa_uf ?? 0,
+          unidad:   s.unidad,
+          cantidad: srvCantidades[s.id] ?? 0,
+        })),
+        mes: selectedMonth,
+        anio: selectedYear,
+        ufValue,
+      }),
+    })
+    if (!res.ok) throw new Error("Error al generar Excel")
+    return res.blob()
+  }
+
+  function triggerBlobDownload(blob: Blob) {
+    const url = URL.createObjectURL(blob)
+    const a   = document.createElement("a")
+    a.href    = url
+    a.download = `HES_${selectedCliente!.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[selectedMonth].toUpperCase()}_${selectedYear}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Abre la vista previa: genera el .xlsx real y lo parsea en el cliente para
+  // renderizarlo tal cual quedará el archivo descargado (mismas fusiones, colores y formatos).
+  async function openPreview() {
     if (!selectedCliente || !tarifa || !billing || !hes) return
+    setShowPreview(true)
+    setPreviewLoading(true)
+    setPreviewError(null)
+    setPreviewSheet(null)
+    setPreviewBlob(null)
+    try {
+      const blob = await fetchHesExcel()
+      setPreviewBlob(blob)
+      setPreviewSheet(await buildPreviewSheet(await blob.arrayBuffer()))
+    } catch {
+      setPreviewError("No se pudo generar la vista previa del Excel.")
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  function handleDownloadFromPreview() {
+    if (!previewBlob) return
     setExporting(true)
     try {
-      const res = await fetch("/api/hes/export", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
-          cliente: {
-            nombre:   selectedCliente.nombre,
-            rut:      selectedCliente.rut,
-            email:    selectedCliente.email,
-            contacto: selectedCliente.contacto,
-          },
-          tarifa,
-          billing,
-          hes,
-          servicios: servicios.map(s => ({
-            id:       s.id,
-            nombre:   s.nombre,
-            tarifa_uf: s.tarifa_uf ?? 0,
-            unidad:   s.unidad,
-            cantidad: srvCantidades[s.id] ?? 0,
-          })),
-          mes: selectedMonth,
-          anio: selectedYear,
-          ufValue,
-        }),
-      })
-      if (!res.ok) throw new Error("Error al generar Excel")
-      const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement("a")
-      a.href     = url
-      a.download = `HES_${selectedCliente.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[selectedMonth].toUpperCase()}_${selectedYear}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
+      triggerBlobDownload(previewBlob)
+      setShowPreview(false)
     } finally {
       setExporting(false)
     }
@@ -466,6 +721,18 @@ export default function HesPage() {
             setTarifaMap(m => ({ ...m, [t.cliente_id]: true }))
             setTarifaDialog(undefined)
           }}
+        />
+      )}
+
+      {showPreview && selectedCliente && (
+        <PreviewDialog
+          clienteNombre={selectedCliente.nombre}
+          loading={previewLoading}
+          error={previewError}
+          sheet={previewSheet}
+          onClose={() => setShowPreview(false)}
+          onDownload={handleDownloadFromPreview}
+          downloading={exporting}
         />
       )}
 
@@ -568,11 +835,11 @@ export default function HesPage() {
                   )}
                   <Button
                     variant="outline" size="sm"
-                    onClick={handleExportExcel}
-                    disabled={exporting || !tarifa || !billing || !hes}
+                    onClick={openPreview}
+                    disabled={exporting || previewLoading || !tarifa || !billing || !hes}
                     className="h-7 gap-1.5 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400"
                   >
-                    {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                    {previewLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
                     Excel
                   </Button>
 
@@ -609,7 +876,26 @@ export default function HesPage() {
                           <p className="text-[11px] text-muted-foreground">Cotización N° <span className="font-semibold text-foreground">{tarifa.cotizacion_numero}</span></p>
                           {tarifa.clase_imo && <p className="text-[11px] text-muted-foreground">Clase <span className="font-semibold text-foreground">{tarifa.clase_imo}</span></p>}
                           <div className="flex items-center gap-1.5 mt-2 justify-end">
-                            <span className="text-[10px] text-muted-foreground">UF al {pad(daysInMonth(selectedYear, selectedMonth))}/{pad(selectedMonth+1)}/{selectedYear}</span>
+                            <span className="text-[10px] text-muted-foreground">UF al {fmtDateDisplay(ufDate)}</span>
+                            <div className="relative print:hidden">
+                              <Button
+                                type="button" variant="outline" size="icon-xs"
+                                onClick={openUfDatePicker}
+                                title="Elegir fecha de la UF"
+                                className="text-muted-foreground hover:text-foreground"
+                              >
+                                <CalendarIcon className="size-[11px]" />
+                              </Button>
+                              <input
+                                ref={ufDateInputRef}
+                                type="date"
+                                value={ufDate}
+                                max={TODAY_ISO}
+                                onChange={e => e.target.value && setUfDate(e.target.value)}
+                                tabIndex={-1}
+                                className="absolute inset-0 h-6 w-6 opacity-0 pointer-events-none"
+                              />
+                            </div>
                             <Input value={ufValue} onChange={e => setUfValue(e.target.value)}
                               className="h-6 w-28 text-[11px] text-right bg-muted/40 border-border/50 print:hidden"
                               placeholder={ufLoading ? "Cargando…" : "$38.000,00"} />
