@@ -125,7 +125,7 @@ function LoginForm() {
 
         <div className="relative z-10 flex flex-col h-full p-12 items-center justify-center text-center">
           <Image src="/adp_logo.png" alt="Altos del Puerto" width={160} height={56}
-            className="brightness-0 invert object-contain mb-10" />
+            className="brightness-0 invert object-contain mb-10" style={{ height: "auto" }} />
           <h2 className="text-3xl font-bold text-white leading-tight mb-4">
             {mode === "forgot" ? "Recupera tu\nacceso" : "Sistema de gestión\nde almacenamiento"}
           </h2>
@@ -163,7 +163,7 @@ function LoginForm() {
           {/* Logo mobile */}
           <div className="lg:hidden mb-8">
             <Image src="/adp_logo.png" alt="Altos del Puerto" width={120} height={42}
-              className="object-contain dark:brightness-0 dark:invert" />
+              className="object-contain dark:brightness-0 dark:invert" style={{ height: "auto" }} />
           </div>
 
           {/* ── Modo LOGIN ── */}

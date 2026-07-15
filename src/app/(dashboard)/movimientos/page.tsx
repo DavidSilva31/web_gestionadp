@@ -22,6 +22,7 @@ import type {
 // ── Constantes ─────────────────────────────────────────────────────────────────
 const SERVICIOS: MovimientoServicio[] = ["Almacenaje", "Transporte", "Porteo", "Logística"]
 const AREAS: InventarioArea[] = ["Bodega IMO", "Zona Isotanques", "Zona RESPEL", "Bodega General"]
+const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
 const SERVICIO_BADGE: Record<string, string> = {
   Almacenaje: "bg-[var(--color-status-info-bg)] text-[var(--color-status-info-text)]",
@@ -71,6 +72,7 @@ export default function MovimientosPage() {
   const [loading,       setLoading]       = useState(true)
   const currentYear = new Date().getFullYear()
   const [yearFilter,    setYearFilter]    = useState(currentYear)
+  const [monthFilter,   setMonthFilter]   = useState<number | "todos">("todos")
   const [loadingItems,  setLoadingItems]  = useState(false)
   const [saving,        setSaving]        = useState(false)
   const [search,        setSearch]        = useState("")
@@ -79,6 +81,7 @@ export default function MovimientosPage() {
   const [fetchError,    setFetchError]    = useState<string | null>(null)
   const [dialog,        setDialog]        = useState<null | MovimientoTipo | Movimiento>(null)
   const [form,          setForm]          = useState<MovimientoInsert>(EMPTY_FORM("ingreso"))
+  const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchMovimientos = useCallback(async () => {
@@ -223,6 +226,7 @@ export default function MovimientosPage() {
   // ── Filtrado ───────────────────────────────────────────────────────────────
   const filtered = useMemo(() => movimientos.filter(m => {
     if (filtroTipo !== "todos" && m.tipo !== filtroTipo) return false
+    if (monthFilter !== "todos" && new Date(m.fecha).getMonth() !== monthFilter) return false
     if (!search) return true
     const q = search.toLowerCase()
     return (
@@ -231,7 +235,7 @@ export default function MovimientosPage() {
       movCodigo(m.numero).toLowerCase().includes(q) ||
       m.servicio.toLowerCase().includes(q)
     )
-  }), [movimientos, filtroTipo, search])
+  }), [movimientos, filtroTipo, monthFilter, search])
 
   const isNewDialog = dialog === "ingreso" || dialog === "despacho"
   const isEditDialog = dialog !== null && !isNewDialog
@@ -242,7 +246,8 @@ export default function MovimientosPage() {
   const statsDespachos = useMemo(() => movimientos.filter(m => m.tipo === "despacho").length,   [movimientos])
   const statsEnProceso = useMemo(() => movimientos.filter(m => m.estado === "en_proceso").length, [movimientos])
 
-  function handleExport() {
+  function buildExportRows() {
+    if (filtered.length === 0) return null
     const rows = filtered.map(m => ({
       "Código":        movCodigo(m.numero),
       "Tipo":          m.tipo.charAt(0).toUpperCase() + m.tipo.slice(1),
@@ -257,7 +262,19 @@ export default function MovimientosPage() {
       "Observaciones": m.observaciones ?? "",
     }))
     const today = new Date().toLocaleDateString("es-CL").replace(/\//g, "-")
-    exportToExcel(rows, `Movimientos_${today}`, "Movimientos")
+    const mesLabel = monthFilter === "todos" ? "" : `_${MESES[monthFilter]}`
+    return { rows, filename: `Movimientos${mesLabel}_${yearFilter}_${today}` }
+  }
+
+  function openExportPreview() {
+    const built = buildExportRows()
+    if (built) setExportPreview(built)
+  }
+
+  function handleDownloadExport() {
+    if (!exportPreview) return
+    exportToExcel(exportPreview.rows, exportPreview.filename, "Movimientos")
+    setExportPreview(null)
   }
 
   return (
@@ -272,7 +289,7 @@ export default function MovimientosPage() {
             <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           </Button>
           <Button variant="outline" size="sm"
-            onClick={handleExport}
+            onClick={openExportPreview}
             disabled={loading || filtered.length === 0}
             className="gap-1.5 text-xs h-9">
             <Download className="h-3.5 w-3.5" />
@@ -331,6 +348,16 @@ export default function MovimientosPage() {
               </button>
             ))}
           </div>
+          <select
+            value={monthFilter}
+            onChange={e => setMonthFilter(e.target.value === "todos" ? "todos" : Number(e.target.value))}
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="todos">Todos los meses</option>
+            {MESES.map((mes, i) => (
+              <option key={mes} value={i}>{mes}</option>
+            ))}
+          </select>
           <select
             value={yearFilter}
             onChange={e => setYearFilter(Number(e.target.value))}
@@ -657,6 +684,52 @@ export default function MovimientosPage() {
               }
               {isEditDialog ? "Guardar cambios" :
                dialogTipo === "ingreso" ? "Registrar ingreso" : "Registrar despacho"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Vista previa del Excel antes de descargar ── */}
+      <Dialog open={exportPreview !== null} onOpenChange={open => { if (!open) setExportPreview(null) }}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              Vista previa del Excel — {exportPreview?.rows.length} movimiento{exportPreview?.rows.length !== 1 ? "s" : ""}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto border rounded-lg">
+            {exportPreview && (
+              <table className="w-full text-xs border-collapse">
+                <thead className="sticky top-0 bg-muted">
+                  <tr>
+                    {Object.keys(exportPreview.rows[0] ?? {}).map(col => (
+                      <th key={col} className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap border-b">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {exportPreview.rows.map((row, i) => (
+                    <tr key={i} className="border-b last:border-0 hover:bg-muted/40">
+                      {Object.values(row).map((val, j) => (
+                        <td key={j} className="px-3 py-2 whitespace-nowrap">{String(val)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setExportPreview(null)}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleDownloadExport} className="gap-1.5">
+              <Download className="h-3.5 w-3.5" />
+              Descargar Excel
             </Button>
           </DialogFooter>
         </DialogContent>

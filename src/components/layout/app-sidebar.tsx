@@ -108,6 +108,7 @@ export function AppSidebar() {
           width={180}
           height={64}
           className="object-contain brightness-0 invert"
+          style={{ height: "auto" }}
           priority
         />
       </SidebarHeader>

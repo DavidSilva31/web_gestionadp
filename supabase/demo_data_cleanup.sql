@@ -23,10 +23,17 @@ WHERE cliente_id IN (
   WHERE nombre IN ('Brenntag Chile SpA', 'BASF Chile Ltda.', 'Air Liquide Chile S.A.')
 );
 
--- ── 4. Reports de los clientes demo ──────────────────
+-- ── 4. Tarifas de los clientes demo (demo_data_hes.sql) ──
+DELETE FROM tarifas_cliente
+WHERE cliente_id IN (
+  SELECT id FROM clientes
+  WHERE nombre IN ('Brenntag Chile SpA', 'BASF Chile Ltda.', 'Air Liquide Chile S.A.')
+);
+
+-- ── 5. Reports de los clientes demo ──────────────────
 DELETE FROM reports
 WHERE cliente IN ('Brenntag Chile SpA', 'BASF Chile Ltda.', 'Air Liquide Chile S.A.');
 
--- ── 5. Clientes demo ─────────────────────────────────
+-- ── 6. Clientes demo ─────────────────────────────────
 DELETE FROM clientes
 WHERE nombre IN ('Brenntag Chile SpA', 'BASF Chile Ltda.', 'Air Liquide Chile S.A.');

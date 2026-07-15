@@ -12,9 +12,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   FileSpreadsheet, Search, Settings2, CheckCircle2,
   AlertCircle, Loader2, ChevronRight, ChevronLeft, FileText, RefreshCw, Download, Wrench,
-  Calendar as CalendarIcon,
+  Calendar as CalendarIcon, Trash2, Pencil,
 } from "lucide-react"
-import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente } from "@/types/database"
+import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente, ServicioClienteInsert } from "@/types/database"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -378,6 +378,141 @@ function TarifaDialog({
   )
 }
 
+// ── Servicio Dialog ────────────────────────────────────────────────────────────
+function ServicioDialog({
+  clienteId, clienteNombre, existing, onClose, onSaved, onDeleted,
+}: {
+  clienteId: string; clienteNombre: string
+  existing: ServicioCliente | null
+  onClose: () => void
+  onSaved: (s: ServicioCliente) => void
+  onDeleted?: (id: string) => void
+}) {
+  const [saving,    setSaving]    = useState(false)
+  const [deleting,  setDeleting]  = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [form, setForm] = useState<Partial<ServicioClienteInsert>>({
+    cliente_id:  clienteId,
+    nombre:      existing?.nombre      ?? "",
+    descripcion: existing?.descripcion ?? "",
+    tarifa_uf:   existing?.tarifa_uf   ?? null,
+    unidad:      existing?.unidad      ?? "unidad",
+    orden:       existing?.orden       ?? 0,
+    activo:      true,
+  })
+
+  function setField<K extends keyof ServicioClienteInsert>(k: K, v: ServicioClienteInsert[K]) {
+    setForm(prev => ({ ...prev, [k]: v }))
+  }
+  function num(v: string) { const n = parseFloat(v); return isNaN(n) ? null : n }
+
+  async function handleSave() {
+    if (!form.nombre?.trim()) return
+    setSaving(true); setSaveError(null)
+    const supabase = createClient()
+    const payload = { ...form, cliente_id: clienteId, activo: true }
+    let data, error
+    if (existing) {
+      ;({ data, error } = await supabase.from("servicios_cliente").update(payload).eq("id", existing.id).select().single())
+    } else {
+      ;({ data, error } = await supabase.from("servicios_cliente").insert(payload).select().single())
+    }
+    setSaving(false)
+    if (error) { setSaveError(error.message); return }
+    if (data) onSaved(data as ServicioCliente)
+  }
+
+  async function handleDelete() {
+    if (!existing) return
+    setDeleting(true)
+    const supabase = createClient()
+    const { error } = await supabase.from("servicios_cliente").update({ activo: false }).eq("id", existing.id)
+    setDeleting(false)
+    if (!error) onDeleted?.(existing.id)
+  }
+
+  const fieldCls = "h-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1"
+  const labelCls = "text-[11px] text-muted-foreground"
+
+  const UNIDAD_OPTS = ["contenedor", "contenedor 20ft", "contenedor 40ft", "pallet", "operación", "mes", "unidad", "hora"]
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[460px]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
+          <div>
+            <h2 className="text-[14px] font-semibold">{existing ? "Editar servicio" : "Nuevo servicio"}</h2>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{clienteNombre}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <div className="space-y-1">
+            <Label className={labelCls}>Nombre del servicio <span className="text-destructive">*</span></Label>
+            <Input className={fieldCls} value={form.nombre ?? ""}
+              onChange={e => setField("nombre", e.target.value)}
+              placeholder="Ej: Desconsolidación 40ft, Porteo, Palletizado" />
+          </div>
+          <div className="space-y-1">
+            <Label className={labelCls}>Descripción <span className="text-muted-foreground/50">(opcional)</span></Label>
+            <Input className={fieldCls} value={form.descripcion ?? ""}
+              onChange={e => setField("descripcion", e.target.value)}
+              placeholder="Detalle del servicio para la HES" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className={labelCls}>Tarifa (UF / unidad)</Label>
+              <Input className={fieldCls} type="number" step="0.0001"
+                value={form.tarifa_uf ?? ""}
+                onChange={e => setField("tarifa_uf", num(e.target.value))}
+                placeholder="Ej: 3.5" />
+            </div>
+            <div className="space-y-1">
+              <Label className={labelCls}>Unidad de medida</Label>
+              <div className="relative">
+                <Input className={fieldCls} list="unidad-opts" value={form.unidad ?? ""}
+                  onChange={e => setField("unidad", e.target.value)}
+                  placeholder="contenedor, pallet…" />
+                <datalist id="unidad-opts">
+                  {UNIDAD_OPTS.map(u => <option key={u} value={u} />)}
+                </datalist>
+              </div>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className={labelCls}>Orden de aparición en HES</Label>
+            <Input className={`${fieldCls} w-24`} type="number" min="0" step="1"
+              value={form.orden ?? 0}
+              onChange={e => setField("orden", parseInt(e.target.value) || 0)} />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-5 py-4 border-t border-border/40">
+          <div>
+            {existing && (
+              <Button variant="ghost" size="sm" onClick={handleDelete} disabled={deleting}
+                className="h-8 text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive gap-1.5">
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                Eliminar
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {saveError && <p className="text-[11px] text-destructive mr-1">{saveError}</p>}
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-8 text-[12px]">Cancelar</Button>
+            <Button size="sm" onClick={handleSave} disabled={saving || !form.nombre?.trim()} className="h-8 text-[12px]">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              {existing ? "Guardar cambios" : "Crear servicio"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Preview Dialog (render fiel del .xlsx real, antes de descargarlo) ──────────
 function PreviewDialog({
   clienteNombre, loading, error, sheet, onClose, onDownload, downloading,
@@ -477,6 +612,9 @@ export default function HesPage() {
   const ufDateInputRef = useRef<HTMLInputElement>(null)
   // tarifaDialog: undefined=cerrado | null=nueva tarifa | TarifaCliente=editar existente
   const [tarifaDialog,     setTarifaDialog]     = useState<TarifaCliente | null | undefined>(undefined)
+  // servicioDialog: undefined=cerrado | null=nuevo | ServicioCliente=editar existente
+  const [servicioDialog,   setServicioDialog]   = useState<ServicioCliente | null | undefined>(undefined)
+  const [srvChecked,       setSrvChecked]       = useState<Record<string, boolean>>({})
   const [loading,          setLoading]          = useState(false)
   const [exporting,        setExporting]        = useState(false)
   const [showPreview,      setShowPreview]      = useState(false)
@@ -555,14 +693,19 @@ export default function HesPage() {
 
   // ── Load servicios for selected client ──────────────────────────────────────
   useEffect(() => {
-    if (!selectedId) { setServicios([]); setSrvCantidades({}); return }
+    if (!selectedId) { setServicios([]); setSrvCantidades({}); setSrvChecked({}); return }
     const supabase = createClient()
     supabase.from("servicios_cliente").select("*")
       .eq("cliente_id", selectedId).eq("activo", true)
       .order("orden").order("nombre")
       .then(({ data }) => {
-        setServicios((data ?? []) as ServicioCliente[])
+        const list = (data ?? []) as ServicioCliente[]
+        setServicios(list)
         setSrvCantidades({})
+        // Todos los servicios comienzan marcados (incluidos en cobro)
+        const checked: Record<string, boolean> = {}
+        for (const s of list) checked[s.id] = true
+        setSrvChecked(checked)
       })
   }, [selectedId])
 
@@ -608,8 +751,9 @@ export default function HesPage() {
     addRow("Ingreso pallets a bodega", hes.totalIngresos, "pallets", tarifa.tarifa_inout_uf)
     addRow("Salida pallets desde bodega", hes.totalDespachos, "pallets", tarifa.tarifa_inout_uf)
 
-    // Servicios adicionales del cliente
+    // Servicios adicionales del cliente — solo los marcados con cantidad > 0
     for (const srv of servicios) {
+      if (!(srvChecked[srv.id] ?? true)) continue
       const qty = srvCantidades[srv.id] ?? 0
       if (qty > 0 && srv.tarifa_uf) {
         addRow(srv.nombre, qty, srv.unidad, srv.tarifa_uf)
@@ -622,7 +766,7 @@ export default function HesPage() {
     const finalUF  = Math.max(totalUF, minUF)
 
     return { rows, totalUF, totalCLP: totalUF * uf, finalUF, finalCLP: finalUF * uf, hasMin: finalUF > totalUF }
-  }, [hes, tarifa, ufValue, servicios, srvCantidades])
+  }, [hes, tarifa, ufValue, servicios, srvCantidades, srvChecked])
 
   // ── Filtered clients ───────────────────────────────────────────────────────
   const filteredClientes = useMemo(() =>
@@ -720,6 +864,29 @@ export default function HesPage() {
             setSelectedTarifaId(t.id)
             setTarifaMap(m => ({ ...m, [t.cliente_id]: true }))
             setTarifaDialog(undefined)
+          }}
+        />
+      )}
+
+      {servicioDialog !== undefined && selectedCliente && (
+        <ServicioDialog
+          clienteId={selectedCliente.id}
+          clienteNombre={selectedCliente.nombre}
+          existing={servicioDialog}
+          onClose={() => setServicioDialog(undefined)}
+          onSaved={s => {
+            setServicios(prev => {
+              const idx = prev.findIndex(x => x.id === s.id)
+              return idx >= 0 ? prev.with(idx, s) : [...prev, s].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
+            })
+            setSrvChecked(prev => ({ ...prev, [s.id]: prev[s.id] ?? true }))
+            setServicioDialog(undefined)
+          }}
+          onDeleted={id => {
+            setServicios(prev => prev.filter(x => x.id !== id))
+            setSrvChecked(prev => { const n = { ...prev }; delete n[id]; return n })
+            setSrvCantidades(prev => { const n = { ...prev }; delete n[id]; return n })
+            setServicioDialog(undefined)
           }}
         />
       )}
@@ -910,46 +1077,104 @@ export default function HesPage() {
                       </div>
                     </div>
 
-                    {/* ── Servicios adicionales ── */}
-                    {servicios.length > 0 && (
-                      <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden print:hidden">
-                        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/20">
+                    {/* ── Servicios a cobrar ── */}
+                    <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden print:hidden">
+                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-muted/20">
+                        <div className="flex items-center gap-2">
                           <Wrench className="h-3.5 w-3.5 text-primary" />
-                          <span className="text-[12px] font-semibold">Servicios adicionales</span>
-                          <span className="text-[11px] text-muted-foreground ml-1">— ingresa la cantidad mensual de cada servicio</span>
+                          <span className="text-[12px] font-semibold">Servicios a cobrar</span>
+                          {servicios.length > 0 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              — marca los que aplican e ingresa la cantidad
+                            </span>
+                          )}
                         </div>
-                        <div className="divide-y divide-border/20">
-                          {servicios.map(srv => (
-                            <div key={srv.id} className="flex items-center gap-4 px-4 py-2.5">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[12px] font-medium truncate">{srv.nombre}</p>
-                                <p className="text-[10px] text-muted-foreground">
-                                  {srv.tarifa_uf != null ? `${srv.tarifa_uf.toFixed(4)} UF / ${srv.unidad}` : "Sin tarifa"}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <Input
-                                  type="number" min="0" step="1"
-                                  value={srvCantidades[srv.id] ?? ""}
-                                  onChange={e => setSrvCantidades(prev => ({
-                                    ...prev,
-                                    [srv.id]: parseFloat(e.target.value) || 0,
-                                  }))}
-                                  className="h-7 w-24 text-[12px] text-right bg-muted/40 border-border/50 focus-visible:ring-1"
-                                  placeholder="0"
-                                />
-                                <span className="text-[11px] text-muted-foreground w-14 truncate">{srv.unidad}</span>
-                                {srv.tarifa_uf != null && (srvCantidades[srv.id] ?? 0) > 0 && (
-                                  <span className="text-[11px] font-mono text-primary w-20 text-right">
-                                    {((srvCantidades[srv.id] ?? 0) * srv.tarifa_uf).toFixed(4)} UF
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => setServicioDialog(null)}
+                          className="h-6 gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2">
+                          + Agregar servicio
+                        </Button>
                       </div>
-                    )}
+
+                      {servicios.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
+                          <Wrench className="h-7 w-7 opacity-20" />
+                          <p className="text-[12px]">Sin servicios configurados para este cliente</p>
+                          <Button size="sm" variant="outline" onClick={() => setServicioDialog(null)}
+                            className="h-7 gap-1.5 text-[11px] mt-1">
+                            + Crear primer servicio
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Cabecera de columnas */}
+                          <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/20 bg-muted/10">
+                            <span className="w-4 flex-shrink-0" />
+                            <span className="flex-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Servicio</span>
+                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-20 text-right">Cantidad</span>
+                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-16 text-center">Unidad</span>
+                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-24 text-right">Total (UF)</span>
+                            <span className="w-6 flex-shrink-0" />
+                          </div>
+                          <div className="divide-y divide-border/15">
+                            {servicios.map(srv => {
+                              const checked = srvChecked[srv.id] ?? true
+                              const qty     = srvCantidades[srv.id] ?? 0
+                              const total   = checked && qty > 0 && srv.tarifa_uf ? qty * srv.tarifa_uf : 0
+                              return (
+                                <div key={srv.id} className={cn(
+                                  "flex items-center gap-3 px-4 py-2.5 transition-colors",
+                                  checked ? "hover:bg-muted/20" : "opacity-45"
+                                )}>
+                                  {/* Checkbox */}
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={e => setSrvChecked(prev => ({ ...prev, [srv.id]: e.target.checked }))}
+                                    className="h-3.5 w-3.5 flex-shrink-0 cursor-pointer accent-primary"
+                                  />
+                                  {/* Nombre + tarifa */}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[12px] font-medium truncate">{srv.nombre}</p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {srv.descripcion
+                                        ? `${srv.descripcion}${srv.tarifa_uf != null ? ` · ${srv.tarifa_uf.toFixed(4)} UF/${srv.unidad}` : ""}`
+                                        : srv.tarifa_uf != null ? `${srv.tarifa_uf.toFixed(4)} UF / ${srv.unidad}` : "Sin tarifa"
+                                      }
+                                    </p>
+                                  </div>
+                                  {/* Cantidad */}
+                                  <Input
+                                    type="number" min="0" step="1"
+                                    value={qty > 0 ? qty : ""}
+                                    disabled={!checked}
+                                    onChange={e => setSrvCantidades(prev => ({ ...prev, [srv.id]: parseFloat(e.target.value) || 0 }))}
+                                    className="h-7 w-20 text-[12px] text-right bg-muted/40 border-border/50 focus-visible:ring-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    placeholder="0"
+                                  />
+                                  {/* Unidad */}
+                                  <span className="text-[11px] text-muted-foreground w-16 text-center truncate flex-shrink-0">{srv.unidad}</span>
+                                  {/* Total UF */}
+                                  <span className={cn(
+                                    "text-[11px] font-mono w-24 text-right flex-shrink-0 tabular-nums",
+                                    total > 0 ? "text-primary font-semibold" : "text-muted-foreground/30"
+                                  )}>
+                                    {total > 0 ? total.toFixed(4) : "—"}
+                                  </span>
+                                  {/* Editar */}
+                                  <button
+                                    onClick={() => setServicioDialog(srv)}
+                                    className="text-muted-foreground/30 hover:text-muted-foreground transition-colors flex-shrink-0"
+                                    title="Editar servicio"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
 
                     {/* ── Resumen de cobro ── */}
                     {billing && (

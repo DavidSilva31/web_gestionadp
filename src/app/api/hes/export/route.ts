@@ -118,6 +118,8 @@ export async function POST(req: NextRequest) {
   const mesNom  = MESES[mes].toUpperCase()
   const mesTit  = `${MESES[mes]} ${anio}`
   const tInout  = tarifa.tarifa_inout_uf ?? 0
+  const hoy     = new Date()
+  const hoyStr  = `${pad(hoy.getDate())}/${pad(hoy.getMonth() + 1)}/${hoy.getFullYear()}`
   // Only include services that have a quantity entered
   const activeSrvs = srvs.filter(s => s.cantidad > 0 && s.tarifa_uf > 0)
 
@@ -143,7 +145,7 @@ export async function POST(req: NextRequest) {
 
   ws.columns = [
     { width: 2  }, // A  ← separador
-    { width: 13 }, // B  Fecha
+    { width: 24 }, // B  Fecha / Descripción (tabla de cobro)
     { width: 17 }, // C  Operador
     { width: 17 }, // D  GD Ingreso
     { width: 11 }, // E  Pallets IN
@@ -160,8 +162,6 @@ export async function POST(req: NextRequest) {
     { width: 15 }, // Total Neto
   ]
 
-  let row = 1
-
   // Función auxiliar: estiliza la celda A de una fila como separador (vacía)
   function spacerA(r: ExcelJS.Row) { st(r.getCell("A"), { noBorder: true }) }
 
@@ -171,6 +171,14 @@ export async function POST(req: NextRequest) {
     const logoId   = wb.addImage({ filename: logoPath, extension: "jpeg" })
     ws.addImage(logoId, { tl: { col: 1, row: 1 }, ext: { width: 200, height: 70 } })
   } catch { /* sin logo — continúa */ }
+
+  // ws.addImage() con un anclaje en row:1 reserva 2 filas internamente en ExcelJS
+  // (rowCount pasa a 2) antes de que se agregue ninguna fila de contenido. Si el
+  // contador arrancara fijo en 1, todos los mergeCells() quedarían apuntando 2
+  // filas por encima de donde realmente cae el contenido (ws.addRow siempre
+  // agrega después del rowCount real). Partir de ws.rowCount + 1 mantiene ambos
+  // sincronizados con o sin logo.
+  let row = ws.rowCount + 1
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // BLOQUE 1 — ENCABEZADO
@@ -237,16 +245,16 @@ export async function POST(req: NextRequest) {
   // R8: Spacer
   { const r = ws.addRow([]); r.height = 6; spacerA(r); row++ }
 
-  // R9: BEE / Cotización | Id. Producto / Clase IMO
+  // R9: REF / Cotización | Id. Producto / Clase IMO
   {
     const r = ws.addRow([])
     r.height = 14
     spacerA(r)
 
-    r.getCell("B").value = "BEE :"
+    r.getCell("B").value = "REF :"
     st(r.getCell("B"), { bold: true, size: 9, noBorder: true })
 
-    r.getCell("C").value = `COTIZACIÓN N° ${tarifa.cotizacion_numero}`
+    r.getCell("C").value = `${tarifa.cotizacion_numero} al ${hoyStr}`
     st(r.getCell("C"), { size: 9, noBorder: true })
     ws.mergeCells(`C${row}:D${row}`)
 
@@ -330,7 +338,7 @@ export async function POST(req: NextRequest) {
     r.getCell("E").value = br.tarifa
     r.getCell("F").value = br.totalUF
     r.getCell("G").value = br.totalUF * uf
-    st(r.getCell("B"), { size: 9 })
+    st(r.getCell("B"), { size: 9, wrap: true })
     st(r.getCell("C"), { size: 9, ha: "right" })
     st(r.getCell("D"), { size: 9, ha: "center" })
     st(r.getCell("E"), { size: 9, ha: "right", fmt: "0.0000" })
