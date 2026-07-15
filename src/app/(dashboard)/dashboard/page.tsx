@@ -89,9 +89,12 @@ function buildChartData(movs: { tipo: string; fecha: string }[], months = 6) {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-interface StockRow { area: string | null; stock_actual: number; stock_minimo: number }
+interface StockRow {
+  id: string; cliente_id: string; area: string | null; stock_actual: number; stock_minimo: number
+  descripcion: string; clientes: { nombre: string } | null
+}
 interface MovRow   { numero: number; tipo: string; cliente_nombre: string | null; carga: string; unidades: number | null; fecha: string; estado: string }
-interface Alerta   { msg: string; nivel: "critical" | "warning" | "info" }
+interface Alerta   { nivel: "critical" | "warning" | "info"; titulo: string; detalle: string; meta: string; href?: string }
 interface ChartPoint { mes: string; ingresos: number; despachos: number }
 
 // ── Chart tooltip ──────────────────────────────────────────────────────────────
@@ -184,7 +187,7 @@ export default function DashboardPage() {
       { count: clientTotal,  error: e3 },
       { count: clientNewCount },
     ] = await Promise.all([
-      supabase.from("inventario_items").select("area, stock_actual, stock_minimo").eq("activo", true),
+      supabase.from("inventario_items").select("id, cliente_id, area, stock_actual, stock_minimo, descripcion, clientes(nombre)").eq("activo", true),
       supabase.from("movimientos").select("numero, tipo, cliente_nombre, carga, unidades, fecha, estado").gte("fecha", sixMonthsAgo).order("fecha", { ascending: false }),
       supabase.from("clientes").select("*", { count: "exact", head: true }).eq("activo", true),
       supabase.from("clientes").select("*", { count: "exact", head: true }).gte("created_at", curr),
@@ -193,7 +196,7 @@ export default function DashboardPage() {
     const queryError = e1 ?? e2 ?? e3
     if (queryError) { setFetchError(queryError.message); setLoading(false); return }
 
-    const items = (itemsRaw ?? []) as StockRow[]
+    const items = (itemsRaw ?? []) as unknown as StockRow[]
     const movs  = (movsRaw  ?? []) as MovRow[]
 
     const totalStock = items.reduce((s, i) => s + i.stock_actual, 0)
@@ -214,17 +217,43 @@ export default function DashboardPage() {
     const pSal = prevMovs.filter(m => m.tipo === "despacho").length
 
     const al: Alerta[] = []
-    const depleted = items.filter(i => i.stock_actual === 0 && i.stock_minimo > 0).length
-    if (depleted > 0)
-      al.push({ msg: `${depleted} ítem${depleted > 1 ? "s" : ""} sin stock`, nivel: "critical" })
-    const lowStock = items.filter(i => i.stock_actual > 0 && i.stock_minimo > 0 && i.stock_actual <= i.stock_minimo).length
-    if (lowStock > 0)
-      al.push({ msg: `${lowStock} ítem${lowStock > 1 ? "s" : ""} bajo stock mínimo`, nivel: "warning" })
-    const pending = movs.filter(m => m.estado === "en_proceso").length
-    if (pending > 0)
-      al.push({ msg: `${pending} movimiento${pending > 1 ? "s" : ""} en proceso`, nivel: "info" })
+    const MAX_POR_CATEGORIA = 4
+
+    const sinStock = items.filter(i => i.stock_actual === 0 && i.stock_minimo > 0)
+    sinStock.slice(0, MAX_POR_CATEGORIA).forEach(i => al.push({
+      nivel: "critical", titulo: "Sin stock", detalle: i.descripcion,
+      meta: `${i.clientes?.nombre ?? "Sin cliente"} · mínimo ${i.stock_minimo}`,
+      href: `/inventario?cliente=${i.cliente_id}`,
+    }))
+    if (sinStock.length > MAX_POR_CATEGORIA) {
+      const resto = sinStock.length - MAX_POR_CATEGORIA
+      al.push({ nivel: "critical", titulo: "Sin stock", detalle: `+${resto} ítem${resto > 1 ? "s" : ""} más`, meta: "Revisa el inventario", href: "/inventario" })
+    }
+
+    const stockBajo = items.filter(i => i.stock_actual > 0 && i.stock_minimo > 0 && i.stock_actual <= i.stock_minimo)
+    stockBajo.slice(0, MAX_POR_CATEGORIA).forEach(i => al.push({
+      nivel: "warning", titulo: "Stock bajo", detalle: i.descripcion,
+      meta: `${i.clientes?.nombre ?? "Sin cliente"} · ${i.stock_actual}/${i.stock_minimo} unidades`,
+      href: `/inventario?cliente=${i.cliente_id}`,
+    }))
+    if (stockBajo.length > MAX_POR_CATEGORIA) {
+      const resto = stockBajo.length - MAX_POR_CATEGORIA
+      al.push({ nivel: "warning", titulo: "Stock bajo", detalle: `+${resto} ítem${resto > 1 ? "s" : ""} más`, meta: "Revisa el inventario", href: "/inventario" })
+    }
+
+    const enProceso = movs.filter(m => m.estado === "en_proceso")
+    enProceso.slice(0, MAX_POR_CATEGORIA).forEach(m => al.push({
+      nivel: "info", titulo: m.tipo === "ingreso" ? "Ingreso en proceso" : "Despacho en proceso", detalle: m.carga,
+      meta: `${m.cliente_nombre ?? "Sin cliente"} · ${formatRelativa(m.fecha)}`,
+      href: "/movimientos",
+    }))
+    if (enProceso.length > MAX_POR_CATEGORIA) {
+      const resto = enProceso.length - MAX_POR_CATEGORIA
+      al.push({ nivel: "info", titulo: "En proceso", detalle: `+${resto} movimiento${resto > 1 ? "s" : ""} más`, meta: "Revisa movimientos", href: "/movimientos" })
+    }
+
     if (al.length === 0)
-      al.push({ msg: "Sin alertas activas", nivel: "info" })
+      al.push({ nivel: "info", titulo: "Sin alertas activas", detalle: "Todo está en orden", meta: "" })
 
     setStock(totalStock)
     setEntradas(cEnt)
@@ -579,25 +608,37 @@ export default function DashboardPage() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-3 flex flex-col gap-2 overflow-hidden">
+            <CardContent className="p-3 flex flex-col gap-2 overflow-y-auto">
               {loading
                 ? <div className="h-24 animate-pulse rounded-md bg-muted/40" />
-                : alertas.map((a, i) => (
-                    <div key={i} className={cn(
-                      "flex items-start gap-2 px-2.5 py-2.5 rounded-lg text-[11px] font-medium border-l-[3px] leading-snug",
+                : alertas.map((a, i) => {
+                    const cls = cn(
+                      "flex items-start gap-2 px-2.5 py-2 rounded-lg text-[11px] border-l-[3px] leading-snug",
                       a.nivel === "critical"
                         ? "bg-[var(--color-status-danger-bg)] text-[var(--color-status-danger-text)] border-[var(--color-status-danger-text)]"
                         : a.nivel === "warning"
                         ? "bg-[var(--color-status-warning-bg)] text-[var(--color-status-warning-text)] border-[var(--color-status-warning-text)]"
-                        : "bg-muted/50 text-muted-foreground border-muted-foreground/30"
-                    )}>
-                      {a.nivel === "critical" || a.nivel === "warning"
-                        ? <AlertTriangle className="h-3.5 w-3.5 mt-px flex-shrink-0" />
-                        : <Info className="h-3.5 w-3.5 mt-px flex-shrink-0" />
-                      }
-                      <span>{a.msg}</span>
-                    </div>
-                  ))
+                        : "bg-muted/50 text-muted-foreground border-muted-foreground/30",
+                      a.href && "cursor-pointer transition-opacity hover:opacity-80 active:opacity-60"
+                    )
+                    const inner = (
+                      <>
+                        {a.nivel === "critical" || a.nivel === "warning"
+                          ? <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                          : <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                        }
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold truncate">{a.titulo}</p>
+                          <p className="truncate opacity-90">{a.detalle}</p>
+                          {a.meta && <p className="text-[10px] opacity-70 truncate mt-0.5">{a.meta}</p>}
+                        </div>
+                        {a.href && <ArrowRight className="h-3 w-3 mt-0.5 flex-shrink-0 opacity-50" />}
+                      </>
+                    )
+                    return a.href
+                      ? <Link key={i} href={a.href} className={cls}>{inner}</Link>
+                      : <div key={i} className={cls}>{inner}</div>
+                  })
               }
             </CardContent>
           </Card>

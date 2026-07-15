@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { createClient } from "@/lib/supabase"
 
 export interface NotificationItem {
@@ -13,18 +13,34 @@ export interface NotificationItem {
   isNew: boolean
 }
 
-const LS_KEY = "adp_notif_last_seen"
+const LS_KEY_SEEN      = "adp_notif_last_seen"
+const LS_KEY_DISMISSED = "adp_notif_dismissed"
 
 function getLastSeen(): Date {
   if (typeof window === "undefined") return new Date(0)
-  const val = localStorage.getItem(LS_KEY)
+  const val = localStorage.getItem(LS_KEY_SEEN)
   return val ? new Date(val) : new Date(0)
 }
 
+function loadDismissed(): Set<string> {
+  if (typeof window === "undefined") return new Set()
+  try {
+    const raw = localStorage.getItem(LS_KEY_DISMISSED)
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function saveDismissed(ids: Set<string>) {
+  localStorage.setItem(LS_KEY_DISMISSED, JSON.stringify([...ids]))
+}
+
 export function useNotifications() {
-  const [items, setItems]   = useState<NotificationItem[]>([])
-  const [unread, setUnread] = useState(0)
-  const [loading, setLoading] = useState(true)
+  // rawItems = todo lo que devuelve la consulta; items (derivado) descuenta los descartados
+  const [rawItems, setRawItems]         = useState<NotificationItem[]>([])
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => loadDismissed())
+  const [loading, setLoading]           = useState(true)
 
   const fetchNotifications = useCallback(async () => {
     const supabase = createClient()
@@ -48,8 +64,7 @@ export function useNotifications() {
       isNew:      new Date(r.updated_at) > lastSeen,
     }))
 
-    setItems(notifs)
-    setUnread(notifs.filter(n => n.isNew).length)
+    setRawItems(notifs)
     setLoading(false)
   }, [])
 
@@ -68,11 +83,31 @@ export function useNotifications() {
     return () => { supabase.removeChannel(channel) }
   }, [fetchNotifications])
 
+  const items  = useMemo(() => rawItems.filter(n => !dismissedIds.has(n.id)), [rawItems, dismissedIds])
+  const unread = useMemo(() => items.filter(n => n.isNew).length, [items])
+
   const markAllRead = useCallback(() => {
-    localStorage.setItem(LS_KEY, new Date().toISOString())
-    setUnread(0)
-    setItems(prev => prev.map(n => ({ ...n, isNew: false })))
+    localStorage.setItem(LS_KEY_SEEN, new Date().toISOString())
+    setRawItems(prev => prev.map(n => ({ ...n, isNew: false })))
   }, [])
 
-  return { items, unread, loading, markAllRead, refresh: fetchNotifications }
+  const dismiss = useCallback((id: string) => {
+    setDismissedIds(prev => {
+      const next = new Set(prev)
+      next.add(id)
+      saveDismissed(next)
+      return next
+    })
+  }, [])
+
+  const clearAll = useCallback(() => {
+    setDismissedIds(prev => {
+      const next = new Set(prev)
+      for (const n of rawItems) next.add(n.id)
+      saveDismissed(next)
+      return next
+    })
+  }, [rawItems])
+
+  return { items, unread, loading, markAllRead, dismiss, clearAll, refresh: fetchNotifications }
 }

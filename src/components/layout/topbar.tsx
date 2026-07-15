@@ -192,7 +192,7 @@ function SearchResultGroup({
 // ── Component principal ────────────────────────────────────────────────────────
 export function Topbar() {
   const { profile } = useAuth()
-  const { items, unread, loading: notifLoading, markAllRead } = useNotifications()
+  const { items, unread, loading: notifLoading, markAllRead, dismiss, clearAll } = useNotifications()
   const router = useRouter()
 
   // Notificaciones
@@ -379,13 +379,24 @@ export function Topbar() {
                     <span className="text-[10px] text-muted-foreground">· Todo leído</span>
                   )}
                 </div>
-                <button
-                  onClick={markAllRead}
-                  className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <CheckCheck className="h-3 w-3" />
-                  Leer todas
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={markAllRead}
+                    title="Marcar todas como leídas"
+                    className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <CheckCheck className="h-3.5 w-3.5" />
+                  </button>
+                  {items.length > 0 && (
+                    <button
+                      onClick={clearAll}
+                      title="Limpiar todas las notificaciones"
+                      className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="max-h-80 overflow-y-auto">
@@ -404,7 +415,7 @@ export function Topbar() {
                       <li
                         key={item.id}
                         className={cn(
-                          "flex items-start gap-2.5 px-3 py-2.5 transition-colors border-b border-border/30 last:border-0",
+                          "group/notif flex items-start gap-2.5 px-3 py-2.5 transition-colors border-b border-border/30 last:border-0",
                           item.isNew ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"
                         )}
                       >
@@ -439,6 +450,13 @@ export function Topbar() {
                             </span>
                           </div>
                         </div>
+                        <button
+                          onClick={() => dismiss(item.id)}
+                          title="Descartar"
+                          className="flex-shrink-0 h-5 w-5 rounded-md flex items-center justify-center text-muted-foreground/50 opacity-0 group-hover/notif:opacity-100 hover:!text-foreground hover:bg-muted transition-all"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -451,8 +469,8 @@ export function Topbar() {
         <Separator orientation="vertical" className="h-4 bg-border/60 mx-0.5" />
 
         <div className="flex items-center gap-2 pl-1">
-          <Avatar className="h-6 w-6">
-            <AvatarFallback className="bg-primary text-[9px] font-bold text-primary-foreground">
+          <Avatar size="sm">
+            <AvatarFallback className="bg-primary text-[10px] font-bold leading-none text-primary-foreground">
               {initials}
             </AvatarFallback>
           </Avatar>
