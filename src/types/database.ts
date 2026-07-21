@@ -7,6 +7,7 @@ export type MovimientoEstado = 'en_proceso' | 'completado'
 export type TipoMovimiento = 'ingreso' | 'despacho'
 export type TipoContenedor = '20ft' | '40ft' | 'isotanque'
 export type SolicitadoPor = 'clientes' | 'hds' | 'operaciones' | 'cuyd'
+export type TransporteTipo = 'propio' | 'externo'
 
 export interface Report {
   id: string
@@ -20,7 +21,9 @@ export interface Report {
   conductor: string
   rut_conductor: string | null
   empresa_transporte: string | null
+  transporte_tipo: TransporteTipo
   hds_header: boolean
+  hds_archivos: string[]
 
   // Sección 1
   sec1_activa: boolean
@@ -85,7 +88,7 @@ export interface Cliente {
   nombre:     string
   rut:        string
   contacto:   string | null
-  email:      string | null
+  emails:     string[]
   sector:     string | null
   activo:     boolean
   created_at: string

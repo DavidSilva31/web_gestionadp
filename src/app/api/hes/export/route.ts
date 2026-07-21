@@ -91,7 +91,7 @@ interface ServicioExport {
   cantidad:  number
 }
 interface ReqBody {
-  cliente:   { nombre: string; rut: string; email: string | null; contacto: string | null }
+  cliente:   { nombre: string; rut: string; emails: string[]; contacto: string | null }
   tarifa:    TarifaObj
   billing:   { rows: BillingRow[]; finalUF: number; finalCLP: number; hasMin: boolean }
   hes:       { palletDays: number; totalIngresos: number; totalDespachos: number; dailyLog: DayEntry[] }
@@ -310,12 +310,12 @@ async function handleExport(req: NextRequest) {
     row++
   }
 
-  // R12: Email
-  if (cliente.email) {
+  // R12: Email(s)
+  if (cliente.emails?.length > 0) {
     const r = ws.addRow([])
     r.height = 13
     spacerA(r)
-    r.getCell("B").value = cliente.email
+    r.getCell("B").value = cliente.emails.join(" · ")
     st(r.getCell("B"), { size: 9, fc: C.LINK_TXT, underline: true, noBorder: true })
     ws.mergeCells(`B${row}:G${row}`)
     row++

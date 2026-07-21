@@ -726,7 +726,7 @@ export default function HesPage() {
   useEffect(() => {
     const supabase = createClient()
     Promise.all([
-      supabase.from("clientes").select("id, nombre, rut, email, contacto").eq("activo", true).order("nombre"),
+      supabase.from("clientes").select("id, nombre, rut, emails, contacto").eq("activo", true).order("nombre"),
       supabase.from("tarifas_cliente").select("cliente_id").eq("activo", true),
     ]).then(([{ data: cls }, { data: tars }]) => {
       setClientes((cls ?? []) as unknown as Cliente[])
@@ -845,7 +845,7 @@ export default function HesPage() {
         cliente: {
           nombre:   selectedCliente!.nombre,
           rut:      selectedCliente!.rut,
-          email:    selectedCliente!.email,
+          emails:   selectedCliente!.emails,
           contacto: selectedCliente!.contacto,
         },
         tarifa,
@@ -890,7 +890,7 @@ export default function HesPage() {
           cliente: {
             nombre:   selectedCliente.nombre,
             rut:      selectedCliente.rut,
-            email:    selectedCliente.email,
+            emails:   selectedCliente.emails,
             contacto: selectedCliente.contacto,
           },
           tarifa: { cotizacion_numero: tarifa.cotizacion_numero, clase_imo: tarifa.clase_imo },
@@ -1203,7 +1203,7 @@ export default function HesPage() {
                       </div>
                       <div className="mt-3 grid grid-cols-3 gap-4 pt-3 border-t border-border/30">
                         <div><p className="text-[10px] text-muted-foreground">RUT</p><p className="text-[12px] font-medium">{selectedCliente.rut}</p></div>
-                        <div><p className="text-[10px] text-muted-foreground">Email</p><p className="text-[12px] font-medium">{selectedCliente.email ?? "—"}</p></div>
+                        <div><p className="text-[10px] text-muted-foreground">Email</p><p className="text-[12px] font-medium">{selectedCliente.emails.length > 0 ? selectedCliente.emails.join(", ") : "—"}</p></div>
                         <div><p className="text-[10px] text-muted-foreground">Contacto</p><p className="text-[12px] font-medium">{selectedCliente.contacto ?? "—"}</p></div>
                       </div>
                     </div>

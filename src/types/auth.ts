@@ -14,8 +14,8 @@ export interface Profile {
 
 // Rutas permitidas por rol
 export const ROLE_ROUTES: Record<UserRole, string[]> = {
-  super_admin:    ['/dashboard', '/inventario', '/movimientos', '/clientes', '/reportes', '/reports', '/reports/nuevo', '/reports/despacho', '/hes', '/servicios', '/usuarios', '/configuracion', '/auditoria'],
-  operador:       ['/dashboard', '/inventario', '/movimientos', '/clientes', '/reportes', '/reports', '/reports/nuevo', '/reports/despacho', '/hes', '/servicios'],
+  super_admin:    ['/dashboard', '/inventario', '/movimientos', '/clientes', '/reportes', '/reports', '/reports/nuevo', '/reports/despacho', '/transporte', '/hes', '/servicios', '/usuarios', '/configuracion', '/auditoria'],
+  operador:       ['/dashboard', '/inventario', '/movimientos', '/clientes', '/reportes', '/reports', '/reports/nuevo', '/reports/despacho', '/transporte', '/hes', '/servicios'],
   operador_carga: ['/inventario', '/reports', '/reports/nuevo', '/reports/despacho'],
 }
 

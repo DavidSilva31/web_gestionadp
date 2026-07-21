@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Plus, Search, Warehouse, Loader2, RefreshCw, Pencil, CheckCircle2, XCircle } from "lucide-react"
+import { Plus, Search, Warehouse, Loader2, RefreshCw, Pencil, CheckCircle2, XCircle, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -36,7 +36,7 @@ const codigo = (n: number) => `CLI-${String(n).padStart(3, "0")}`
 const initials = (nombre: string) =>
   nombre.split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase()
 
-const EMPTY: ClienteInsert = { nombre: "", rut: "", contacto: "", email: "", sector: "", activo: true }
+const EMPTY: ClienteInsert = { nombre: "", rut: "", contacto: "", emails: [], sector: "", activo: true }
 
 export default function ClientesPage() {
   const [clientes,   setClientes]   = useState<Cliente[]>([])
@@ -72,9 +72,19 @@ export default function ClientesPage() {
   }
 
   function openEdit(c: Cliente) {
-    setForm({ nombre: c.nombre, rut: c.rut, contacto: c.contacto ?? "", email: c.email ?? "", sector: c.sector ?? "", activo: c.activo })
+    setForm({ nombre: c.nombre, rut: c.rut, contacto: c.contacto ?? "", emails: c.emails ?? [], sector: c.sector ?? "", activo: c.activo })
     setError(null)
     setDialog(c)
+  }
+
+  function setEmailAt(i: number, value: string) {
+    setForm(p => ({ ...p, emails: p.emails.map((e, idx) => idx === i ? value : e) }))
+  }
+  function addEmailField() {
+    setForm(p => ({ ...p, emails: [...p.emails, ""] }))
+  }
+  function removeEmailAt(i: number) {
+    setForm(p => ({ ...p, emails: p.emails.filter((_, idx) => idx !== i) }))
   }
 
   async function handleSave() {
@@ -85,7 +95,7 @@ export default function ClientesPage() {
       nombre:   form.nombre.trim(),
       rut:      form.rut.trim(),
       contacto: form.contacto?.trim() || null,
-      email:    form.email?.trim()    || null,
+      emails:   form.emails.map(e => e.trim()).filter(Boolean),
       sector:   form.sector           || null,
       activo:   form.activo,
     }
@@ -189,7 +199,9 @@ export default function ClientesPage() {
                         <span className="truncate block">{c.contacto ?? "—"}</span>
                       </td>
                       <td className="hidden lg:table-cell px-4 py-3.5 text-xs text-muted-foreground">
-                        <span className="truncate block">{c.email ?? "—"}</span>
+                        <span className="truncate block" title={c.emails.join(", ")}>
+                          {c.emails.length > 0 ? c.emails.join(", ") : "—"}
+                        </span>
                       </td>
                       <td className="hidden sm:table-cell px-4 py-3.5">
                         {c.sector ? (
@@ -269,9 +281,36 @@ export default function ClientesPage() {
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contacto</Label>
             <Input value={form.contacto ?? ""} onChange={e => setForm(p => ({ ...p, contacto: e.target.value }))} placeholder="Nombre contacto" className="h-9" />
           </div>
-          <div className="space-y-1.5">
+          <div className="col-span-2 space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Email</Label>
-            <Input type="email" value={form.email ?? ""} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="correo@empresa.cl" className="h-9" />
+            <div className="space-y-2">
+              {form.emails.map((email, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmailAt(i, e.target.value)}
+                    placeholder="correo@empresa.cl"
+                    className="h-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeEmailAt(i)}
+                    className="flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+                    title="Quitar este correo"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addEmailField}
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline underline-offset-2"
+              >
+                <Plus className="h-3 w-3" /> Agregar otro correo
+              </button>
+            </div>
           </div>
         </div>
 

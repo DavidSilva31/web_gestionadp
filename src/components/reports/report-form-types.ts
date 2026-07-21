@@ -1,6 +1,7 @@
 export type TipoMovimiento = "ingreso" | "despacho"
 export type TipoContenedor = "20ft" | "40ft" | "isotanque"
 export type SolicitadoPor  = "clientes" | "hds" | "operaciones" | "cuyd"
+export type TransporteTipo = "propio" | "externo"
 
 export interface ReportFormData {
   cliente:            string
@@ -9,6 +10,7 @@ export interface ReportFormData {
   conductor:          string
   rut_conductor:      string
   empresa_transporte: string
+  transporte_tipo:    TransporteTipo
   hds_header:         boolean
 
   sec1_activa:          boolean
@@ -61,7 +63,9 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
   return {
     cliente: s(data.cliente), fecha: s(data.fecha), patente: s(data.patente),
     conductor: s(data.conductor), rut_conductor: s(data.rut_conductor),
-    empresa_transporte: s(data.empresa_transporte), hds_header: b(data.hds_header),
+    empresa_transporte: s(data.empresa_transporte),
+    transporte_tipo: (s(data.transporte_tipo) || "externo") as TransporteTipo,
+    hds_header: b(data.hds_header),
     sec1_activa: b(data.sec1_activa),
     sec1_tipo_movimiento: s(data.sec1_tipo_movimiento) as TipoMovimiento | "",
     sec1_tipo_contenedor: s(data.sec1_tipo_contenedor) as TipoContenedor | "",
