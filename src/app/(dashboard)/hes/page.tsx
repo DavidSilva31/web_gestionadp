@@ -513,11 +513,19 @@ function ServicioDialog({
   )
 }
 
-// ── Preview Dialog (render fiel del .xlsx real, antes de descargarlo) ──────────
+// ── Preview Dialog (Resumen en PDF · Detalle = render fiel del .xlsx real) ────
 function PreviewDialog({
-  clienteNombre, loading, error, sheet, onClose, onDownload, downloading,
+  clienteNombre, activeTab, onTabChange,
+  resumenLoading, resumenError, resumenUrl,
+  loading, error, sheet,
+  onClose, onDownload, downloading,
 }: {
   clienteNombre: string
+  activeTab: "resumen" | "detalle"
+  onTabChange: (tab: "resumen" | "detalle") => void
+  resumenLoading: boolean
+  resumenError:   string | null
+  resumenUrl:     string | null
   loading:  boolean
   error:    string | null
   sheet:    PreviewSheet | null
@@ -525,68 +533,112 @@ function PreviewDialog({
   onDownload: () => void
   downloading: boolean
 }) {
+  const ready = activeTab === "resumen" ? (!resumenLoading && !!resumenUrl) : (!loading && !!sheet)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-fit max-w-[95vw] min-w-[600px] max-h-[92vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 flex-shrink-0">
+      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[95vw] max-w-6xl h-[88vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 flex-shrink-0 gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-            <h2 className="text-[14px] font-semibold">Vista previa del Excel — HES {clienteNombre}</h2>
+            <h2 className="text-[14px] font-semibold">Vista previa — HES {clienteNombre}</h2>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5 bg-muted rounded-lg p-0.5">
+              <button
+                onClick={() => onTabChange("resumen")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                  activeTab === "resumen" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <FileText className="h-3.5 w-3.5" /> Resumen
+              </button>
+              <button
+                onClick={() => onTabChange("detalle")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                  activeTab === "detalle" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" /> Detalle
+              </button>
+            </div>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-auto p-5 bg-muted/10">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin" />
-              <p className="text-[12px]">Generando y cargando el archivo…</p>
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
-              <AlertCircle className="h-8 w-8 text-amber-500/60" />
-              <p className="text-[12px]">{error}</p>
-            </div>
-          ) : sheet ? (
-            <div className="bg-card rounded-lg border border-border/40 shadow-sm inline-block p-2 max-w-full overflow-auto">
-              <div className="relative" style={{ width: "fit-content" }}>
-                {sheet.logo && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={sheet.logo.dataUrl}
-                    alt="Logo ADP"
-                    className="absolute pointer-events-none"
-                    style={{ left: sheet.logo.leftPx, top: sheet.logo.topPx, width: sheet.logo.width, height: sheet.logo.height }}
-                  />
-                )}
-                <table style={{ borderCollapse: "collapse", tableLayout: "fixed" }}>
-                  <colgroup>
-                    {sheet.colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
-                  </colgroup>
-                  <tbody>
-                    {sheet.rows.map((row, i) => (
-                      <tr key={i} style={{ height: row.height }}>
-                        {row.cells.map(cell => (
-                          <td key={cell.key} rowSpan={cell.rowSpan} colSpan={cell.colSpan}
-                            style={{ ...cell.style, padding: "2px 4px", overflow: "hidden" }}>
-                            {cell.value}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {activeTab === "resumen" ? (
+            resumenLoading ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <p className="text-[12px]">Generando resumen…</p>
               </div>
-            </div>
-          ) : null}
+            ) : resumenError ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+                <AlertCircle className="h-8 w-8 text-amber-500/60" />
+                <p className="text-[12px]">{resumenError}</p>
+              </div>
+            ) : resumenUrl ? (
+              <iframe
+                src={resumenUrl}
+                title={`Resumen HES ${clienteNombre}`}
+                className="w-full h-full border-0 rounded-lg bg-white"
+              />
+            ) : null
+          ) : (
+            loading ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <p className="text-[12px]">Generando y cargando el archivo…</p>
+              </div>
+            ) : error ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+                <AlertCircle className="h-8 w-8 text-amber-500/60" />
+                <p className="text-[12px]">{error}</p>
+              </div>
+            ) : sheet ? (
+              <div className="bg-card rounded-lg border border-border/40 shadow-sm inline-block p-2 max-w-full overflow-auto">
+                <div className="relative" style={{ width: "fit-content" }}>
+                  {sheet.logo && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={sheet.logo.dataUrl}
+                      alt="Logo ADP"
+                      className="absolute pointer-events-none"
+                      style={{ left: sheet.logo.leftPx, top: sheet.logo.topPx, width: sheet.logo.width, height: sheet.logo.height }}
+                    />
+                  )}
+                  <table style={{ borderCollapse: "collapse", tableLayout: "fixed" }}>
+                    <colgroup>
+                      {sheet.colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
+                    </colgroup>
+                    <tbody>
+                      {sheet.rows.map((row, i) => (
+                        <tr key={i} style={{ height: row.height }}>
+                          {row.cells.map(cell => (
+                            <td key={cell.key} rowSpan={cell.rowSpan} colSpan={cell.colSpan}
+                              style={{ ...cell.style, padding: "2px 4px", overflow: "hidden" }}>
+                              {cell.value}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null
+          )}
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-border/40 flex-shrink-0">
           <Button variant="ghost" size="sm" onClick={onClose} className="h-8 text-[12px]">Cerrar</Button>
-          <Button size="sm" onClick={onDownload} disabled={downloading || loading || !sheet}
+          <Button size="sm" onClick={onDownload} disabled={downloading || !ready}
             className="h-8 gap-1.5 text-[12px] bg-emerald-600 hover:bg-emerald-700 text-white">
             {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-            Descargar Excel
+            {activeTab === "resumen" ? "Descargar PDF" : "Descargar Excel"}
           </Button>
         </div>
       </div>
@@ -619,10 +671,15 @@ export default function HesPage() {
   const [tarifasLoading,   setTarifasLoading]   = useState(false)
   const [exporting,        setExporting]        = useState(false)
   const [showPreview,      setShowPreview]      = useState(false)
+  const [previewTab,       setPreviewTab]       = useState<"resumen" | "detalle">("resumen")
   const [previewLoading,   setPreviewLoading]   = useState(false)
   const [previewError,     setPreviewError]     = useState<string | null>(null)
   const [previewSheet,     setPreviewSheet]     = useState<PreviewSheet | null>(null)
   const [previewBlob,      setPreviewBlob]      = useState<Blob | null>(null)
+  const [resumenLoading,   setResumenLoading]   = useState(false)
+  const [resumenError,     setResumenError]     = useState<string | null>(null)
+  const [resumenUrl,       setResumenUrl]       = useState<string | null>(null)
+  const [resumenBlob,      setResumenBlob]      = useState<Blob | null>(null)
   const [clientesLoaded,   setClientesLoaded]   = useState(false)
   const [tarifaMap,        setTarifaMap]        = useState<Record<string, boolean>>({})
 
@@ -810,24 +867,56 @@ export default function HesPage() {
     return res.blob()
   }
 
-  function triggerBlobDownload(blob: Blob) {
+  function triggerBlobDownload(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob)
     const a   = document.createElement("a")
     a.href    = url
-    a.download = `HES_${selectedCliente!.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[selectedMonth].toUpperCase()}_${selectedYear}.xlsx`
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  // Abre la vista previa: genera el .xlsx real y lo parsea en el cliente para
+  // Resumen (PDF): datos de cliente + cobro, sin el detalle día a día — se
+  // genera 100% en el cliente, no requiere ida y vuelta al servidor.
+  async function generateResumen() {
+    if (!selectedCliente || !tarifa || !billing) return
+    setResumenLoading(true)
+    setResumenError(null)
+    try {
+      const { pdf }            = await import("@react-pdf/renderer")
+      const { HesResumenPDF }  = await import("@/components/hes/hes-resumen-pdf")
+      const blob = await pdf(
+        <HesResumenPDF data={{
+          cliente: {
+            nombre:   selectedCliente.nombre,
+            rut:      selectedCliente.rut,
+            email:    selectedCliente.email,
+            contacto: selectedCliente.contacto,
+          },
+          tarifa: { cotizacion_numero: tarifa.cotizacion_numero, clase_imo: tarifa.clase_imo },
+          billing,
+          mes: selectedMonth,
+          anio: selectedYear,
+          ufValue,
+          ufDate,
+        }} />
+      ).toBlob()
+      setResumenBlob(blob)
+      setResumenUrl(URL.createObjectURL(blob))
+    } catch {
+      setResumenError("No se pudo generar el resumen.")
+    } finally {
+      setResumenLoading(false)
+    }
+  }
+
+  // Detalle (Excel): genera el .xlsx real y lo parsea en el cliente para
   // renderizarlo tal cual quedará el archivo descargado (mismas fusiones, colores y formatos).
-  async function openPreview() {
+  // Se genera solo la primera vez que se selecciona la pestaña (queda en caché).
+  async function generateDetalle() {
     if (!selectedCliente || !tarifa || !billing || !hes) return
-    setShowPreview(true)
     setPreviewLoading(true)
     setPreviewError(null)
-    setPreviewSheet(null)
-    setPreviewBlob(null)
     try {
       const blob = await fetchHesExcel()
       setPreviewBlob(blob)
@@ -839,12 +928,46 @@ export default function HesPage() {
     }
   }
 
+  // Abre la vista previa con la pestaña Resumen por defecto.
+  async function openPreview() {
+    if (!selectedCliente || !tarifa || !billing || !hes) return
+    setShowPreview(true)
+    setPreviewTab("resumen")
+    setPreviewError(null); setPreviewSheet(null); setPreviewBlob(null)
+    setResumenError(null); setResumenUrl(null); setResumenBlob(null)
+    await generateResumen()
+  }
+
+  function selectPreviewTab(tab: "resumen" | "detalle") {
+    setPreviewTab(tab)
+    if (tab === "detalle" && !previewBlob && !previewLoading) generateDetalle()
+  }
+
+  function closePreview() {
+    setShowPreview(false)
+    if (resumenUrl) URL.revokeObjectURL(resumenUrl)
+    setResumenUrl(null)
+    setResumenBlob(null)
+  }
+
   function handleDownloadFromPreview() {
+    const filenameBase = `HES_${selectedCliente!.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[selectedMonth].toUpperCase()}_${selectedYear}`
+    if (previewTab === "resumen") {
+      if (!resumenBlob) return
+      setExporting(true)
+      try {
+        triggerBlobDownload(resumenBlob, `${filenameBase}_Resumen.pdf`)
+        closePreview()
+      } finally {
+        setExporting(false)
+      }
+      return
+    }
     if (!previewBlob) return
     setExporting(true)
     try {
-      triggerBlobDownload(previewBlob)
-      setShowPreview(false)
+      triggerBlobDownload(previewBlob, `${filenameBase}.xlsx`)
+      closePreview()
     } finally {
       setExporting(false)
     }
@@ -897,10 +1020,15 @@ export default function HesPage() {
       {showPreview && selectedCliente && (
         <PreviewDialog
           clienteNombre={selectedCliente.nombre}
+          activeTab={previewTab}
+          onTabChange={selectPreviewTab}
+          resumenLoading={resumenLoading}
+          resumenError={resumenError}
+          resumenUrl={resumenUrl}
           loading={previewLoading}
           error={previewError}
           sheet={previewSheet}
-          onClose={() => setShowPreview(false)}
+          onClose={closePreview}
           onDownload={handleDownloadFromPreview}
           downloading={exporting}
         />
@@ -1006,11 +1134,11 @@ export default function HesPage() {
                   <Button
                     variant="outline" size="sm"
                     onClick={openPreview}
-                    disabled={exporting || previewLoading || !tarifa || !billing || !hes}
+                    disabled={exporting || resumenLoading || !tarifa || !billing || !hes}
                     className="h-7 gap-1.5 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400"
                   >
-                    {previewLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-                    Excel
+                    {resumenLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                    Generar HES
                   </Button>
 
                 </div>
