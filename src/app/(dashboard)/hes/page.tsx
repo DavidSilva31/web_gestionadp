@@ -660,7 +660,9 @@ export default function HesPage() {
   const [selectedYear,     setSelectedYear]     = useState(CURRENT_YEAR)
   const [ufValue,          setUfValue]          = useState<string>("")
   const [ufLoading,        setUfLoading]        = useState(true)
+  const [ufError,          setUfError]          = useState<string | null>(null)
   const [ufDate,           setUfDate]           = useState<string>(TODAY_ISO)
+  const [ufRetryTick,      setUfRetryTick]      = useState(0)
   const ufDateInputRef = useRef<HTMLInputElement>(null)
   // tarifaDialog: undefined=cerrado | null=nueva tarifa | TarifaCliente=editar existente
   const [tarifaDialog,     setTarifaDialog]     = useState<TarifaCliente | null | undefined>(undefined)
@@ -692,26 +694,58 @@ export default function HesPage() {
   const selectedCliente = useMemo(() => clientes.find(c => c.id === selectedId) ?? null, [clientes, selectedId])
 
   // ── Fetch UF de la fecha seleccionada desde mindicador.cl ───────────────────
+  // API pública gratuita, a veces lenta/inestable — se reintenta una vez antes
+  // de rendirse y avisar (el input de UF siempre queda editable a mano).
   useEffect(() => {
+    let cancelled = false
+    let activeController: AbortController | null = null
     setUfLoading(true)
+    setUfError(null)
     setUfValue("")
-    const controller = new AbortController()
-    const timeout    = setTimeout(() => controller.abort(), 8000)
 
     const [y, m, d] = ufDate.split("-")
     const url = `https://mindicador.cl/api/uf/${d}-${m}-${y}`
 
-    fetch(url, { signal: controller.signal })
-      .then(r => r.json())
-      .then(data => {
+    async function fetchOnce(): Promise<number> {
+      const controller = new AbortController()
+      activeController = controller
+      const timeout = setTimeout(() => controller.abort(), 8000)
+      try {
+        const r = await fetch(url, { signal: controller.signal })
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        const data = await r.json()
         const val = data?.serie?.[0]?.valor
-        if (typeof val === "number") setUfValue(val.toFixed(2))
-      })
-      .catch(() => setUfValue(""))
-      .finally(() => { clearTimeout(timeout); setUfLoading(false) })
+        if (typeof val !== "number") throw new Error("Respuesta inesperada de mindicador.cl")
+        return val
+      } finally {
+        clearTimeout(timeout)
+      }
+    }
 
-    return () => { clearTimeout(timeout); controller.abort() }
-  }, [ufDate])
+    async function run() {
+      try {
+        const val = await fetchOnce()
+        if (!cancelled) setUfValue(val.toFixed(2))
+      } catch {
+        if (cancelled) return
+        await new Promise(res => setTimeout(res, 1500))
+        if (cancelled) return
+        try {
+          const val = await fetchOnce()
+          if (!cancelled) setUfValue(val.toFixed(2))
+        } catch (err) {
+          console.error("[hes] error obteniendo UF de mindicador.cl:", err)
+          if (!cancelled) setUfError("No se pudo obtener la UF automáticamente. Ingrésala manualmente o reintenta.")
+        }
+      } finally {
+        if (!cancelled) setUfLoading(false)
+      }
+    }
+
+    run()
+
+    return () => { cancelled = true; activeController?.abort() }
+  }, [ufDate, ufRetryTick])
 
   function openUfDatePicker() {
     const el = ufDateInputRef.current
@@ -1194,11 +1228,30 @@ export default function HesPage() {
                                 className="absolute inset-0 h-6 w-6 opacity-0 pointer-events-none"
                               />
                             </div>
-                            <Input value={ufValue} onChange={e => setUfValue(e.target.value)}
-                              className="h-6 w-28 text-[11px] text-right bg-muted/40 border-border/50 print:hidden"
+                            <Input value={ufValue} onChange={e => { setUfValue(e.target.value); setUfError(null) }}
+                              className={cn(
+                                "h-6 w-28 text-[11px] text-right bg-muted/40 border-border/50 print:hidden",
+                                ufError && "border-amber-400 dark:border-amber-700"
+                              )}
                               placeholder={ufLoading ? "Cargando…" : "$38.000,00"} />
+                            {ufError && (
+                              <Button
+                                type="button" variant="outline" size="icon-xs"
+                                onClick={() => setUfRetryTick(t => t + 1)}
+                                title="Reintentar obtener la UF"
+                                className="text-amber-600 hover:text-amber-700 print:hidden"
+                              >
+                                <RefreshCw className="size-[11px]" />
+                              </Button>
+                            )}
                             <span className="hidden print:inline text-[11px] font-semibold">${parseFloat(ufValue).toLocaleString("es-CL")}</span>
                           </div>
+                          {ufError && (
+                            <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-1 flex items-center gap-1 justify-end print:hidden">
+                              <AlertCircle className="size-3 flex-shrink-0" />
+                              {ufError}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="mt-3 grid grid-cols-3 gap-4 pt-3 border-t border-border/30">
