@@ -3,8 +3,10 @@ import { createServerSupabaseClient } from "@/lib/supabase-server"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { Topbar } from "@/components/layout/topbar"
+import { NavigationLoadingOverlay } from "@/components/layout/navigation-loading-overlay"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuthProvider } from "@/contexts/auth-context"
+import { NavigationPendingProvider } from "@/contexts/navigation-pending-context"
 
 export default async function DashboardLayout({
   children,
@@ -27,13 +29,18 @@ export default async function DashboardLayout({
   return (
     <AuthProvider>
       <TooltipProvider>
-        <SidebarProvider className="h-screen overflow-hidden" style={{ "--sidebar-width-icon": "4.5rem" } as React.CSSProperties}>
-          <AppSidebar />
-          <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <Topbar />
-            {children}
-          </main>
-        </SidebarProvider>
+        <NavigationPendingProvider>
+          <SidebarProvider className="h-screen overflow-hidden" style={{ "--sidebar-width-icon": "4.5rem" } as React.CSSProperties}>
+            <AppSidebar />
+            <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <Topbar />
+              <div className="relative flex-1 flex flex-col min-h-0 overflow-hidden">
+                <NavigationLoadingOverlay />
+                {children}
+              </div>
+            </main>
+          </SidebarProvider>
+        </NavigationPendingProvider>
       </TooltipProvider>
     </AuthProvider>
   )

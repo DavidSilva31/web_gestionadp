@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import {
   Search, Wrench, Plus, Pencil, Trash2, Loader2,
-  ChevronRight, GripVertical, Check, X,
+  ChevronRight, GripVertical, Check, X, ArrowLeft,
 } from "lucide-react"
 import type { Cliente, ServicioCliente, ServicioClienteInsert } from "@/types/database"
 
@@ -255,10 +255,13 @@ export default function ServiciosPage() {
   }
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row">
 
       {/* ── Panel izquierdo: clientes ─────────────────────────────────────── */}
-      <div className="w-64 flex-shrink-0 border-r border-border/60 flex flex-col bg-background">
+      <div className={cn(
+        "w-full md:w-64 flex-shrink-0 border-b md:border-b-0 md:border-r border-border/60 flex flex-col bg-background",
+        selectedId ? "hidden md:flex" : "flex"
+      )}>
         <div className="p-3 border-b border-border/40">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
@@ -305,7 +308,20 @@ export default function ServiciosPage() {
       </div>
 
       {/* ── Panel derecho ─────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className={cn(
+        "flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden",
+        !selectedCliente && "hidden md:flex"
+      )}>
+        {/* Botón volver — solo móvil */}
+        {selectedCliente && (
+          <button
+            onClick={() => setSelectedId(null)}
+            className="md:hidden flex items-center gap-1.5 px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground border-b border-border/40 bg-muted/5 flex-shrink-0"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Volver a clientes
+          </button>
+        )}
         {!selectedCliente ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
             <Wrench className="h-12 w-12 opacity-20" />

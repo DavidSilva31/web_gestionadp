@@ -394,17 +394,17 @@ export default function ConfiguracionPage() {
 
   return (
     <>
-    <div className="flex h-full overflow-hidden">
+    <div className="flex flex-col md:flex-row h-full overflow-hidden">
 
-      {/* ── Sidebar de navegación ── */}
-      <aside className="w-52 flex-shrink-0 border-r bg-muted/20 p-3 flex flex-col gap-1">
-        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-3 pt-2 pb-1">Configuración</p>
+      {/* ── Sidebar de navegación — barra horizontal en mobile, columna en desktop ── */}
+      <aside className="w-full md:w-52 flex-shrink-0 border-b md:border-b-0 md:border-r bg-muted/20 p-3 flex flex-row md:flex-col gap-1 overflow-x-auto">
+        <p className="hidden md:block text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-3 pt-2 pb-1">Configuración</p>
         {TABS.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left w-full",
+              "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left flex-shrink-0 whitespace-nowrap md:whitespace-normal md:w-full",
               tab === t.key
                 ? "bg-[oklch(0.35_0.12_240)] text-white shadow-sm"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -417,8 +417,8 @@ export default function ConfiguracionPage() {
       </aside>
 
       {/* ── Contenido ── */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-6xl mx-auto px-8 py-8 space-y-6">
+      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto">
+        <div className="max-w-6xl mx-auto px-4 py-6 sm:px-8 sm:py-8 space-y-6">
 
           {/* ─── Tab Perfil ─── */}
           {tab === "perfil" && (
@@ -489,7 +489,7 @@ export default function ConfiguracionPage() {
                     <p className="text-xs text-muted-foreground">Mínimo 8 caracteres</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field label="Nueva contraseña">
                     <div className="relative">
                       <Input type={showPass ? "text" : "password"} value={newPass} onChange={e => setNewPass(e.target.value)}
