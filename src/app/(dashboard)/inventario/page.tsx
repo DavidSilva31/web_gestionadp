@@ -766,7 +766,12 @@ function InventarioContent() {
       <AlertDialog open={deleting !== null} onOpenChange={open => { if (!open) { setDeleting(null); setError(null) } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar ítem?</AlertDialogTitle>
+            <AlertDialogTitle className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </span>
+              ¿Eliminar ítem?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               Se eliminará <span className="font-semibold text-foreground">{deleting?.descripcion}</span> del inventario de este cliente.
               Esta acción no se puede deshacer.
@@ -780,7 +785,7 @@ function InventarioContent() {
             <AlertDialogAction
               disabled={deletingBusy}
               onClick={handleDelete}
-              className="bg-red-600 hover:bg-red-700 text-white gap-1.5"
+              className="gap-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
             >
               {deletingBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Eliminar

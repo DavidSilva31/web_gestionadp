@@ -5,13 +5,6 @@ import { logAuditServer } from "@/lib/audit"
 
 const VALID_ROLES = ["super_admin", "operador", "operador_carga"] as const
 
-function generateTempPassword(): string {
-  // Caracteres sin ambigüedades visuales (sin 0/O, 1/l/I)
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#"
-  const bytes = crypto.getRandomValues(new Uint8Array(12))
-  return Array.from(bytes).map(b => chars[b % chars.length]).join("")
-}
-
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient()
@@ -41,15 +34,12 @@ export async function POST(req: NextRequest) {
     if (!VALID_ROLES.includes(role as typeof VALID_ROLES[number]))
       return NextResponse.json({ error: "Rol inválido" }, { status: 400 })
 
-    const tempPassword = generateTempPassword()
-
-    const { data: newUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password:      tempPassword,
-      email_confirm: true,
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:4400"
+    const { data: newUser, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${siteUrl}/reset-password`,
     })
     if (authError) {
-      const msg = authError.message.includes("already registered")
+      const msg = /already.*registered/i.test(authError.message)
         ? "Ya existe un usuario con ese correo electrónico."
         : "No se pudo crear el usuario. Intenta de nuevo."
       return NextResponse.json({ error: msg }, { status: 400 })
@@ -62,7 +52,7 @@ export async function POST(req: NextRequest) {
       role,
       activo:               true,
       permisos:             permisos ?? null,
-      must_change_password: true,
+      must_change_password: false,
     })
     if (profileError) {
       console.error("[admin/create-user] error creando perfil:", profileError)
@@ -74,12 +64,12 @@ export async function POST(req: NextRequest) {
       tabla:          "profiles",
       registro_id:    newUser.user.id,
       accion:         "admin.crear_usuario",
-      descripcion:    `Usuario ${email} creado con rol ${role} por ${adminProfile?.nombre ?? user.email}`,
+      descripcion:    `Usuario ${email} creado con rol ${role} por ${adminProfile?.nombre ?? user.email} (invitación enviada por correo)`,
       usuario_id:     user.id,
       usuario_nombre: adminProfile?.nombre ?? user.email,
     }).catch(err => console.error("[admin/create-user] error registrando auditoría:", err))
 
-    return NextResponse.json({ success: true, tempPassword })
+    return NextResponse.json({ success: true })
   } catch (err) {
     console.error("[admin/create-user] error inesperado:", err)
     return NextResponse.json({ error: "Error inesperado del servidor." }, { status: 500 })

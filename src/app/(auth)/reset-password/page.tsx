@@ -25,20 +25,29 @@ function ResetPasswordForm() {
   const [saving,    setSaving]    = useState(false)
   const [error,     setError]     = useState<string | null>(null)
 
-  // Intercambiar el code por una sesión de recuperación
+  // Intercambiar el code por una sesión de recuperación (links de "olvidé mi
+  // contraseña", flujo PKCE). Los links de invitación de usuario nuevo
+  // (inviteUserByEmail) no soportan PKCE y llegan como #access_token=... en
+  // el hash — el cliente de Supabase los detecta y crea la sesión solo con
+  // inicializarse, así que en ese caso basta con confirmar que ya hay sesión.
   useEffect(() => {
     async function exchange() {
-      if (!code) {
-        setExchangeError("Enlace inválido. Solicita un nuevo correo de recuperación.")
+      const supabase = createClient()
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (error) {
+          setExchangeError("Este enlace ha expirado o ya fue utilizado. Solicita uno nuevo.")
+        } else {
+          setSessionReady(true)
+        }
         setExchanging(false)
         return
       }
-      const supabase = createClient()
-      const { error } = await supabase.auth.exchangeCodeForSession(code)
-      if (error) {
-        setExchangeError("Este enlace ha expirado o ya fue utilizado. Solicita uno nuevo.")
-      } else {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
         setSessionReady(true)
+      } else {
+        setExchangeError("Enlace inválido. Solicita un nuevo correo de recuperación.")
       }
       setExchanging(false)
     }

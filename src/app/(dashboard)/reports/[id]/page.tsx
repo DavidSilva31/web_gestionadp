@@ -287,7 +287,12 @@ export default function ReportDetailPage() {
     <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>¿Eliminar este report?</AlertDialogTitle>
+          <AlertDialogTitle className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-destructive/10">
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </span>
+            ¿Eliminar este report?
+          </AlertDialogTitle>
           <AlertDialogDescription>
             Estás a punto de eliminar el report <strong>#{numero}</strong> ({form?.cliente}). Esta acción no se puede deshacer.
           </AlertDialogDescription>
@@ -295,9 +300,10 @@ export default function ReportDetailPage() {
         <AlertDialogFooter>
           <AlertDialogCancel>Cancelar</AlertDialogCancel>
           <AlertDialogAction
-            className="bg-red-600 hover:bg-red-700 text-white"
+            className="gap-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
             onClick={handleDelete}
           >
+            {deleting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Eliminar
           </AlertDialogAction>
         </AlertDialogFooter>

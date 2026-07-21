@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import {
   User, Users, Save, Loader2, Plus, Eye, EyeOff,
   ShieldCheck, Shield, Package, CheckCircle2, XCircle,
-  KeyRound, UserCog, LayoutGrid, AlertTriangle, Trash2, Copy, Check,
+  KeyRound, UserCog, LayoutGrid, AlertTriangle, Trash2, Mail,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -122,32 +122,6 @@ function StatusMsg({ msg }: { msg: { ok: boolean; text: string } | null }) {
   )
 }
 
-function CopyablePassword({ password }: { password: string }) {
-  const [copied, setCopied] = useState(false)
-  function copy() {
-    navigator.clipboard.writeText(password).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
-  }
-  return (
-    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 dark:bg-amber-900/20 dark:border-amber-700">
-      <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-0.5">Contraseña temporal generada</p>
-        <p className="font-mono text-sm font-bold text-amber-900 dark:text-amber-300 tracking-widest">{password}</p>
-      </div>
-      <button
-        type="button"
-        onClick={copy}
-        className="flex-shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
-      >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-        {copied ? "Copiado" : "Copiar"}
-      </button>
-    </div>
-  )
-}
-
 const initials = (nombre: string) =>
   nombre.split(" ").filter(Boolean).map(w => w[0]).slice(0, 2).join("").toUpperCase()
 
@@ -227,7 +201,7 @@ export default function ConfiguracionPage() {
   const [createPermisos, setCreatePermisos] = useState<string[]>(ROLE_MODULE_DEFAULTS["operador"])
   const [creating,       setCreating]       = useState(false)
   const [createMsg,      setCreateMsg]      = useState<{ ok: boolean; text: string } | null>(null)
-  const [createdPassword, setCreatedPassword] = useState<string | null>(null)
+  const [invitedEmail,   setInvitedEmail]   = useState<string | null>(null)
 
   /* ── Eliminar usuario ── */
   const [deleteTarget,  setDeleteTarget]  = useState<ProfileRow | null>(null)
@@ -308,7 +282,7 @@ export default function ConfiguracionPage() {
   }
 
   async function handleCreateUser() {
-    setCreating(true); setCreateMsg(null); setCreatedPassword(null)
+    setCreating(true); setCreateMsg(null); setInvitedEmail(null)
     try {
       const res  = await fetch("/api/admin/create-user", {
         method:  "POST",
@@ -320,7 +294,7 @@ export default function ConfiguracionPage() {
         setCreateMsg({ ok: false, text: json.error })
       } else {
         setCreateMsg({ ok: true, text: "Usuario creado correctamente" })
-        setCreatedPassword(json.tempPassword ?? null)
+        setInvitedEmail(newUser.email)
         setNewUser({ nombre: "", email: "", role: "operador" })
         setCreatePermisos(ROLE_MODULE_DEFAULTS["operador"])
         fetchUsers()
@@ -541,7 +515,7 @@ export default function ConfiguracionPage() {
                     {users.length} usuario{users.length !== 1 ? "s" : ""} registrado{users.length !== 1 ? "s" : ""}
                   </p>
                 </div>
-                <Button size="sm" onClick={() => { setCreateMsg(null); setCreatedPassword(null); setCreateOpen(true) }}
+                <Button size="sm" onClick={() => { setCreateMsg(null); setInvitedEmail(null); setCreateOpen(true) }}
                   className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
                   <Plus className="h-3.5 w-3.5" />
                   Nuevo usuario
@@ -688,7 +662,7 @@ export default function ConfiguracionPage() {
     </div>
 
     {/* ── Dialog crear usuario ── */}
-    <Dialog open={createOpen} onOpenChange={open => { if (!open) { setCreateOpen(false); setCreatedPassword(null); setCreateMsg(null) } }}>
+    <Dialog open={createOpen} onOpenChange={open => { if (!open) { setCreateOpen(false); setInvitedEmail(null); setCreateMsg(null) } }}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nuevo usuario</DialogTitle>
@@ -740,17 +714,22 @@ export default function ConfiguracionPage() {
             )}
           </div>
 
-          {createdPassword && (
-            <CopyablePassword password={createdPassword} />
+          {invitedEmail && (
+            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5 dark:bg-emerald-900/20 dark:border-emerald-700">
+              <Mail className="h-4 w-4 flex-shrink-0 text-emerald-700 dark:text-emerald-400" />
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                Se envió un correo de invitación a <span className="font-semibold">{invitedEmail}</span> para que defina su contraseña.
+              </p>
+            </div>
           )}
 
           <StatusMsg msg={createMsg} />
         </div>
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => { setCreateOpen(false); setCreatedPassword(null); setCreateMsg(null) }}>
-            {createdPassword ? "Cerrar" : "Cancelar"}
+          <Button variant="outline" size="sm" onClick={() => { setCreateOpen(false); setInvitedEmail(null); setCreateMsg(null) }}>
+            {invitedEmail ? "Cerrar" : "Cancelar"}
           </Button>
-          {!createdPassword && (
+          {!invitedEmail && (
             <Button size="sm" disabled={creating || !newUser.nombre || !newUser.email}
               onClick={handleCreateUser}
               className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
@@ -766,8 +745,10 @@ export default function ConfiguracionPage() {
     <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null) }}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-destructive">
-            <Trash2 className="h-4 w-4" />
+          <DialogTitle className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-destructive/10">
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </span>
             Eliminar usuario
           </DialogTitle>
         </DialogHeader>
@@ -789,7 +770,7 @@ export default function ConfiguracionPage() {
             Cancelar
           </Button>
           <Button size="sm" disabled={deleting} onClick={handleDeleteUser}
-            className="gap-1.5 bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+            className="gap-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20">
             {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
             Eliminar
           </Button>
