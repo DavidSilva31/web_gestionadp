@@ -16,7 +16,7 @@ export function Field({ label, required, children, className }: {
   label: string; required?: boolean; children: React.ReactNode; className?: string
 }) {
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div className={cn("flex flex-col gap-0.5", className)}>
       <Label className="text-xs font-medium text-muted-foreground">
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </Label>
@@ -35,7 +35,7 @@ export function RadioGroup<T extends string>({ value, onChange, options, vertica
   readOnly?: boolean
 }) {
   return (
-    <div className={vertical ? "flex flex-col gap-2" : "flex gap-3"}>
+    <div className={vertical ? "flex flex-col gap-2" : "flex gap-2"}>
       {options.map(opt => (
         <label
           key={opt.value}
@@ -60,29 +60,32 @@ export function RadioGroup<T extends string>({ value, onChange, options, vertica
 
 // ── Sec1Content ────────────────────────────────────────────────────────────────
 
-export function Sec1Content({ form, set, readOnly, toUpperCase: uc }: {
+export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivation }: {
   form: ReportFormData
   set: FormSetter
   readOnly?: boolean
   toUpperCase?: boolean
+  hideActivation?: boolean
 }) {
   const str = (key: keyof ReportFormData) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
       set(key, (uc ? e.target.value.toUpperCase() : e.target.value) as ReportFormData[typeof key])
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Checkbox id="sec1_activa" checked={form.sec1_activa}
-          onCheckedChange={v => !readOnly && set("sec1_activa", v === true)}
-          className="h-3.5 w-3.5" disabled={readOnly} />
-        <label htmlFor="sec1_activa" className="text-xs font-semibold text-foreground cursor-pointer">
-          Activar Sección 1 — Depósito de Contenedores
-        </label>
-      </div>
+    <div className="space-y-2">
+      {!hideActivation && (
+        <div className="flex items-center gap-2">
+          <Checkbox id="sec1_activa" checked={form.sec1_activa}
+            onCheckedChange={v => !readOnly && set("sec1_activa", v === true)}
+            className="h-3.5 w-3.5" disabled={readOnly} />
+          <label htmlFor="sec1_activa" className="text-xs font-semibold text-foreground cursor-pointer">
+            Activar Sección 1 — Depósito de Contenedores
+          </label>
+        </div>
+      )}
 
-      <div className={cn("space-y-4 transition-opacity", !form.sec1_activa && "opacity-40 pointer-events-none")}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className={cn("space-y-2 transition-opacity", !hideActivation && !form.sec1_activa && "opacity-40 pointer-events-none")}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <Field label="Tipo de movimiento">
             <RadioGroup<TipoMovimiento>
               value={form.sec1_tipo_movimiento}
@@ -117,7 +120,7 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc }: {
         </div>
 
         {form.sec1_carga_imo && (
-          <div className="grid grid-cols-2 gap-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+          <div className="grid grid-cols-2 gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
             <Field label="Clase IMO">
               <Input value={form.sec1_clase_imo} onChange={str("sec1_clase_imo")}
                 placeholder="Ej: 3, 6.1, 8..." className="h-8 text-xs" readOnly={readOnly} />
@@ -129,7 +132,7 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc }: {
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <Field label="Hora inicio">
             <Input type="time" value={form.sec1_hora_inicio}
               onChange={e => set("sec1_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
@@ -165,11 +168,12 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc }: {
 
 // ── Sec2Content ────────────────────────────────────────────────────────────────
 
-export function Sec2Content({ form, set, readOnly, toUpperCase: uc }: {
+export function Sec2Content({ form, set, readOnly, toUpperCase: uc, hideActivation }: {
   form: ReportFormData
   set: FormSetter
   readOnly?: boolean
   toUpperCase?: boolean
+  hideActivation?: boolean
 }) {
   const str = (key: keyof ReportFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -185,18 +189,20 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc }: {
   ]
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Checkbox id="sec2_activa" checked={form.sec2_activa}
-          onCheckedChange={v => !readOnly && set("sec2_activa", v === true)}
-          className="h-3.5 w-3.5" disabled={readOnly} />
-        <label htmlFor="sec2_activa" className="text-xs font-semibold text-foreground cursor-pointer">
-          Activar Sección 2 — Consolidado / Desconsolidado / Otros
-        </label>
-      </div>
+    <div className="space-y-2">
+      {!hideActivation && (
+        <div className="flex items-center gap-2">
+          <Checkbox id="sec2_activa" checked={form.sec2_activa}
+            onCheckedChange={v => !readOnly && set("sec2_activa", v === true)}
+            className="h-3.5 w-3.5" disabled={readOnly} />
+          <label htmlFor="sec2_activa" className="text-xs font-semibold text-foreground cursor-pointer">
+            Activar Sección 2 — Consolidado / Desconsolidado / Otros
+          </label>
+        </div>
+      )}
 
-      <div className={cn("space-y-4 transition-opacity", !form.sec2_activa && "opacity-40 pointer-events-none")}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 bg-muted/40 rounded-lg">
+      <div className={cn("space-y-2 transition-opacity", !hideActivation && !form.sec2_activa && "opacity-40 pointer-events-none")}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-muted/40 rounded-lg">
           {checkboxFields.map(([key, label]) => (
             <div key={key} className="flex items-center gap-2">
               <Checkbox id={key} checked={form[key] as boolean}
@@ -207,7 +213,7 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc }: {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <Field label="Hora inicio">
             <Input type="time" value={form.sec2_hora_inicio}
               onChange={e => set("sec2_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
@@ -222,7 +228,7 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc }: {
           </Field>
           <Field label="Observaciones" className="col-span-2">
             <textarea value={form.sec2_observaciones} onChange={str("sec2_observaciones")}
-              placeholder="Observaciones adicionales..." rows={3} readOnly={readOnly}
+              placeholder="Observaciones adicionales..." rows={2} readOnly={readOnly}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
           </Field>
         </div>
@@ -233,32 +239,35 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc }: {
 
 // ── Sec3Content ────────────────────────────────────────────────────────────────
 
-export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode, operadorNode }: {
+export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode, operadorNode, hideActivation }: {
   form: ReportFormData
   set: FormSetter
   readOnly?: boolean
   toUpperCase?: boolean
   productoNode: React.ReactNode
   operadorNode?: React.ReactNode
+  hideActivation?: boolean
 }) {
   const str = (key: keyof ReportFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       set(key, (uc ? e.target.value.toUpperCase() : e.target.value) as ReportFormData[typeof key])
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Checkbox id="sec3_activa" checked={form.sec3_activa}
-          onCheckedChange={v => !readOnly && set("sec3_activa", v === true)}
-          className="h-3.5 w-3.5" disabled={readOnly} />
-        <label htmlFor="sec3_activa" className="text-xs font-semibold text-foreground cursor-pointer">
-          Activar Sección 3 — Bodegaje
-        </label>
-      </div>
+    <div className="space-y-2">
+      {!hideActivation && (
+        <div className="flex items-center gap-2">
+          <Checkbox id="sec3_activa" checked={form.sec3_activa}
+            onCheckedChange={v => !readOnly && set("sec3_activa", v === true)}
+            className="h-3.5 w-3.5" disabled={readOnly} />
+          <label htmlFor="sec3_activa" className="text-xs font-semibold text-foreground cursor-pointer">
+            Activar Sección 3 — Bodegaje
+          </label>
+        </div>
+      )}
 
-      <div className={cn("space-y-4 transition-opacity", !form.sec3_activa && "opacity-40 pointer-events-none")}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Producto" className="col-span-2">
+      <div className={cn("space-y-2 transition-opacity", !hideActivation && !form.sec3_activa && "opacity-40 pointer-events-none")}>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <Field label="Producto" className="col-span-1 sm:col-span-3">
             {productoNode}
           </Field>
           <Field label="Clase IMO">
@@ -269,6 +278,10 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode
             <Input value={form.sec3_nu} onChange={str("sec3_nu")}
               className="h-8 text-xs font-mono" readOnly={readOnly} />
           </Field>
+          <Field label="N° Bodega">
+            <Input value={form.sec3_numero_bodega} onChange={str("sec3_numero_bodega")}
+              placeholder="Número de bodega" className="h-8 text-xs" readOnly={readOnly} />
+          </Field>
           <Field label="Hora inicio">
             <Input type="time" value={form.sec3_hora_inicio}
               onChange={e => set("sec3_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
@@ -277,61 +290,54 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode
             <Input type="time" value={form.sec3_hora_termino}
               onChange={e => set("sec3_hora_termino", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
           </Field>
-          <Field label="N° Bodega">
-            <Input value={form.sec3_numero_bodega} onChange={str("sec3_numero_bodega")}
-              placeholder="Número de bodega" className="h-8 text-xs" readOnly={readOnly} />
-          </Field>
-          <Field label="N° Guía" className="col-span-2">
+          <Field label="N° Guía">
             <Input value={form.sec3_numero_guia} onChange={str("sec3_numero_guia")}
               placeholder="Número de guía" className="h-8 text-xs" readOnly={readOnly} />
           </Field>
 
-          <div className="col-span-2 flex flex-wrap items-start gap-6 sm:gap-8 pt-1">
-            <Field label="Tipo de movimiento">
-              <RadioGroup<TipoMovimiento>
-                value={form.sec3_tipo}
-                onChange={v => set("sec3_tipo", v)}
-                options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]}
-                vertical
-                readOnly={readOnly}
-              />
-            </Field>
-            <Field label="N° Pallets">
-              <Input type="number" min={0} value={form.sec3_numero_pallets}
-                onChange={e => set("sec3_numero_pallets", e.target.value)}
-                placeholder="0" className="h-8 text-xs w-28" readOnly={readOnly} />
-            </Field>
-            <Field label="Solicitado por">
-              <select value={form.sec3_solicitado_por}
-                onChange={e => {
-                  set("sec3_solicitado_por", e.target.value as SolicitadoPor)
-                  if (e.target.value !== "cuyd") set("sec3_cuyd_detalle", "")
-                }}
-                disabled={readOnly}
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 disabled:cursor-default"
-              >
-                <option value="">Seleccionar...</option>
-                <option value="clientes">Clientes</option>
-                <option value="hds">HDS</option>
-                <option value="operaciones">Operaciones</option>
-                <option value="cuyd">CUyD</option>
-              </select>
-              {form.sec3_solicitado_por === "cuyd" && (
-                <Input value={form.sec3_cuyd_detalle} onChange={str("sec3_cuyd_detalle")}
-                  placeholder="Detalle CUyD..." className="h-7 text-xs mt-1.5 w-36" readOnly={readOnly} />
-              )}
-            </Field>
-          </div>
+          <Field label="Tipo de movimiento">
+            <RadioGroup<TipoMovimiento>
+              value={form.sec3_tipo}
+              onChange={v => set("sec3_tipo", v)}
+              options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]}
+              readOnly={readOnly}
+            />
+          </Field>
+          <Field label="N° Pallets">
+            <Input type="number" min={0} value={form.sec3_numero_pallets}
+              onChange={e => set("sec3_numero_pallets", e.target.value)}
+              placeholder="0" className="h-8 text-xs" readOnly={readOnly} />
+          </Field>
+          <Field label="Solicitado por">
+            <select value={form.sec3_solicitado_por}
+              onChange={e => {
+                set("sec3_solicitado_por", e.target.value as SolicitadoPor)
+                if (e.target.value !== "cuyd") set("sec3_cuyd_detalle", "")
+              }}
+              disabled={readOnly}
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 disabled:cursor-default"
+            >
+              <option value="">Seleccionar...</option>
+              <option value="clientes">Clientes</option>
+              <option value="hds">HDS</option>
+              <option value="operaciones">Operaciones</option>
+              <option value="cuyd">CUyD</option>
+            </select>
+            {form.sec3_solicitado_por === "cuyd" && (
+              <Input value={form.sec3_cuyd_detalle} onChange={str("sec3_cuyd_detalle")}
+                placeholder="Detalle CUyD..." className="h-7 text-xs mt-1.5 w-full" readOnly={readOnly} />
+            )}
+          </Field>
 
-          <Field label="Observaciones" className="col-span-2">
+          <Field label="Observaciones" className="col-span-1 sm:col-span-3">
             <textarea value={form.sec3_observaciones} onChange={str("sec3_observaciones")}
-              placeholder="Observaciones adicionales..." rows={3} readOnly={readOnly}
+              placeholder="Observaciones adicionales..." rows={2} readOnly={readOnly}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
           </Field>
         </div>
 
         {operadorNode && (
-          <div className="border-t pt-4">
+          <div className="border-t pt-2">
             <Field label="Nombre operador de carga" required>
               {operadorNode}
             </Field>

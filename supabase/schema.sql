@@ -64,7 +64,9 @@ CREATE TABLE IF NOT EXISTS reports (
   conductor             TEXT NOT NULL,
   rut_conductor         TEXT,
   empresa_transporte    TEXT,
+  transporte_tipo       TEXT NOT NULL DEFAULT 'externo' CHECK (transporte_tipo IN ('propio', 'externo')),
   hds_header            BOOLEAN DEFAULT FALSE,
+  hds_archivos          TEXT[] NOT NULL DEFAULT '{}',
 
   -- Sección 1: Depósito de Contenedores
   sec1_activa           BOOLEAN DEFAULT FALSE,
@@ -156,7 +158,7 @@ CREATE TABLE IF NOT EXISTS clientes (
   nombre      TEXT NOT NULL,
   rut         TEXT NOT NULL,
   contacto    TEXT,
-  email       TEXT,
+  emails      TEXT[] NOT NULL DEFAULT '{}',
   sector      TEXT,
   activo      BOOLEAN DEFAULT TRUE,
   created_at  TIMESTAMPTZ DEFAULT NOW(),

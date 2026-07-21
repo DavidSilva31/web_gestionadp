@@ -50,12 +50,13 @@ const MODULE_OPTIONS = [
   { href: "/hes",              label: "HES",         group: "Módulos principales"     },
   { href: "/reports",          label: "Reports",     group: "Servicio almacenamiento" },
   { href: "/reports/despacho", label: "Despacho",    group: "Servicio almacenamiento" },
+  { href: "/transporte",       label: "Transporte",  group: "Servicio almacenamiento" },
   { href: "/auditoria",        label: "Auditoría",   group: "Administración"          },
 ]
 
 const ROLE_MODULE_DEFAULTS: Record<UserRole, string[]> = {
-  super_admin:    ["/dashboard", "/inventario", "/movimientos", "/clientes", "/reportes", "/hes", "/reports", "/reports/despacho", "/auditoria"],
-  operador:       ["/dashboard", "/inventario", "/movimientos", "/clientes", "/reportes", "/hes", "/reports", "/reports/despacho"],
+  super_admin:    ["/dashboard", "/inventario", "/movimientos", "/clientes", "/reportes", "/hes", "/reports", "/reports/despacho", "/transporte", "/auditoria"],
+  operador:       ["/dashboard", "/inventario", "/movimientos", "/clientes", "/reportes", "/hes", "/reports", "/reports/despacho", "/transporte"],
   operador_carga: ["/inventario", "/reports", "/reports/despacho"],
 }
 

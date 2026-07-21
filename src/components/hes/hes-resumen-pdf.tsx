@@ -6,7 +6,7 @@ const AMBER_BG = "#FFF8E1"
 const AMBER_TXT = "#7B3C00"
 
 export interface HesResumenPDFData {
-  cliente: { nombre: string; rut: string; email: string | null; contacto: string | null }
+  cliente: { nombre: string; rut: string; emails: string[]; contacto: string | null }
   tarifa:  { cotizacion_numero: string; clase_imo: string | null }
   billing: {
     rows: { label: string; qty: number | string; unit: string; tarifa: number; totalUF: number }[]
@@ -105,10 +105,10 @@ export function HesResumenPDF({ data }: { data: HesResumenPDFData }) {
                 <Text style={s.clienteVal}>{cliente.contacto}</Text>
               </View>
             )}
-            {cliente.email && (
+            {cliente.emails.length > 0 && (
               <View style={s.clienteField}>
                 <Text style={s.clienteLabel}>Email</Text>
-                <Text style={s.clienteVal}>{cliente.email}</Text>
+                <Text style={s.clienteVal}>{cliente.emails.join(", ")}</Text>
               </View>
             )}
             <View style={s.clienteField}>

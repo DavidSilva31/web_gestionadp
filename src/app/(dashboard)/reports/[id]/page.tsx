@@ -20,7 +20,7 @@ import type { AuditLog } from "@/lib/audit"
 import type { ReportEstado } from "@/types/database"
 import { dbToForm } from "@/components/reports/report-form-types"
 import type { ReportFormData } from "@/components/reports/report-form-types"
-import { Field, Sec1Content, Sec2Content, Sec3Content } from "@/components/reports/report-form-sections"
+import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content } from "@/components/reports/report-form-sections"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 
@@ -139,7 +139,8 @@ export default function ReportDetailPage() {
       patente:            form.patente,
       conductor:          form.conductor,
       rut_conductor:      form.rut_conductor      || null,
-      empresa_transporte: form.empresa_transporte  || null,
+      empresa_transporte: form.transporte_tipo === "propio" ? null : (form.empresa_transporte || null),
+      transporte_tipo:    form.transporte_tipo,
       hds_header:         form.hds_header,
       sec1_activa:          form.sec1_activa,
       sec1_tipo_movimiento: form.sec1_tipo_movimiento || null,
@@ -458,9 +459,25 @@ export default function ReportDetailPage() {
                 <Field label="RUT conductor">
                   <Input value={form.rut_conductor} onChange={e => set("rut_conductor", e.target.value)} placeholder="12.345.678-9" className="h-8 text-xs" readOnly={readOnly} />
                 </Field>
-                <Field label="Empresa de transporte" className="col-span-2">
-                  <Input value={form.empresa_transporte} onChange={e => set("empresa_transporte", e.target.value)} placeholder="Razón social" className="h-8 text-xs" readOnly={readOnly} />
+                <Field label="Transporte" className="col-span-2">
+                  <div className="h-8 flex items-center">
+                    <RadioGroup
+                      value={form.transporte_tipo}
+                      onChange={v => {
+                        if (readOnly) return
+                        set("transporte_tipo", v)
+                        if (v === "propio") set("empresa_transporte", "")
+                      }}
+                      options={[{ value: "propio", label: "Propio" }, { value: "externo", label: "Externo" }]}
+                      readOnly={readOnly}
+                    />
+                  </div>
                 </Field>
+                {form.transporte_tipo === "externo" && (
+                  <Field label="Empresa de transporte" className="col-span-2">
+                    <Input value={form.empresa_transporte} onChange={e => set("empresa_transporte", e.target.value)} placeholder="Razón social" className="h-8 text-xs" readOnly={readOnly} />
+                  </Field>
+                )}
                 <div className="col-span-2 flex items-center gap-2 pt-1">
                   <Checkbox id="hds_header" checked={form.hds_header} onCheckedChange={v => !readOnly && set("hds_header", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
                   <label htmlFor="hds_header" className="text-xs text-foreground/80 cursor-pointer">HDS (Hoja de datos de seguridad presente)</label>

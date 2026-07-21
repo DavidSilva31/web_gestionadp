@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ClipboardList,
   Truck,
+  Route,
   ShieldAlert,
   FileSpreadsheet,
   Wrench,
@@ -48,6 +49,7 @@ const ALL_NAV_ITEMS = [
   { href: "/hes",              label: "HES",         icon: FileSpreadsheet, group: "main"    },
   { href: "/reports",          label: "Reports",     icon: ClipboardList,   group: "reports" },
   { href: "/reports/despacho", label: "Despacho",    icon: Truck,           group: "reports" },
+  { href: "/transporte",       label: "Transporte",  icon: Route,           group: "reports" },
   { href: "/auditoria",        label: "Auditoría",   icon: ShieldAlert,     group: "admin"   },
 ]
 
