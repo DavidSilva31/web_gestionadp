@@ -693,9 +693,14 @@ export default function HesPage() {
 
   const selectedCliente = useMemo(() => clientes.find(c => c.id === selectedId) ?? null, [clientes, selectedId])
 
-  // ── Fetch UF de la fecha seleccionada desde mindicador.cl ───────────────────
-  // API pública gratuita, a veces lenta/inestable — se reintenta una vez antes
-  // de rendirse y avisar (el input de UF siempre queda editable a mano).
+  // ── Fetch UF de la fecha seleccionada ───────────────────────────────────────
+  // 1) caché en Supabase (uf_valores) — la UF de un día pasado nunca cambia,
+  //    así que una vez obtenida no se vuelve a pedir a ninguna API externa.
+  // 2) mindicador.cl (histórico por fecha) con un reintento ante fallas
+  //    transitorias — es una API pública gratuita, a veces lenta/inestable.
+  // 3) si falla y la fecha es HOY, respaldo con api.gael.cloud (otro proveedor,
+  //    sin key, pero solo entrega el valor del día actual).
+  // Si todo falla, se avisa y el input de UF queda editable a mano.
   useEffect(() => {
     let cancelled = false
     let activeController: AbortController | null = null
@@ -703,15 +708,16 @@ export default function HesPage() {
     setUfError(null)
     setUfValue("")
 
+    const supabase = createClient()
     const [y, m, d] = ufDate.split("-")
-    const url = `https://mindicador.cl/api/uf/${d}-${m}-${y}`
+    const mindicadorUrl = `https://mindicador.cl/api/uf/${d}-${m}-${y}`
 
-    async function fetchOnce(): Promise<number> {
+    async function fetchFromMindicador(): Promise<number> {
       const controller = new AbortController()
       activeController = controller
       const timeout = setTimeout(() => controller.abort(), 8000)
       try {
-        const r = await fetch(url, { signal: controller.signal })
+        const r = await fetch(mindicadorUrl, { signal: controller.signal })
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         const data = await r.json()
         const val = data?.serie?.[0]?.valor
@@ -722,21 +728,72 @@ export default function HesPage() {
       }
     }
 
+    async function fetchFromGaelCloud(): Promise<number> {
+      const controller = new AbortController()
+      activeController = controller
+      const timeout = setTimeout(() => controller.abort(), 8000)
+      try {
+        const r = await fetch("https://api.gael.cloud/general/public/monedas", { signal: controller.signal })
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        const data = await r.json()
+        const raw = Array.isArray(data) ? data.find((i: { Codigo?: string }) => i.Codigo === "UF")?.Valor : null
+        const val = typeof raw === "string" ? parseFloat(raw.replace(/\./g, "").replace(",", ".")) : NaN
+        if (!Number.isFinite(val)) throw new Error("Respuesta inesperada de gael.cloud")
+        return val
+      } finally {
+        clearTimeout(timeout)
+      }
+    }
+
+    function cacheValue(val: number) {
+      supabase.from("uf_valores").upsert({ fecha: ufDate, valor: val }, { onConflict: "fecha" })
+        .then(({ error }) => { if (error) console.error("[hes] error cacheando UF:", error) })
+    }
+
     async function run() {
       try {
-        const val = await fetchOnce()
-        if (!cancelled) setUfValue(val.toFixed(2))
-      } catch {
+        const { data: cached } = await supabase.from("uf_valores").select("valor").eq("fecha", ufDate).maybeSingle()
         if (cancelled) return
-        await new Promise(res => setTimeout(res, 1500))
-        if (cancelled) return
-        try {
-          const val = await fetchOnce()
-          if (!cancelled) setUfValue(val.toFixed(2))
-        } catch (err) {
-          console.error("[hes] error obteniendo UF de mindicador.cl:", err)
-          if (!cancelled) setUfError("No se pudo obtener la UF automáticamente. Ingrésala manualmente o reintenta.")
+        if (cached?.valor != null) {
+          setUfValue(Number(cached.valor).toFixed(2))
+          setUfLoading(false)
+          return
         }
+
+        try {
+          const val = await fetchFromMindicador()
+          if (cancelled) return
+          setUfValue(val.toFixed(2))
+          cacheValue(val)
+          return
+        } catch {
+          if (cancelled) return
+          await new Promise(res => setTimeout(res, 1500))
+          if (cancelled) return
+          try {
+            const val = await fetchFromMindicador()
+            if (cancelled) return
+            setUfValue(val.toFixed(2))
+            cacheValue(val)
+            return
+          } catch (err) {
+            console.error("[hes] error obteniendo UF de mindicador.cl:", err)
+          }
+        }
+
+        if (ufDate === TODAY_ISO) {
+          try {
+            const val = await fetchFromGaelCloud()
+            if (cancelled) return
+            setUfValue(val.toFixed(2))
+            cacheValue(val)
+            return
+          } catch (err) {
+            console.error("[hes] error obteniendo UF de gael.cloud:", err)
+          }
+        }
+
+        if (!cancelled) setUfError("No se pudo obtener la UF automáticamente. Ingrésala manualmente o reintenta.")
       } finally {
         if (!cancelled) setUfLoading(false)
       }

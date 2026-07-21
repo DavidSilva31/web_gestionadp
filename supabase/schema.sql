@@ -522,3 +522,18 @@ ALTER TABLE tarifas_cliente ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Authenticated full access tarifas_cliente"
   ON tarifas_cliente FOR ALL TO authenticated
   USING (TRUE) WITH CHECK (TRUE);
+
+-- ── Caché de valores UF (HES) ──────────────────────────────────
+-- La UF de una fecha pasada nunca cambia: una vez obtenida de una API
+-- externa (mindicador.cl / gael.cloud) se guarda acá para no volver a
+-- depender de ellas para esa misma fecha.
+CREATE TABLE IF NOT EXISTS uf_valores (
+  fecha      DATE PRIMARY KEY,
+  valor      NUMERIC(10, 2) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE uf_valores ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated full access uf_valores"
+  ON uf_valores FOR ALL TO authenticated
+  USING (TRUE) WITH CHECK (TRUE);
