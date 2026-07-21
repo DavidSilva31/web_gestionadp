@@ -8,13 +8,28 @@ import type { Report } from "@/types/database"
 interface Props {
   report:     Report
   onClose:    () => void
-  onDownload: () => void
+  onDownload: () => void | Promise<void>
 }
 
 export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
-  const [url,     setUrl]     = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState(false)
+  const [url,          setUrl]          = useState<string | null>(null)
+  const [loading,       setLoading]      = useState(true)
+  const [error,         setError]        = useState(false)
+  const [downloading,   setDownloading]  = useState(false)
+  const [downloadError, setDownloadError] = useState(false)
+
+  async function handleDownloadClick() {
+    setDownloading(true)
+    setDownloadError(false)
+    try {
+      await onDownload()
+    } catch (err) {
+      console.error("[report-preview-modal] error descargando PDF:", err)
+      setDownloadError(true)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   useEffect(() => {
     let objectUrl: string
@@ -56,14 +71,20 @@ export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {downloadError && (
+            <span className="text-[11px] text-destructive">Error al descargar</span>
+          )}
           <Button
             size="sm"
             variant="outline"
-            onClick={onDownload}
-            disabled={loading || error}
+            onClick={handleDownloadClick}
+            disabled={loading || error || downloading}
             className="h-8 gap-1.5 text-[12px]"
           >
-            <Download className="h-3.5 w-3.5" />
+            {downloading
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Download className="h-3.5 w-3.5" />
+            }
             Descargar
           </Button>
           <Button

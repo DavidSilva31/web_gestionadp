@@ -55,32 +55,44 @@ interface AuditPayload {
   usuario_nombre?: string | null
 }
 
-// Versión cliente — usar desde componentes React
+// Versión cliente — usar desde componentes React.
+// Nunca rechaza: la mayoría de las llamadas son fire-and-forget (sin await/catch
+// en el caller), así que un reject acá se volvería un unhandled promise rejection.
 export async function logAudit(payload: AuditPayload) {
-  const supabase = createClient()
-  await supabase.from("audit_logs").insert({
-    tabla:          payload.tabla,
-    registro_id:    payload.registro_id,
-    accion:         payload.accion,
-    descripcion:    payload.descripcion    ?? null,
-    datos_prev:     payload.datos_prev     ?? null,
-    datos_nuevo:    payload.datos_nuevo    ?? null,
-    usuario_id:     payload.usuario_id     ?? null,
-    usuario_nombre: payload.usuario_nombre ?? null,
-  })
+  try {
+    const supabase = createClient()
+    const { error } = await supabase.from("audit_logs").insert({
+      tabla:          payload.tabla,
+      registro_id:    payload.registro_id,
+      accion:         payload.accion,
+      descripcion:    payload.descripcion    ?? null,
+      datos_prev:     payload.datos_prev     ?? null,
+      datos_nuevo:    payload.datos_nuevo    ?? null,
+      usuario_id:     payload.usuario_id     ?? null,
+      usuario_nombre: payload.usuario_nombre ?? null,
+    })
+    if (error) console.error("[audit] error registrando log:", payload.accion, error)
+  } catch (err) {
+    console.error("[audit] excepción registrando log:", payload.accion, err)
+  }
 }
 
 // Versión servidor — usar desde API routes (usa el service role key)
 export async function logAuditServer(payload: AuditPayload) {
-  const { supabaseAdmin } = await import("@/lib/supabase-admin")
-  await supabaseAdmin.from("audit_logs").insert({
-    tabla:          payload.tabla,
-    registro_id:    payload.registro_id,
-    accion:         payload.accion,
-    descripcion:    payload.descripcion    ?? null,
-    datos_prev:     payload.datos_prev     ?? null,
-    datos_nuevo:    payload.datos_nuevo    ?? null,
-    usuario_id:     payload.usuario_id     ?? null,
-    usuario_nombre: payload.usuario_nombre ?? null,
-  })
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase-admin")
+    const { error } = await supabaseAdmin.from("audit_logs").insert({
+      tabla:          payload.tabla,
+      registro_id:    payload.registro_id,
+      accion:         payload.accion,
+      descripcion:    payload.descripcion    ?? null,
+      datos_prev:     payload.datos_prev     ?? null,
+      datos_nuevo:    payload.datos_nuevo    ?? null,
+      usuario_id:     payload.usuario_id     ?? null,
+      usuario_nombre: payload.usuario_nombre ?? null,
+    })
+    if (error) console.error("[audit] error registrando log:", payload.accion, error)
+  } catch (err) {
+    console.error("[audit] excepción registrando log:", payload.accion, err)
+  }
 }

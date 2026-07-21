@@ -79,9 +79,11 @@ export default function MovimientosPage() {
   const [filtroTipo,    setFiltroTipo]    = useState<"todos" | MovimientoTipo>("todos")
   const [error,         setError]         = useState<string | null>(null)
   const [fetchError,    setFetchError]    = useState<string | null>(null)
+  const [actionError,   setActionError]   = useState<string | null>(null)
   const [dialog,        setDialog]        = useState<null | MovimientoTipo | Movimiento>(null)
   const [form,          setForm]          = useState<MovimientoInsert>(EMPTY_FORM("ingreso"))
   const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
+  const [exportError,   setExportError]   = useState<string | null>(null)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchMovimientos = useCallback(async () => {
@@ -101,11 +103,12 @@ export default function MovimientosPage() {
 
   const fetchClientes = useCallback(async () => {
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("clientes")
       .select("id, nombre")
       .eq("activo", true)
       .order("nombre")
+    if (error) console.error("[movimientos] error obteniendo clientes:", error)
     if (data) setClientes(data as Cliente[])
   }, [])
 
@@ -118,12 +121,16 @@ export default function MovimientosPage() {
   const fetchItemsParaCliente = useCallback(async (clienteId: string) => {
     setLoadingItems(true)
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("inventario_items")
       .select("id, numero, descripcion, stock_actual, area")
       .eq("cliente_id", clienteId)
       .eq("activo", true)
       .order("numero")
+    if (error) {
+      console.error("[movimientos] error obteniendo ítems del cliente:", error)
+      setError("No se pudieron cargar los ítems de inventario del cliente.")
+    }
     setClienteItems((data as InventarioItem[]) ?? [])
     setLoadingItems(false)
   }, [])
@@ -172,9 +179,10 @@ export default function MovimientosPage() {
   }
 
   async function marcarCompletado(m: Movimiento) {
+    setActionError(null)
     const supabase = createClient()
     const { error } = await supabase.from("movimientos").update({ estado: "completado" }).eq("id", m.id)
-    if (error) { setError("Error al actualizar estado: " + error.message); return }
+    if (error) { setActionError("Error al actualizar estado: " + error.message); return }
     fetchMovimientos()
   }
 
@@ -273,8 +281,14 @@ export default function MovimientosPage() {
 
   function handleDownloadExport() {
     if (!exportPreview) return
-    exportToExcel(exportPreview.rows, exportPreview.filename, "Movimientos")
-    setExportPreview(null)
+    setExportError(null)
+    try {
+      exportToExcel(exportPreview.rows, exportPreview.filename, "Movimientos")
+      setExportPreview(null)
+    } catch (err) {
+      console.error("[movimientos] error exportando Excel:", err)
+      setExportError("No se pudo generar el archivo Excel.")
+    }
   }
 
   return (
@@ -310,6 +324,12 @@ export default function MovimientosPage() {
         {fetchError && (
           <div className="mx-4 sm:mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
             Error al cargar movimientos: {fetchError}
+          </div>
+        )}
+
+        {actionError && (
+          <div className="mx-4 sm:mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+            {actionError}
           </div>
         )}
 
@@ -690,13 +710,16 @@ export default function MovimientosPage() {
       </Dialog>
 
       {/* ── Vista previa del Excel antes de descargar ── */}
-      <Dialog open={exportPreview !== null} onOpenChange={open => { if (!open) setExportPreview(null) }}>
+      <Dialog open={exportPreview !== null} onOpenChange={open => { if (!open) { setExportPreview(null); setExportError(null) } }}>
         <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
               Vista previa del Excel — {exportPreview?.rows.length} movimiento{exportPreview?.rows.length !== 1 ? "s" : ""}
             </DialogTitle>
           </DialogHeader>
+          {exportError && (
+            <p className="text-xs text-destructive">{exportError}</p>
+          )}
 
           <div className="flex-1 overflow-auto border rounded-lg">
             {exportPreview && (

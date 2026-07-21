@@ -74,6 +74,7 @@ export default function ReportDetailPage() {
   const [docExpanded,  setDocExpanded]  = useState(false)
   const [showPreview,   setShowPreview]   = useState(false)
   const [previewReport, setPreviewReport] = useState<import("@/types/database").Report | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   const readOnly = estado !== "borrador"
 
@@ -82,20 +83,22 @@ export default function ReportDetailPage() {
     async function fetchLogs() {
       setLoadingLogs(true)
       const supabase = createClient()
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("audit_logs")
         .select("*")
         .eq("tabla", "reports")
         .eq("registro_id", id)
         .order("created_at", { ascending: false })
+      if (error) console.error("[report] error obteniendo historial de auditoría:", error)
       if (data) setAuditLogs(data as AuditLog[])
       setLoadingLogs(false)
 
       // Generar URL firmada si hay documento
       if (docPath && !signedDocUrl) {
-        const { data: signed } = await supabase.storage
+        const { data: signed, error: signedErr } = await supabase.storage
           .from("reports-firmados")
           .createSignedUrl(docPath, 3600)
+        if (signedErr) console.error("[report] error generando URL del documento firmado:", signedErr)
         if (signed?.signedUrl) setSignedDocUrl(signed.signedUrl)
       }
     }
@@ -330,14 +333,24 @@ export default function ReportDetailPage() {
           <Button
             variant="outline" size="sm"
             className="gap-1.5 h-8 text-xs"
-            disabled={saving || deleting}
+            disabled={saving || deleting || previewLoading}
             onClick={async () => {
-              const supabase = createClient()
-              const { data } = await supabase.from("reports").select("*").eq("id", id).single()
-              if (data) { setPreviewReport(data as import("@/types/database").Report); setShowPreview(true) }
+              setPreviewLoading(true)
+              setError(null)
+              try {
+                const supabase = createClient()
+                const { data, error } = await supabase.from("reports").select("*").eq("id", id).single()
+                if (error) throw error
+                if (data) { setPreviewReport(data as import("@/types/database").Report); setShowPreview(true) }
+              } catch (err) {
+                console.error("[report] error generando vista previa:", err)
+                setError("No se pudo generar la vista previa.")
+              } finally {
+                setPreviewLoading(false)
+              }
             }}
           >
-            <Eye className="h-3.5 w-3.5" />
+            {previewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
             Vista previa
           </Button>
 

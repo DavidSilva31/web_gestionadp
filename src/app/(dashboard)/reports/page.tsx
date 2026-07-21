@@ -64,6 +64,7 @@ export default function ReportsPage() {
   const [previewReport, setPreviewReport] = useState<Report | null>(null)
   const [xlsxLoading,  setXlsxLoading]  = useState(false)
   const [fetchError,   setFetchError]   = useState<string | null>(null)
+  const [actionError,  setActionError]  = useState<string | null>(null)
 
   // Estado del modal de despacho
   const [dispatchFor,    setDispatchFor]    = useState<ReportRow | null>(null)
@@ -101,32 +102,56 @@ export default function ReportsPage() {
 
   async function handleDownloadPDF(id: string) {
     setPdfLoading(id)
-    const supabase = createClient()
-    const { data } = await supabase.from("reports").select("*").eq("id", id).single()
-    if (data) await downloadReportPDF(data as Report)
-    setPdfLoading(null)
+    setActionError(null)
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.from("reports").select("*").eq("id", id).single()
+      if (error) throw error
+      if (data) await downloadReportPDF(data as Report)
+    } catch (err) {
+      console.error("[reports] error descargando PDF:", err)
+      setActionError("No se pudo descargar el PDF. Intenta de nuevo.")
+    } finally {
+      setPdfLoading(null)
+    }
   }
 
   async function handlePreviewPDF(id: string) {
     setPdfLoading(id)
-    const supabase = createClient()
-    const { data } = await supabase.from("reports").select("*").eq("id", id).single()
-    if (data) setPreviewReport(data as Report)
-    setPdfLoading(null)
+    setActionError(null)
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.from("reports").select("*").eq("id", id).single()
+      if (error) throw error
+      if (data) setPreviewReport(data as Report)
+    } catch (err) {
+      console.error("[reports] error generando vista previa:", err)
+      setActionError("No se pudo generar la vista previa. Intenta de nuevo.")
+    } finally {
+      setPdfLoading(null)
+    }
   }
 
   async function handleExportExcel() {
     if (filtered.length === 0) return
     setXlsxLoading(true)
-    const supabase = createClient()
-    const ids = filtered.map(r => r.id)
-    const { data } = await supabase
-      .from("reports")
-      .select("*")
-      .in("id", ids)
-      .order("numero", { ascending: true })
-    if (data && data.length > 0) exportReportsToExcel(data as Report[])
-    setXlsxLoading(false)
+    setActionError(null)
+    try {
+      const supabase = createClient()
+      const ids = filtered.map(r => r.id)
+      const { data, error } = await supabase
+        .from("reports")
+        .select("*")
+        .in("id", ids)
+        .order("numero", { ascending: true })
+      if (error) throw error
+      if (data && data.length > 0) exportReportsToExcel(data as Report[])
+    } catch (err) {
+      console.error("[reports] error exportando Excel:", err)
+      setActionError("No se pudo exportar a Excel. Intenta de nuevo.")
+    } finally {
+      setXlsxLoading(false)
+    }
   }
 
   async function handleDispatch() {
@@ -134,52 +159,56 @@ export default function ReportsPage() {
     setDispatchError(null)
     setDispatchLoading(true)
 
-    const supabase = createClient()
-    const ext  = dispatchFile.name.split(".").pop() ?? "pdf"
-    const path = `${dispatchFor.numero}-${dispatchFor.id}.${ext}`
+    try {
+      const supabase = createClient()
+      const ext  = dispatchFile.name.split(".").pop() ?? "pdf"
+      const path = `${dispatchFor.numero}-${dispatchFor.id}.${ext}`
 
-    const { error: uploadErr } = await supabase.storage
-      .from("reports-firmados")
-      .upload(path, dispatchFile, { upsert: true })
+      const { error: uploadErr } = await supabase.storage
+        .from("reports-firmados")
+        .upload(path, dispatchFile, { upsert: true })
 
-    if (uploadErr) {
-      setDispatchError("Error al subir el archivo: " + uploadErr.message)
-      setDispatchLoading(false)
-      return
-    }
+      if (uploadErr) {
+        setDispatchError("Error al subir el archivo: " + uploadErr.message)
+        return
+      }
 
-    const now = new Date().toISOString()
-    const { error: updateErr } = await supabase
-      .from("reports")
-      .update({
-        estado:                "despachado",
-        nombre_despachador:    dispatchNombre,
-        fecha_despacho:        now,
-        dispatched_by:         user?.id ?? null,
-        documento_firmado_url: path,
+      const now = new Date().toISOString()
+      const { error: updateErr } = await supabase
+        .from("reports")
+        .update({
+          estado:                "despachado",
+          nombre_despachador:    dispatchNombre,
+          fecha_despacho:        now,
+          dispatched_by:         user?.id ?? null,
+          documento_firmado_url: path,
+        })
+        .eq("id", dispatchFor.id)
+
+      if (updateErr) {
+        // Rollback: remove orphaned file so storage stays consistent
+        await supabase.storage.from("reports-firmados").remove([path])
+        setDispatchError("Error al despachar: " + updateErr.message)
+        return
+      }
+
+      await logAudit({
+        tabla:          "reports",
+        registro_id:    dispatchFor.id,
+        accion:         "report.despachar",
+        descripcion:    `Vehículo despachado — ${dispatchFor.cliente} (${dispatchFor.patente}) · doc: ${path}`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? dispatchNombre,
       })
-      .eq("id", dispatchFor.id)
 
-    if (updateErr) {
-      // Rollback: remove orphaned file so storage stays consistent
-      await supabase.storage.from("reports-firmados").remove([path])
-      setDispatchError("Error al despachar: " + updateErr.message)
+      closeDispatchModal()
+      fetchReports()
+    } catch (err) {
+      console.error("[reports] error inesperado en despacho:", err)
+      setDispatchError("Error inesperado al despachar. Intenta de nuevo.")
+    } finally {
       setDispatchLoading(false)
-      return
     }
-
-    await logAudit({
-      tabla:          "reports",
-      registro_id:    dispatchFor.id,
-      accion:         "report.despachar",
-      descripcion:    `Vehículo despachado — ${dispatchFor.cliente} (${dispatchFor.patente}) · doc: ${path}`,
-      usuario_id:     user?.id,
-      usuario_nombre: profile?.nombre ?? dispatchNombre,
-    })
-
-    setDispatchLoading(false)
-    closeDispatchModal()
-    fetchReports()
   }
 
   const filtered = useMemo(() => reports.filter(r => {
@@ -327,6 +356,12 @@ export default function ReportsPage() {
       {fetchError && (
         <div className="mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
           Error al cargar reports: {fetchError}
+        </div>
+      )}
+
+      {actionError && (
+        <div className="mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+          {actionError}
         </div>
       )}
 

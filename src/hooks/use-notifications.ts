@@ -44,13 +44,14 @@ export function useNotifications() {
 
   const fetchNotifications = useCallback(async () => {
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("reports")
       .select("id, numero, cliente, estado, sec1_tipo_movimiento, sec3_tipo, updated_at")
       .neq("estado", "borrador")
       .order("updated_at", { ascending: false })
       .limit(25)
 
+    if (error) console.error("[notifications] error obteniendo notificaciones:", error)
     if (!data) { setLoading(false); return }
 
     const lastSeen = getLastSeen()

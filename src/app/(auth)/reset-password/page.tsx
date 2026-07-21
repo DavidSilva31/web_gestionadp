@@ -63,7 +63,9 @@ function ResetPasswordForm() {
     }
 
     // Limpiar flag de cambio obligatorio si estaba activo
-    await fetch("/api/auth/clear-password-flag", { method: "POST" }).catch(() => {})
+    await fetch("/api/auth/clear-password-flag", { method: "POST" })
+      .then(res => { if (!res.ok) console.error("[reset-password] clear-password-flag falló con status", res.status) })
+      .catch(err => console.error("[reset-password] error llamando a clear-password-flag:", err))
 
     await supabase.auth.signOut()
     router.push("/login?message=password_updated")

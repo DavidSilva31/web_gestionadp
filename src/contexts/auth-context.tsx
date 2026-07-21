@@ -28,11 +28,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchProfile = useCallback(async (userId: string) => {
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single()
+    if (error) console.error('[auth] error obteniendo perfil:', error)
     setProfile(data ?? null)
   }, [])
 

@@ -616,6 +616,7 @@ export default function HesPage() {
   const [servicioDialog,   setServicioDialog]   = useState<ServicioCliente | null | undefined>(undefined)
   const [srvChecked,       setSrvChecked]       = useState<Record<string, boolean>>({})
   const [loading,          setLoading]          = useState(false)
+  const [tarifasLoading,   setTarifasLoading]   = useState(false)
   const [exporting,        setExporting]        = useState(false)
   const [showPreview,      setShowPreview]      = useState(false)
   const [previewLoading,   setPreviewLoading]   = useState(false)
@@ -682,12 +683,14 @@ export default function HesPage() {
   // ── Load tarifas for selected client ──────────────────────────────────────
   useEffect(() => {
     if (!selectedId) { setTarifas([]); setSelectedTarifaId(null); return }
+    setTarifasLoading(true)
     const supabase = createClient()
     supabase.from("tarifas_cliente").select("*").eq("cliente_id", selectedId).eq("activo", true).order("cotizacion_numero")
       .then(({ data }) => {
         const list = (data ?? []) as TarifaCliente[]
         setTarifas(list)
         setSelectedTarifaId(list[0]?.id ?? null)
+        setTarifasLoading(false)
       })
   }, [selectedId])
 
@@ -1015,7 +1018,7 @@ export default function HesPage() {
 
               {/* HES Document */}
               <div className="flex-1 overflow-y-auto p-5 bg-muted/10">
-                {loading ? (
+                {loading || tarifasLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
