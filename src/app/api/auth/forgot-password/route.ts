@@ -24,7 +24,11 @@ export async function POST(req: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:4400"
+  // Ver nota en admin/create-user/route.ts sobre por qué no confiar solo en el env var.
+  const requestOrigin = new URL(req.url).origin
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.includes("localhost")
+    ? requestOrigin
+    : (process.env.NEXT_PUBLIC_SITE_URL ?? requestOrigin)
   const { error } = await supabase.auth.resetPasswordForEmail(normalized, {
     redirectTo: `${siteUrl}/reset-password`,
   })

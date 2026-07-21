@@ -34,7 +34,14 @@ export async function POST(req: NextRequest) {
     if (!VALID_ROLES.includes(role as typeof VALID_ROLES[number]))
       return NextResponse.json({ error: "Rol inválido" }, { status: 400 })
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:4400"
+    // NEXT_PUBLIC_SITE_URL se incrusta en el build — si Netlify no la tiene
+    // configurada, cae en el valor de .env.local ("localhost"). Se usa el
+    // origen real de la request como fuente de verdad y el env var solo si
+    // apunta explícitamente a otro dominio (ej. dominio custom detrás de proxy).
+    const requestOrigin = new URL(req.url).origin
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.includes("localhost")
+      ? requestOrigin
+      : (process.env.NEXT_PUBLIC_SITE_URL ?? requestOrigin)
     const { data: newUser, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${siteUrl}/reset-password`,
     })
