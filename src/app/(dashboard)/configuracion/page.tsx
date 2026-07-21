@@ -719,6 +719,7 @@ export default function ConfiguracionPage() {
               <Mail className="h-4 w-4 flex-shrink-0 text-emerald-700 dark:text-emerald-400" />
               <p className="text-xs text-emerald-700 dark:text-emerald-400">
                 Se envió un correo de invitación a <span className="font-semibold">{invitedEmail}</span> para que defina su contraseña.
+                Si no aparece en unos minutos, revisa la carpeta de spam o correo no deseado.
               </p>
             </div>
           )}
