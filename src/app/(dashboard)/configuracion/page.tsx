@@ -174,33 +174,44 @@ export default function ConfiguracionPage() {
   async function handleSavePerfil() {
     if (!user) return
     setSavingPerfil(true); setPerfilMsg(null)
-    const supabase = createClient()
-    const { error } = await supabase.from("profiles").update({ nombre }).eq("id", user.id)
-    setSavingPerfil(false)
-    setPerfilMsg(error ? { ok: false, text: error.message } : { ok: true, text: "Perfil actualizado correctamente" })
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.from("profiles").update({ nombre }).eq("id", user.id)
+      setPerfilMsg(error ? { ok: false, text: error.message } : { ok: true, text: "Perfil actualizado correctamente" })
+    } catch (err) {
+      console.error("[configuracion] error guardando perfil:", err)
+      setPerfilMsg({ ok: false, text: "No se pudo conectar con el servidor." })
+    } finally {
+      setSavingPerfil(false)
+    }
   }
 
   async function handleChangePassword() {
     if (newPass !== confirmPass) { setPassMsg({ ok: false, text: "Las contraseñas no coinciden" }); return }
     if (newPass.length < 8)      { setPassMsg({ ok: false, text: "Mínimo 8 caracteres" });          return }
     setSavingPass(true); setPassMsg(null)
-    const supabase = createClient()
-    const { error } = await supabase.auth.updateUser({ password: newPass })
-    if (error) {
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.auth.updateUser({ password: newPass })
+      if (error) {
+        setPassMsg({ ok: false, text: error.message })
+        return
+      }
+      const flagRes  = await fetch("/api/auth/clear-password-flag", { method: "POST" })
+      const flagJson = await flagRes.json()
+      if (!flagRes.ok) {
+        setPassMsg({ ok: false, text: `Error al actualizar: ${flagJson.error ?? flagRes.status}` })
+        return
+      }
+      setPassMsg({ ok: true, text: "Contraseña actualizada" })
+      setNewPass("")
+      setConfirmPass("")
+    } catch (err) {
+      console.error("[configuracion] error cambiando contraseña:", err)
+      setPassMsg({ ok: false, text: "No se pudo conectar con el servidor." })
+    } finally {
       setSavingPass(false)
-      setPassMsg({ ok: false, text: error.message })
-      return
     }
-    const flagRes  = await fetch("/api/auth/clear-password-flag", { method: "POST" })
-    const flagJson = await flagRes.json()
-    setSavingPass(false)
-    if (!flagRes.ok) {
-      setPassMsg({ ok: false, text: `Error al actualizar: ${flagJson.error ?? flagRes.status}` })
-      return
-    }
-    setPassMsg({ ok: true, text: "Contraseña actualizada" })
-    setNewPass("")
-    setConfirmPass("")
   }
 
   /* ── Usuarios ── */
@@ -232,14 +243,20 @@ export default function ConfiguracionPage() {
   const fetchUsers = useCallback(async () => {
     setLoadingUsers(true)
     setUsersError(null)
-    const res = await fetch("/api/admin/users")
-    if (res.ok) {
-      const data = await res.json()
-      setUsers(data as ProfileRow[])
-    } else {
-      setUsersError("No se pudo cargar la lista de usuarios.")
+    try {
+      const res = await fetch("/api/admin/users")
+      if (res.ok) {
+        const data = await res.json()
+        setUsers(data as ProfileRow[])
+      } else {
+        setUsersError("No se pudo cargar la lista de usuarios.")
+      }
+    } catch (err) {
+      console.error("[configuracion] error obteniendo usuarios:", err)
+      setUsersError("No se pudo conectar con el servidor.")
+    } finally {
+      setLoadingUsers(false)
     }
-    setLoadingUsers(false)
   }, [])
 
   useEffect(() => { if (tab === "usuarios" && isSuperAdmin) fetchUsers() }, [tab, isSuperAdmin, fetchUsers])
@@ -247,71 +264,95 @@ export default function ConfiguracionPage() {
   async function handleToggleActivo(u: ProfileRow) {
     setTogglingId(u.id)
     setUsersError(null)
-    const res = await fetch("/api/admin/update-user", {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ id: u.id, activo: !u.activo }),
-    })
-    if (res.ok) {
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, activo: !u.activo } : x))
-    } else {
-      const json = await res.json()
-      setUsersError(json.error ?? "Error al cambiar el estado del usuario.")
+    try {
+      const res = await fetch("/api/admin/update-user", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ id: u.id, activo: !u.activo }),
+      })
+      if (res.ok) {
+        setUsers(prev => prev.map(x => x.id === u.id ? { ...x, activo: !u.activo } : x))
+      } else {
+        const json = await res.json()
+        setUsersError(json.error ?? "Error al cambiar el estado del usuario.")
+      }
+    } catch (err) {
+      console.error("[configuracion] error cambiando estado del usuario:", err)
+      setUsersError("No se pudo conectar con el servidor.")
+    } finally {
+      setTogglingId(null)
     }
-    setTogglingId(null)
   }
 
   async function handleChangeRole(id: string, newRole: UserRole) {
     setSavingRoleId(id)
     setUsersError(null)
-    const res = await fetch("/api/admin/update-user", {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ id, role: newRole }),
-    })
-    if (res.ok) {
-      setUsers(prev => prev.map(x => x.id === id ? { ...x, role: newRole } : x))
-    } else {
-      const json = await res.json()
-      setUsersError(json.error ?? "Error al cambiar el rol.")
+    try {
+      const res = await fetch("/api/admin/update-user", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ id, role: newRole }),
+      })
+      if (res.ok) {
+        setUsers(prev => prev.map(x => x.id === id ? { ...x, role: newRole } : x))
+      } else {
+        const json = await res.json()
+        setUsersError(json.error ?? "Error al cambiar el rol.")
+      }
+    } catch (err) {
+      console.error("[configuracion] error cambiando rol:", err)
+      setUsersError("No se pudo conectar con el servidor.")
+    } finally {
+      setSavingRoleId(null)
     }
-    setSavingRoleId(null)
   }
 
   async function handleCreateUser() {
     setCreating(true); setCreateMsg(null); setCreatedPassword(null)
-    const res  = await fetch("/api/admin/create-user", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ ...newUser, permisos: createPermisos }),
-    })
-    const json = await res.json()
-    setCreating(false)
-    if (!res.ok) {
-      setCreateMsg({ ok: false, text: json.error })
-    } else {
-      setCreateMsg({ ok: true, text: "Usuario creado correctamente" })
-      setCreatedPassword(json.tempPassword ?? null)
-      setNewUser({ nombre: "", email: "", role: "operador" })
-      setCreatePermisos(ROLE_MODULE_DEFAULTS["operador"])
-      fetchUsers()
+    try {
+      const res  = await fetch("/api/admin/create-user", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ ...newUser, permisos: createPermisos }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setCreateMsg({ ok: false, text: json.error })
+      } else {
+        setCreateMsg({ ok: true, text: "Usuario creado correctamente" })
+        setCreatedPassword(json.tempPassword ?? null)
+        setNewUser({ nombre: "", email: "", role: "operador" })
+        setCreatePermisos(ROLE_MODULE_DEFAULTS["operador"])
+        fetchUsers()
+      }
+    } catch (err) {
+      console.error("[configuracion] error creando usuario:", err)
+      setCreateMsg({ ok: false, text: "No se pudo conectar con el servidor." })
+    } finally {
+      setCreating(false)
     }
   }
 
   async function handleDeleteUser() {
     if (!deleteTarget) return
     setDeleting(true); setDeleteMsg(null)
-    const res  = await fetch("/api/admin/delete-user", {
-      method:  "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ targetId: deleteTarget.id }),
-    })
-    const json = await res.json()
-    setDeleting(false)
-    if (!res.ok) { setDeleteMsg({ ok: false, text: json.error }) }
-    else {
-      setUsers(prev => prev.filter(x => x.id !== deleteTarget.id))
-      setDeleteTarget(null)
+    try {
+      const res  = await fetch("/api/admin/delete-user", {
+        method:  "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ targetId: deleteTarget.id }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setDeleteMsg({ ok: false, text: json.error }) }
+      else {
+        setUsers(prev => prev.filter(x => x.id !== deleteTarget.id))
+        setDeleteTarget(null)
+      }
+    } catch (err) {
+      console.error("[configuracion] error eliminando usuario:", err)
+      setDeleteMsg({ ok: false, text: "No se pudo conectar con el servidor." })
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -324,19 +365,25 @@ export default function ConfiguracionPage() {
   async function handleSavePermisos() {
     if (!permisosUser) return
     setSavingPermisos(true); setPermisosMsg(null)
-    const res = await fetch("/api/admin/update-user", {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ id: permisosUser.id, permisos: editPermisos }),
-    })
-    const json = await res.json()
-    setSavingPermisos(false)
-    if (!res.ok) {
-      setPermisosMsg({ ok: false, text: json.error ?? "Error al actualizar accesos." })
-    } else {
-      setUsers(prev => prev.map(x => x.id === permisosUser.id ? { ...x, permisos: editPermisos } : x))
-      setPermisosMsg({ ok: true, text: "Accesos actualizados" })
-      setTimeout(() => { setPermisosUser(null); setPermisosMsg(null) }, 1200)
+    try {
+      const res = await fetch("/api/admin/update-user", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ id: permisosUser.id, permisos: editPermisos }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setPermisosMsg({ ok: false, text: json.error ?? "Error al actualizar accesos." })
+      } else {
+        setUsers(prev => prev.map(x => x.id === permisosUser.id ? { ...x, permisos: editPermisos } : x))
+        setPermisosMsg({ ok: true, text: "Accesos actualizados" })
+        setTimeout(() => { setPermisosUser(null); setPermisosMsg(null) }, 1200)
+      }
+    } catch (err) {
+      console.error("[configuracion] error actualizando accesos:", err)
+      setPermisosMsg({ ok: false, text: "No se pudo conectar con el servidor." })
+    } finally {
+      setSavingPermisos(false)
     }
   }
 

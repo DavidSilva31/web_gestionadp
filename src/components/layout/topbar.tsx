@@ -77,10 +77,10 @@ async function globalSearch(q: string): Promise<GroupedResults> {
   const term = `%${sanitized}%`
 
   const [
-    { data: clientes },
-    { data: items },
-    { data: movs },
-    { data: reps },
+    { data: clientes, error: e1 },
+    { data: items, error: e2 },
+    { data: movs, error: e3 },
+    { data: reps, error: e4 },
   ] = await Promise.all([
     supabase.from("clientes")
       .select("id, numero, nombre, rut, sector")
@@ -105,6 +105,8 @@ async function globalSearch(q: string): Promise<GroupedResults> {
       .or(`cliente.ilike.${term},patente.ilike.${term},conductor.ilike.${term}${!isNaN(Number(q)) && q.trim() !== "" ? `,numero.eq.${Number(q)}` : ""}`)
       .limit(5),
   ])
+
+  for (const err of [e1, e2, e3, e4]) if (err) console.error("[topbar] error en búsqueda global:", err)
 
   return {
     clientes: (clientes ?? []).map(c => ({
@@ -221,9 +223,15 @@ export function Topbar() {
     setSearching(true)
     setSearchOpen(true)
     const t = setTimeout(async () => {
-      const res = await globalSearch(query.trim())
-      setResults(res)
-      setSearching(false)
+      try {
+        const res = await globalSearch(query.trim())
+        setResults(res)
+      } catch (err) {
+        console.error("[topbar] error inesperado en búsqueda global:", err)
+        setResults({ clientes: [], inventario: [], movimientos: [], reports: [] })
+      } finally {
+        setSearching(false)
+      }
     }, 300)
     return () => clearTimeout(t)
   }, [query])

@@ -1,6 +1,8 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
+import { useLinkStatus } from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import {
@@ -17,6 +19,7 @@ import {
   ShieldAlert,
   FileSpreadsheet,
   Wrench,
+  Loader2,
 } from "lucide-react"
 import {
   Sidebar,
@@ -50,6 +53,15 @@ const ALL_NAV_ITEMS = [
 
 interface NavItemDef { href: string; label: string; icon: React.ElementType; group: string }
 
+// Debe renderizarse como descendiente de <Link> — SidebarMenuButton reenvía sus
+// children al elemento Link vía el patrón render/useRender de base-ui.
+function NavIcon({ icon: Icon }: { icon: React.ElementType }) {
+  const { pending } = useLinkStatus()
+  return pending
+    ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
+    : <Icon className="h-4 w-4 flex-shrink-0" />
+}
+
 function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] }) {
   const pathname = usePathname()
   const matchesCurrent = pathname === item.href || pathname.startsWith(item.href + "/")
@@ -71,7 +83,7 @@ function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] 
             : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
         )}
       >
-        <item.icon className="h-4 w-4 flex-shrink-0" />
+        <NavIcon icon={item.icon} />
         <span>{item.label}</span>
         {isActive && <ChevronRight className="ml-auto h-3 w-3 opacity-60" />}
       </SidebarMenuButton>
@@ -81,6 +93,17 @@ function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] 
 
 export function AppSidebar() {
   const { profile, role, signOut } = useAuth()
+  const [signingOut, setSigningOut] = useState(false)
+
+  async function handleSignOut() {
+    setSigningOut(true)
+    try {
+      await signOut()
+    } catch (err) {
+      console.error("[app-sidebar] error cerrando sesión:", err)
+      setSigningOut(false)
+    }
+  }
   const pathname = usePathname()
 
   const effectiveRole = role ?? 'operador'
@@ -168,17 +191,21 @@ export function AppSidebar() {
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
-              <Settings className="h-4 w-4 flex-shrink-0" />
+              <NavIcon icon={Settings} />
               <span>Configuración</span>
               {pathname === "/configuracion" && <ChevronRight className="ml-auto h-3 w-3 opacity-60" />}
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
-              onClick={signOut}
-              className="h-10 w-full rounded-lg text-sidebar-foreground/70 hover:bg-destructive/20 hover:text-destructive flex items-center gap-3 px-3 cursor-pointer"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className="h-10 w-full rounded-lg text-sidebar-foreground/70 hover:bg-destructive/20 hover:text-destructive flex items-center gap-3 px-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <LogOut className="h-4 w-4 flex-shrink-0" />
+              {signingOut
+                ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
+                : <LogOut className="h-4 w-4 flex-shrink-0" />
+              }
               <span>Cerrar sesión</span>
             </SidebarMenuButton>
           </SidebarMenuItem>

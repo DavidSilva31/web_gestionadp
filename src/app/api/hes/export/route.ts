@@ -102,12 +102,33 @@ interface ReqBody {
 }
 
 export async function POST(req: NextRequest) {
+  try {
+    return await handleExport(req)
+  } catch (err) {
+    console.error("[hes/export] error inesperado:", err)
+    return NextResponse.json({ error: "No se pudo generar el archivo Excel." }, { status: 500 })
+  }
+}
+
+async function handleExport(req: NextRequest) {
   const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
 
-  const { cliente, tarifa, billing, hes, servicios: srvs = [], mes, anio, ufValue } = await req.json() as ReqBody
+  let body: ReqBody
+  try {
+    body = await req.json() as ReqBody
+  } catch {
+    return NextResponse.json({ error: "Cuerpo de la solicitud inválido." }, { status: 400 })
+  }
+  const { cliente, tarifa, billing, hes, servicios: srvs = [], mes, anio, ufValue } = body
 
+  if (!cliente?.nombre)
+    return NextResponse.json({ error: "Datos de cliente incompletos" }, { status: 400 })
+  if (!tarifa)
+    return NextResponse.json({ error: "Datos de tarifa incompletos" }, { status: 400 })
+  if (!billing?.rows || !hes?.dailyLog)
+    return NextResponse.json({ error: "Datos de facturación o log diario incompletos" }, { status: 400 })
   if (!Number.isInteger(mes) || mes < 0 || mes > 11)
     return NextResponse.json({ error: "Mes inválido" }, { status: 400 })
   if (!Number.isInteger(anio) || anio < 2020 || anio > 2100)

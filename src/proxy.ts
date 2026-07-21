@@ -39,7 +39,8 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError) console.error("[proxy] error verificando sesión:", userError.message)
 
   // Ruta raíz → redirigir según estado de sesión
   if (pathname === '/') {
@@ -66,11 +67,20 @@ export async function proxy(request: NextRequest) {
   }
 
   // Obtener rol, permisos y flag de cambio de contraseña del perfil
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('role, permisos, must_change_password')
     .eq('id', user.id)
     .single()
+
+  // Si no se pudo leer el perfil, no asumir un rol por defecto (podría escalar
+  // privilegios de un operador_carga a operador) — se falla cerrado hacia login.
+  if (profileError) {
+    console.error('[proxy] error obteniendo perfil:', profileError.message)
+    const loginUrl = new URL('/login', request.url)
+    loginUrl.searchParams.set('redirect', pathname)
+    return NextResponse.redirect(loginUrl)
+  }
 
   const role               = (profile?.role ?? 'operador') as UserRole
   const permisos           = (profile?.permisos ?? null) as string[] | null

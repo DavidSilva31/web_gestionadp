@@ -105,7 +105,9 @@ function InventarioContent() {
   const [dialog,       setDialog]       = useState<null | "new" | InventarioItem>(null)
   const [form,         setForm]         = useState<InventarioItemInsert>(EMPTY_FORM)
   const [deleting,     setDeleting]     = useState<InventarioItem | null>(null)
+  const [deletingBusy, setDeletingBusy] = useState(false)
   const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
+  const [exportError,  setExportError]  = useState<string | null>(null)
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)
@@ -191,11 +193,19 @@ function InventarioContent() {
 
   async function handleDelete() {
     if (!deleting) return
-    const supabase = createClient()
-    const { error } = await supabase.from("inventario_items").update({ activo: false }).eq("id", deleting.id)
-    if (error) { setError(error.message); setDeleting(null); return }
-    setDeleting(null)
-    if (selected) fetchItemsForCliente(selected.id)
+    setDeletingBusy(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.from("inventario_items").update({ activo: false }).eq("id", deleting.id)
+      if (error) { setError(error.message); return }
+      setDeleting(null)
+      if (selected) fetchItemsForCliente(selected.id)
+    } catch (err) {
+      console.error("[inventario] error eliminando ítem:", err)
+      setError("No se pudo eliminar el ítem.")
+    } finally {
+      setDeletingBusy(false)
+    }
   }
 
   async function handleSave() {
@@ -257,8 +267,14 @@ function InventarioContent() {
 
   function handleDownloadExport() {
     if (!exportPreview) return
-    exportToExcel(exportPreview.rows, exportPreview.filename, "Inventario")
-    setExportPreview(null)
+    setExportError(null)
+    try {
+      exportToExcel(exportPreview.rows, exportPreview.filename, "Inventario")
+      setExportPreview(null)
+    } catch (err) {
+      console.error("[inventario] error exportando Excel:", err)
+      setExportError("No se pudo generar el archivo Excel.")
+    }
   }
 
   const items = selected ? (clienteItems[selected.id] ?? []) : []
@@ -700,11 +716,14 @@ function InventarioContent() {
       </Dialog>
 
       {/* ── Vista previa del Excel antes de descargar ── */}
-      <Dialog open={exportPreview !== null} onOpenChange={open => { if (!open) setExportPreview(null) }}>
+      <Dialog open={exportPreview !== null} onOpenChange={open => { if (!open) { setExportPreview(null); setExportError(null) } }}>
         <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Vista previa del Excel — {selected?.nombre}</DialogTitle>
           </DialogHeader>
+          {exportError && (
+            <p className="text-xs text-destructive">{exportError}</p>
+          )}
 
           <div className="flex-1 overflow-auto border rounded-lg">
             {exportPreview && (
@@ -744,7 +763,7 @@ function InventarioContent() {
       </Dialog>
 
       {/* ── Confirmación de eliminación ── */}
-      <AlertDialog open={deleting !== null} onOpenChange={open => { if (!open) setDeleting(null) }}>
+      <AlertDialog open={deleting !== null} onOpenChange={open => { if (!open) { setDeleting(null); setError(null) } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar ítem?</AlertDialogTitle>
@@ -753,12 +772,17 @@ function InventarioContent() {
               Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {error && (
+            <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-200">{error}</p>
+          )}
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel disabled={deletingBusy}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
+              disabled={deletingBusy}
               onClick={handleDelete}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className="bg-red-600 hover:bg-red-700 text-white gap-1.5"
             >
+              {deletingBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>
