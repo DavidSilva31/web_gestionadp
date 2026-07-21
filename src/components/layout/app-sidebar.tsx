@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useLinkStatus } from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import {
@@ -36,6 +35,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
+import { useNavigationPending } from "@/contexts/navigation-pending-context"
 import { ROLE_ROUTES, ROLE_LABELS } from "@/types/auth"
 
 const ALL_NAV_ITEMS = [
@@ -53,17 +53,9 @@ const ALL_NAV_ITEMS = [
 
 interface NavItemDef { href: string; label: string; icon: React.ElementType; group: string }
 
-// Debe renderizarse como descendiente de <Link> — SidebarMenuButton reenvía sus
-// children al elemento Link vía el patrón render/useRender de base-ui.
-function NavIcon({ icon: Icon }: { icon: React.ElementType }) {
-  const { pending } = useLinkStatus()
-  return pending
-    ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
-    : <Icon className="h-4 w-4 flex-shrink-0" />
-}
-
 function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] }) {
   const pathname = usePathname()
+  const { startPending } = useNavigationPending()
   const matchesCurrent = pathname === item.href || pathname.startsWith(item.href + "/")
   const moreSpecificMatch = allItems.some(
     other => other.href !== item.href &&
@@ -76,6 +68,7 @@ function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] 
     <SidebarMenuItem>
       <SidebarMenuButton
         render={<Link href={item.href} />}
+        onClick={() => { if (!isActive) startPending() }}
         className={cn(
           "h-10 w-full rounded-lg font-medium transition-all flex items-center gap-3 px-3",
           isActive
@@ -83,7 +76,7 @@ function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] 
             : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
         )}
       >
-        <NavIcon icon={item.icon} />
+        <item.icon className="h-4 w-4 flex-shrink-0" />
         <span>{item.label}</span>
         {isActive && <ChevronRight className="ml-auto h-3 w-3 opacity-60" />}
       </SidebarMenuButton>
@@ -93,6 +86,7 @@ function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] 
 
 export function AppSidebar() {
   const { profile, role, signOut } = useAuth()
+  const { startPending } = useNavigationPending()
   const [signingOut, setSigningOut] = useState(false)
 
   async function handleSignOut() {
@@ -184,6 +178,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               render={<Link href="/configuracion" />}
+              onClick={() => { if (pathname !== "/configuracion") startPending() }}
               className={cn(
                 "h-10 w-full rounded-lg font-medium transition-all flex items-center gap-3 px-3",
                 pathname === "/configuracion"
@@ -191,7 +186,7 @@ export function AppSidebar() {
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
-              <NavIcon icon={Settings} />
+              <Settings className="h-4 w-4 flex-shrink-0" />
               <span>Configuración</span>
               {pathname === "/configuracion" && <ChevronRight className="ml-auto h-3 w-3 opacity-60" />}
             </SidebarMenuButton>

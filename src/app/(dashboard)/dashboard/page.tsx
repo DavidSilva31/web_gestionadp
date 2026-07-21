@@ -275,8 +275,8 @@ export default function DashboardPage() {
   const alertCount = alertas.filter(a => a.nivel !== "info").length
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="p-3 sm:p-4 flex flex-col gap-3 flex-1 min-h-0 lg:grid lg:grid-rows-[auto_auto_auto_1fr]">
+    <div className="flex flex-col h-full overflow-y-auto lg:overflow-hidden">
+      <div className="p-3 sm:p-4 flex flex-col gap-3 lg:flex-1 lg:min-h-0 lg:grid lg:grid-rows-[auto_auto_auto_1fr]">
 
         {/* ── Header ── */}
         <div className="flex items-center justify-between py-1">
