@@ -2,15 +2,18 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { createClient } from "@/lib/supabase"
+import { useAuth } from "@/contexts/auth-context"
+import { NOTIFY_ACCIONES, type AuditAccion } from "@/lib/audit"
 
 export interface NotificationItem {
-  id: string
-  numero: number
-  cliente: string
-  estado: string
-  tipo: string | null
-  updated_at: string
-  isNew: boolean
+  id:             string
+  tabla:          string
+  registro_id:    string
+  accion:         AuditAccion
+  descripcion:    string | null
+  usuario_nombre: string | null
+  created_at:     string
+  isNew:          boolean
 }
 
 const LS_KEY_SEEN      = "adp_notif_last_seen"
@@ -37,18 +40,24 @@ function saveDismissed(ids: Set<string>) {
 }
 
 export function useNotifications() {
+  const { profile } = useAuth()
+  // Mientras el perfil no cargó, se asume habilitado (default en BD es true) para
+  // no parpadear la campanita; una vez cargado, se respeta la preferencia explícita.
+  const enabled = profile ? profile.notificaciones_activas !== false : true
+
   // rawItems = todo lo que devuelve la consulta; items (derivado) descuenta los descartados
   const [rawItems, setRawItems]         = useState<NotificationItem[]>([])
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => loadDismissed())
   const [loading, setLoading]           = useState(true)
 
   const fetchNotifications = useCallback(async () => {
+    if (!enabled) { setRawItems([]); setLoading(false); return }
     const supabase = createClient()
     const { data, error } = await supabase
-      .from("reports")
-      .select("id, numero, cliente, estado, sec1_tipo_movimiento, sec3_tipo, updated_at")
-      .neq("estado", "borrador")
-      .order("updated_at", { ascending: false })
+      .from("audit_logs")
+      .select("id, tabla, registro_id, accion, descripcion, usuario_nombre, created_at")
+      .in("accion", NOTIFY_ACCIONES)
+      .order("created_at", { ascending: false })
       .limit(25)
 
     if (error) console.error("[notifications] error obteniendo notificaciones:", error)
@@ -56,27 +65,30 @@ export function useNotifications() {
 
     const lastSeen = getLastSeen()
     const notifs: NotificationItem[] = data.map(r => ({
-      id:         r.id,
-      numero:     r.numero,
-      cliente:    r.cliente,
-      estado:     r.estado,
-      tipo:       r.sec1_tipo_movimiento ?? r.sec3_tipo ?? null,
-      updated_at: r.updated_at,
-      isNew:      new Date(r.updated_at) > lastSeen,
+      id:             r.id,
+      tabla:          r.tabla,
+      registro_id:    r.registro_id,
+      accion:         r.accion as AuditAccion,
+      descripcion:    r.descripcion,
+      usuario_nombre: r.usuario_nombre,
+      created_at:     r.created_at,
+      isNew:          new Date(r.created_at) > lastSeen,
     }))
 
     setRawItems(notifs)
     setLoading(false)
-  }, [])
+  }, [enabled])
 
   useEffect(() => { fetchNotifications() }, [fetchNotifications])
 
-  // Realtime: cualquier cambio en reports recarga las notificaciones
+  // Realtime: cualquier acción nueva en audit_logs recarga las notificaciones
+  // (no se suscribe si el usuario desactivó las notificaciones)
   useEffect(() => {
+    if (!enabled) return
     const supabase = createClient()
     const channel = supabase
-      .channel("reports-notifications")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reports" }, () => {
+      .channel("audit-notifications")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "audit_logs" }, () => {
         fetchNotifications()
       })
       .subscribe()

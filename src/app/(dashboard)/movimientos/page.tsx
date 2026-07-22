@@ -413,7 +413,7 @@ export default function MovimientosPage() {
                       <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Movimiento</th>
                       <th className="hidden sm:table-cell text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Servicio</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cliente / Carga</th>
-                      <th className="hidden lg:table-cell text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Área</th>
+                      <th className="hidden xl:table-cell text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Área</th>
                       <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Fecha</th>
                       <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Estado</th>
                       <th />
@@ -468,7 +468,7 @@ export default function MovimientosPage() {
                             {m.carga}{m.unidades ? ` · ${m.unidades} ud.` : ""}
                           </p>
                         </td>
-                        <td className="hidden lg:table-cell px-4 py-3">
+                        <td className="hidden xl:table-cell px-4 py-3">
                           {m.area ? (
                             <Badge className={cn("text-[10px] px-1.5 py-0 border-0 font-medium", AREA_COLOR[m.area] ?? "bg-muted text-muted-foreground")}>
                               {m.area}
@@ -498,7 +498,7 @@ export default function MovimientosPage() {
                         <td className="px-2 py-3">
                           <Button
                             variant="ghost" size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
                             onClick={() => openEdit(m)}
                           >
                             <Pencil className="h-3.5 w-3.5" />

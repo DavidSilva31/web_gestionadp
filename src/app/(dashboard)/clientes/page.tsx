@@ -12,6 +12,8 @@ import { PageHeader } from "@/components/layout/page-header"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/contexts/auth-context"
+import { logAudit } from "@/lib/audit"
 import type { Cliente, ClienteInsert } from "@/types/database"
 
 const SECTORES = ["Marítimo", "Importación", "Industrial", "Minería", "Industria química", "Logística", "Otro"]
@@ -39,6 +41,7 @@ const initials = (nombre: string) =>
 const EMPTY: ClienteInsert = { nombre: "", rut: "", contacto: "", emails: [], sector: "", activo: true }
 
 export default function ClientesPage() {
+  const { user, profile } = useAuth()
   const [clientes,   setClientes]   = useState<Cliente[]>([])
   const [loading,    setLoading]    = useState(true)
   const [search,     setSearch]     = useState("")
@@ -103,11 +106,27 @@ export default function ClientesPage() {
     try {
       const supabase = createClient()
       if (dialog === "new") {
-        const { error: err } = await supabase.from("clientes").insert(payload)
+        const { data: inserted, error: err } = await supabase.from("clientes").insert(payload).select("id").single()
         if (err) { setError(err.message); setSaving(false); return }
+        logAudit({
+          tabla:          "clientes",
+          registro_id:    inserted.id,
+          accion:         "cliente.crear",
+          descripcion:    `Cliente ${payload.nombre} (${payload.rut}) creado`,
+          usuario_id:     user?.id,
+          usuario_nombre: profile?.nombre ?? user?.email,
+        })
       } else if (dialog) {
         const { error: err } = await supabase.from("clientes").update(payload).eq("id", dialog.id)
         if (err) { setError(err.message); setSaving(false); return }
+        logAudit({
+          tabla:          "clientes",
+          registro_id:    dialog.id,
+          accion:         "cliente.actualizar",
+          descripcion:    `Cliente ${payload.nombre} (${payload.rut}) actualizado${payload.activo !== dialog.activo ? ` — ${payload.activo ? "activado" : "desactivado"}` : ""}`,
+          usuario_id:     user?.id,
+          usuario_nombre: profile?.nombre ?? user?.email,
+        })
       }
       setSaving(false)
       setDialog(null)
@@ -170,7 +189,7 @@ export default function ClientesPage() {
                     <th className="text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Empresa</th>
                     <th className="hidden sm:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">RUT</th>
                     <th className="hidden md:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contacto</th>
-                    <th className="hidden lg:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email</th>
+                    <th className="hidden xl:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email</th>
                     <th className="hidden sm:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sector</th>
                     <th className="text-center px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bodega</th>
                     <th className="text-center px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Estado</th>
@@ -198,7 +217,7 @@ export default function ClientesPage() {
                       <td className="hidden md:table-cell px-4 py-3.5 text-xs">
                         <span className="truncate block">{c.contacto ?? "—"}</span>
                       </td>
-                      <td className="hidden lg:table-cell px-4 py-3.5 text-xs text-muted-foreground">
+                      <td className="hidden xl:table-cell px-4 py-3.5 text-xs text-muted-foreground">
                         <span className="truncate block" title={c.emails.join(", ")}>
                           {c.emails.length > 0 ? c.emails.join(", ") : "—"}
                         </span>
@@ -230,7 +249,7 @@ export default function ClientesPage() {
                               : <><XCircle className="h-3 w-3" /><span className="hidden sm:inline">Inactivo</span></>
                             }
                           </span>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
                             onClick={() => openEdit(c)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>

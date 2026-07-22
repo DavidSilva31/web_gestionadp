@@ -229,8 +229,8 @@ export default function ReportesPage() {
         onDownload={() => downloadAnaliticaPDF(pdfData)}
       />
     )}
-    <div className="h-full overflow-y-auto md:overflow-hidden">
-      <div className="flex flex-col gap-3 p-3 sm:p-4 bg-muted/20 md:h-full md:grid md:grid-rows-[auto_auto_1fr]">
+    <div className="h-full overflow-y-auto lg:overflow-hidden">
+      <div className="flex flex-col gap-3 p-3 sm:p-4 bg-muted/20 lg:h-full lg:grid lg:grid-rows-[auto_auto_1fr]">
 
         {/* Cabecera */}
         <div className="flex flex-col gap-2">
@@ -309,11 +309,11 @@ export default function ReportesPage() {
           }
         </div>
 
-        {/* Gráficos — 3 columnas iguales en XL */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 md:min-h-0">
+        {/* Gráficos — versión detallada: móvil (scroll de página) y desde 1280px (3 columnas) */}
+        <div className="grid grid-cols-1 lg:hidden xl:grid xl:grid-cols-3 gap-3 lg:min-h-0">
 
           {/* Gráfico mensual */}
-          <Card className="border-border/40 shadow-sm bg-background md:flex md:flex-col md:min-h-0">
+          <Card className="border-border/40 shadow-sm bg-background lg:flex lg:flex-col lg:min-h-0">
             <CardHeader className="py-3 px-4 border-b border-border/30 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-primary/10"><BarChart3 className="h-3.5 w-3.5 text-primary" /></div>
@@ -323,13 +323,13 @@ export default function ReportesPage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="flex flex-col px-4 py-3 gap-3 md:flex-1 md:min-h-0">
+            <CardContent className="flex flex-col px-4 py-3 gap-3 lg:flex-1 lg:min-h-0">
               {loading ? (
-                <div className="h-32 md:flex-1 flex items-center justify-center">
+                <div className="h-32 lg:flex-1 flex items-center justify-center">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : mensual.length === 0 ? (
-                <div className="h-32 md:flex-1 flex flex-col items-center justify-center gap-2">
+                <div className="h-32 lg:flex-1 flex flex-col items-center justify-center gap-2">
                   <div className="p-3 rounded-xl bg-muted/50">
                     <BarChart3 className="h-6 w-6 text-muted-foreground/25" />
                   </div>
@@ -337,7 +337,7 @@ export default function ReportesPage() {
                 </div>
               ) : (
                 <>
-                  <div className="flex items-end gap-0.5 sm:gap-1.5 h-[120px] md:flex-1 md:h-auto md:min-h-0">
+                  <div className="flex items-end gap-0.5 sm:gap-1.5 h-[120px] lg:flex-1 lg:h-auto lg:min-h-0">
                     {mensual.map((m) => {
                       const total = m.entradas + m.salidas
                       return (
@@ -401,10 +401,10 @@ export default function ReportesPage() {
           </Card>
 
           {/* Columna centro: top cargas + top clientes */}
-          <div className="flex flex-col gap-3 md:min-h-0">
+          <div className="flex flex-col gap-3 lg:min-h-0">
 
             {/* Top cargas */}
-            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] md:min-h-0 md:flex md:flex-col md:flex-1">
+            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] lg:min-h-0 lg:flex lg:flex-col lg:flex-1">
               <CardHeader className="py-3 px-4 border-b border-border/30 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -420,7 +420,7 @@ export default function ReportesPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex flex-col justify-between px-4 py-3 md:flex-1 md:min-h-0">
+              <CardContent className="flex flex-col justify-between px-4 py-3 lg:flex-1 lg:min-h-0">
                 {loading ? (
                   <div className="flex-1 flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
                 ) : topItems.length === 0 ? (
@@ -461,7 +461,7 @@ export default function ReportesPage() {
             </Card>
 
             {/* Top clientes */}
-            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] md:min-h-0 md:flex md:flex-col md:flex-1">
+            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] lg:min-h-0 lg:flex lg:flex-col lg:flex-1">
               <CardHeader className="py-3 px-4 border-b border-border/30 flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-[#29ABE2]/10"><Users className="h-3.5 w-3.5 text-[#29ABE2]" /></div>
@@ -471,7 +471,7 @@ export default function ReportesPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex flex-col justify-between px-4 py-3 md:flex-1 md:min-h-0">
+              <CardContent className="flex flex-col justify-between px-4 py-3 lg:flex-1 lg:min-h-0">
                 {loading ? (
                   <div className="flex-1 flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
                 ) : topClientes.length === 0 ? (
@@ -506,10 +506,10 @@ export default function ReportesPage() {
           </div>
 
           {/* Columna derecha: Área + (Stock & Reports combinados) */}
-          <div className="flex flex-col gap-3 md:min-h-0">
+          <div className="flex flex-col gap-3 lg:min-h-0">
 
             {/* Distribución por área */}
-            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] md:min-h-0 md:flex md:flex-col md:flex-1">
+            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] lg:min-h-0 lg:flex lg:flex-col lg:flex-1">
               <CardHeader className="py-3 px-4 border-b border-border/30 flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-primary/10"><MapPin className="h-3.5 w-3.5 text-primary" /></div>
@@ -519,7 +519,7 @@ export default function ReportesPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="px-4 py-3 flex flex-col justify-between gap-3 md:flex-1 md:min-h-0">
+              <CardContent className="px-4 py-3 flex flex-col justify-between gap-3 lg:flex-1 lg:min-h-0">
                 {loading ? (
                   <div className="flex-1 flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -560,7 +560,7 @@ export default function ReportesPage() {
             </Card>
 
             {/* Stock al cierre + Reports — tarjeta unificada dividida en 2 columnas */}
-            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] md:min-h-0 md:flex md:flex-col md:flex-1">
+            <Card className="border-border/40 shadow-sm bg-background min-h-[180px] lg:min-h-0 lg:flex lg:flex-col lg:flex-1">
               <CardHeader className="py-3 px-4 border-b border-border/30 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -573,7 +573,7 @@ export default function ReportesPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex p-0 md:flex-1 md:min-h-0">
+              <CardContent className="flex p-0 lg:flex-1 lg:min-h-0">
                 {loading ? (
                   <div className="flex-1 flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -640,6 +640,169 @@ export default function ReportesPage() {
             </Card>
 
           </div>
+        </div>
+
+        {/* Gráficos — versión compacta 768-1279px: gráfico arriba, 2x2 abajo, sin scroll.
+            Flex-col (no grid) para que cada fila reciba una altura definida y las
+            barras del gráfico (height en %) puedan resolverse correctamente. */}
+        <div className="hidden lg:flex xl:hidden flex-col gap-2 lg:min-h-0 lg:flex-1">
+
+          {/* Movimientos por mes — compacto */}
+          <Card className="flex-[0.85] border-border/40 shadow-sm bg-background flex flex-col lg:min-h-0">
+            <CardHeader className="py-1.5 px-3 border-b border-border/30 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xs font-bold tracking-tight flex items-center gap-1.5">
+                  <BarChart3 className="h-3 w-3 text-primary" /> Movimientos por mes
+                </CardTitle>
+                <div className="flex items-center gap-2.5 text-[9px] text-muted-foreground">
+                  <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-primary inline-block" />Ent.</span>
+                  <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full inline-block" style={{ backgroundColor: "#29ABE2" }} />Sal.</span>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="px-3 py-2 flex-1 min-h-0">
+              {loading ? (
+                <div className="h-full flex items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+              ) : mensual.length === 0 ? (
+                <div className="h-full flex items-center justify-center"><p className="text-[10px] text-muted-foreground">Sin movimientos registrados</p></div>
+              ) : (
+                <div className="flex items-end gap-1 h-full">
+                  {mensual.map(m => (
+                    <div key={m.mes} className="flex-1 flex flex-col items-center gap-0.5 h-full">
+                      <div className="w-full flex gap-px items-end flex-1">
+                        <div className="flex-1 bg-primary rounded-t-sm" style={{ height: `${(m.entradas / maxVal) * 100}%` }} />
+                        <div className="flex-1 rounded-t-sm" style={{ height: `${(m.salidas / maxVal) * 100}%`, backgroundColor: "#29ABE2" }} />
+                      </div>
+                      <span className="text-[8px] text-muted-foreground font-medium flex-shrink-0">{m.mes}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Fila 2: Cargas | Clientes */}
+          <div className="flex-1 flex gap-2 lg:min-h-0">
+            <Card className="flex-1 border-border/40 shadow-sm bg-background flex flex-col lg:min-h-0">
+              <CardHeader className="py-1.5 px-3 border-b border-border/30 flex-shrink-0">
+                <CardTitle className="text-xs font-bold tracking-tight flex items-center gap-1.5">
+                  <TrendingUp className="h-3 w-3 text-primary" /> Cargas más activas
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 py-1.5 flex-1 min-h-0 flex flex-col justify-center gap-1.5">
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mx-auto" />
+                ) : topItems.length === 0 ? (
+                  <p className="text-[10px] text-muted-foreground text-center">Sin datos</p>
+                ) : topItems.slice(0, 3).map(p => (
+                  <div key={p.nombre}>
+                    <div className="flex items-center justify-between mb-0.5 gap-1">
+                      <span className="text-[10px] font-medium truncate">{p.nombre}</span>
+                      <span className="text-[10px] font-bold flex-shrink-0">{p.total}</span>
+                    </div>
+                    <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-primary rounded-full" style={{ width: `${p.pct}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card className="flex-1 border-border/40 shadow-sm bg-background flex flex-col lg:min-h-0">
+              <CardHeader className="py-1.5 px-3 border-b border-border/30 flex-shrink-0">
+                <CardTitle className="text-xs font-bold tracking-tight flex items-center gap-1.5">
+                  <Users className="h-3 w-3 text-[#29ABE2]" /> Clientes más activos
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 py-1.5 flex-1 min-h-0 flex flex-col justify-center gap-1.5">
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mx-auto" />
+                ) : topClientes.length === 0 ? (
+                  <p className="text-[10px] text-muted-foreground text-center">Sin datos</p>
+                ) : topClientes.slice(0, 3).map(c => (
+                  <div key={c.nombre}>
+                    <div className="flex items-center justify-between mb-0.5 gap-1">
+                      <span className="text-[10px] font-medium truncate">{c.nombre}</span>
+                      <span className="text-[10px] font-bold flex-shrink-0">{c.total}</span>
+                    </div>
+                    <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-[#29ABE2]" style={{ width: `${c.pct}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Fila 3: Distribución por área | Stock y Reports */}
+          <div className="flex-1 flex gap-2 lg:min-h-0">
+            <Card className="flex-1 border-border/40 shadow-sm bg-background flex flex-col lg:min-h-0">
+              <CardHeader className="py-1.5 px-3 border-b border-border/30 flex-shrink-0">
+                <CardTitle className="text-xs font-bold tracking-tight flex items-center gap-1.5">
+                  <MapPin className="h-3 w-3 text-primary" /> Distribución por área
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 py-1.5 flex-1 min-h-0 flex flex-col justify-center gap-1">
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mx-auto" />
+                ) : AREA_ORDER.map(area => {
+                  const d  = areaData.find(x => x.area === area) ?? { area, entradas: 0, salidas: 0, total: 0, pct: 0 }
+                  const ac = AREA_COLORS[area] ?? { dot: "bg-muted" }
+                  return (
+                    <div key={area}>
+                      <div className="flex items-center justify-between mb-0.5 gap-1 min-w-0">
+                        <span className="flex items-center gap-1 min-w-0">
+                          <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${ac.dot}`} />
+                          <span className="text-[10px] font-medium truncate text-foreground/80">{area}</span>
+                        </span>
+                        <span className="text-[10px] font-bold flex-shrink-0">{d.total}</span>
+                      </div>
+                      <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${ac.dot}`} style={{ width: `${Math.max(d.pct, d.total > 0 ? 6 : 0)}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </CardContent>
+            </Card>
+
+            <Card className="flex-1 border-border/40 shadow-sm bg-background flex flex-col lg:min-h-0">
+              <CardHeader className="py-1.5 px-3 border-b border-border/30 flex-shrink-0">
+                <CardTitle className="text-xs font-bold tracking-tight flex items-center gap-1.5">
+                  <Boxes className="h-3 w-3 text-primary" /> Stock y Reports
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 py-1.5 flex-1 min-h-0 flex flex-col justify-center gap-1">
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mx-auto" />
+                ) : (
+                  <>
+                    {([
+                      { label: "Normal",      value: stockStatus.normal,        barCls: "bg-emerald-500"          },
+                      { label: "Bajo",        value: stockStatus.bajo,          barCls: "bg-amber-400"            },
+                      { label: "Crítico",     value: stockStatus.critico,       barCls: "bg-rose-500"             },
+                      { label: "Borradores",  value: reportsFunnel.borradores,  barCls: "bg-muted-foreground/40"  },
+                      { label: "Pendientes",  value: reportsFunnel.pendientes,  barCls: "bg-amber-400"            },
+                      { label: "Despachados", value: reportsFunnel.despachados, barCls: "bg-emerald-500"          },
+                    ] as const).map(({ label, value, barCls }, i) => {
+                      const base = i < 3 ? stockStatus.total : reportsFunnel.total
+                      const pct  = base > 0 ? Math.round((value / base) * 100) : 0
+                      return (
+                        <div key={label} className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-foreground/80 w-[62px] flex-shrink-0 truncate">{label}</span>
+                          <div className="h-1 flex-1 bg-muted rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${barCls}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-[10px] font-bold w-3.5 text-right flex-shrink-0">{value}</span>
+                        </div>
+                      )
+                    })}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
         </div>
       </div>
     </div>

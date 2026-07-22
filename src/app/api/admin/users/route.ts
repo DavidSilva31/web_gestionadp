@@ -19,7 +19,7 @@ export async function GET() {
 
     const { data, error } = await supabaseAdmin
       .from("profiles")
-      .select("id, nombre, email, role, activo, permisos, created_at")
+      .select("id, nombre, email, role, activo, permisos, avatar_icon, created_at")
       .order("created_at", { ascending: true })
 
     if (error) {

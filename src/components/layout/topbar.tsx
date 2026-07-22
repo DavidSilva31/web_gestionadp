@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import {
-  Bell, Search, ArrowDownCircle, ArrowUpCircle, FileText,
+  Bell, Search,
   Loader2, CheckCheck, Package, Users, ArrowLeftRight, ClipboardList, X,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
@@ -14,6 +14,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ThemeToggle } from "@/components/layout/theme-toggle"
 import { useAuth } from "@/contexts/auth-context"
 import { useNotifications, type NotificationItem } from "@/hooks/use-notifications"
+import { accionLabel, ACCION_STYLE } from "@/lib/audit"
+import { AVATAR_ICONS } from "@/lib/avatar-icons"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 
@@ -54,12 +56,16 @@ function estadoLabel(estado: string): string {
   return estado
 }
 
-function NotifIcon({ item }: { item: NotificationItem }) {
-  if (item.estado === "despachado")
-    return <ArrowUpCircle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
-  if (item.tipo === "ingreso")
-    return <ArrowDownCircle className="h-4 w-4 text-emerald-500 flex-shrink-0 mt-0.5" />
-  return <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+function notifHref(item: NotificationItem): string | null {
+  switch (item.tabla) {
+    case "reports":           return `/reports/${item.registro_id}`
+    case "inventario_items":  return "/inventario"
+    case "clientes":          return "/clientes"
+    case "tarifas_cliente":
+    case "servicios_cliente": return "/servicios"
+    case "profiles":          return "/configuracion"
+    default:                  return null
+  }
 }
 
 // ── Helpers búsqueda ───────────────────────────────────────────────────────────
@@ -419,54 +425,54 @@ export function Topbar() {
                   </div>
                 ) : (
                   <ul>
-                    {items.map(item => (
-                      <li
-                        key={item.id}
-                        className={cn(
-                          "group/notif flex items-start gap-2.5 px-3 py-2.5 transition-colors border-b border-border/30 last:border-0",
-                          item.isNew ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"
-                        )}
-                      >
-                        <span className={cn(
-                          "mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0",
-                          item.isNew ? "bg-primary" : "bg-transparent"
-                        )} />
-                        <NotifIcon item={item} />
+                    {items.map(item => {
+                      const style = ACCION_STYLE[item.accion]
+                      const href  = notifHref(item)
+                      const body = (
                         <div className="flex-1 min-w-0">
-                          <p className="text-[12px] font-medium leading-tight truncate">
-                            {item.estado === "despachado"
-                              ? "Reporte despachado"
-                              : item.tipo === "ingreso"
-                                ? "Nuevo ingreso registrado"
-                                : "Reporte registrado"
-                            }
-                          </p>
-                          <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                            REP-{String(item.numero).padStart(3, "0")} · {item.cliente}
-                          </p>
+                          <span className={cn(
+                            "inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap",
+                            style?.pill ?? "bg-muted text-muted-foreground"
+                          )}>
+                            {style && <style.icon className="h-2.5 w-2.5" />}
+                            {accionLabel(item.accion)}
+                          </span>
+                          {item.descripcion && (
+                            <p className="text-[11px] text-foreground/90 truncate mt-1">{item.descripcion}</p>
+                          )}
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className={cn(
-                              "text-[10px] px-1.5 py-0.5 rounded-full font-medium",
-                              item.estado === "despachado"
-                                ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                                : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                            )}>
-                              {estadoLabel(item.estado)}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground/60">
-                              {relativeTime(item.updated_at)}
+                            {item.usuario_nombre && (
+                              <span className="text-[10px] text-muted-foreground/70 truncate">{item.usuario_nombre}</span>
+                            )}
+                            <span className="text-[10px] text-muted-foreground/60 flex-shrink-0">
+                              {relativeTime(item.created_at)}
                             </span>
                           </div>
                         </div>
-                        <button
-                          onClick={() => dismiss(item.id)}
-                          title="Descartar"
-                          className="flex-shrink-0 h-5 w-5 rounded-md flex items-center justify-center text-muted-foreground/50 opacity-0 group-hover/notif:opacity-100 hover:!text-foreground hover:bg-muted transition-all"
+                      )
+                      return (
+                        <li
+                          key={item.id}
+                          className={cn(
+                            "group/notif flex items-start gap-2.5 px-3 py-2.5 transition-colors border-b border-border/30 last:border-0",
+                            item.isNew ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"
+                          )}
                         >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </li>
-                    ))}
+                          <span className={cn(
+                            "mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0",
+                            item.isNew ? "bg-primary" : "bg-transparent"
+                          )} />
+                          {href ? <Link href={href} className="flex-1 min-w-0">{body}</Link> : body}
+                          <button
+                            onClick={() => dismiss(item.id)}
+                            title="Descartar"
+                            className="flex-shrink-0 h-5 w-5 rounded-md flex items-center justify-center text-muted-foreground/50 opacity-0 group-hover/notif:opacity-100 hover:!text-foreground hover:bg-muted transition-all"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </li>
+                      )
+                    })}
                   </ul>
                 )}
               </div>
@@ -479,7 +485,10 @@ export function Topbar() {
         <div className="flex items-center gap-2 pl-1">
           <Avatar size="sm">
             <AvatarFallback className="bg-primary text-[10px] font-bold leading-none text-primary-foreground">
-              {initials}
+              {profile?.avatar_icon && AVATAR_ICONS[profile.avatar_icon]
+                ? (() => { const Icon = AVATAR_ICONS[profile.avatar_icon]; return <Icon className="h-3 w-3" /> })()
+                : initials
+              }
             </AvatarFallback>
           </Avatar>
           <span className="text-[12px] font-medium text-foreground hidden sm:block">

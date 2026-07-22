@@ -17,6 +17,8 @@ import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { exportToExcel } from "@/lib/excel"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/contexts/auth-context"
+import { logAudit } from "@/lib/audit"
 import type {
   Cliente,
   InventarioItem,
@@ -90,6 +92,7 @@ const EMPTY_FORM: InventarioItemInsert = {
 
 // ── Inner component (requiere useSearchParams → envuelto en Suspense) ──────────
 function InventarioContent() {
+  const { user, profile } = useAuth()
   const searchParams = useSearchParams()
   const clienteParam = searchParams.get("cliente")
 
@@ -198,6 +201,14 @@ function InventarioContent() {
       const supabase = createClient()
       const { error } = await supabase.from("inventario_items").update({ activo: false }).eq("id", deleting.id)
       if (error) { setError(error.message); return }
+      logAudit({
+        tabla:          "inventario_items",
+        registro_id:    deleting.id,
+        accion:         "inventario.eliminar_item",
+        descripcion:    `Ítem ${deleting.descripcion} eliminado${selected ? ` — ${selected.nombre}` : ""}`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
       setDeleting(null)
       if (selected) fetchItemsForCliente(selected.id)
     } catch (err) {
@@ -223,14 +234,30 @@ function InventarioContent() {
     try {
       const supabase = createClient()
       if (dialog === "new") {
-        const { error: err } = await supabase.from("inventario_items").insert(payload)
+        const { data: inserted, error: err } = await supabase.from("inventario_items").insert(payload).select("id").single()
         if (err) { setError(err.message); setSaving(false); return }
+        logAudit({
+          tabla:          "inventario_items",
+          registro_id:    inserted.id,
+          accion:         "inventario.crear_item",
+          descripcion:    `Ítem ${payload.descripcion} creado${selected ? ` — ${selected.nombre}` : ""}`,
+          usuario_id:     user?.id,
+          usuario_nombre: profile?.nombre ?? user?.email,
+        })
       } else if (dialog) {
         // Exclude stock_actual from edit — stock must change only through movimientos
         const { stock_actual, ...editPayload } = payload
         void stock_actual
         const { error: err } = await supabase.from("inventario_items").update(editPayload).eq("id", dialog.id)
         if (err) { setError(err.message); setSaving(false); return }
+        logAudit({
+          tabla:          "inventario_items",
+          registro_id:    dialog.id,
+          accion:         "inventario.actualizar_item",
+          descripcion:    `Ítem ${payload.descripcion} actualizado${selected ? ` — ${selected.nombre}` : ""}`,
+          usuario_id:     user?.id,
+          usuario_nombre: profile?.nombre ?? user?.email,
+        })
       }
       setSaving(false)
       setDialog(null)
