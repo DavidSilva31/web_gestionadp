@@ -157,7 +157,7 @@ function LoginForm() {
       </div>
 
       {/* Panel derecho — formulario */}
-      <div className="flex flex-col justify-center flex-1 px-8 py-12 bg-background">
+      <div className="relative flex flex-col justify-center flex-1 px-8 py-12 bg-background">
         <div className="w-full max-w-sm mx-auto">
 
           {/* Logo mobile */}
@@ -346,6 +346,11 @@ function LoginForm() {
           )}
 
         </div>
+
+        <p className="absolute bottom-4 inset-x-0 text-center text-[11px] text-muted-foreground/50">
+          © {new Date().getFullYear()} Altos del Puerto. Todos los derechos reservados.
+          <br className="sm:hidden" /> Desarrollado por codebyDS
+        </p>
       </div>
     </div>
   )
