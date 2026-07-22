@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import {
   User, Users, Save, Loader2, Plus, Eye, EyeOff,
   ShieldCheck, Shield, Package, CheckCircle2, XCircle,
-  KeyRound, UserCog, LayoutGrid, AlertTriangle, Trash2, Mail,
+  KeyRound, UserCog, LayoutGrid, AlertTriangle, Trash2, Mail, Bell,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,6 +13,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
+import { logAudit } from "@/lib/audit"
+import { AVATAR_ICONS, AVATAR_ICON_KEYS } from "@/lib/avatar-icons"
 import { ROLE_LABELS } from "@/types/auth"
 import { cn } from "@/lib/utils"
 import type { UserRole } from "@/types/auth"
@@ -20,13 +22,14 @@ import type { UserRole } from "@/types/auth"
 type Tab = "perfil" | "usuarios"
 
 interface ProfileRow {
-  id:         string
-  nombre:     string
-  email:      string
-  role:       UserRole
-  activo:     boolean
-  permisos:   string[] | null
-  created_at: string
+  id:          string
+  nombre:      string
+  email:       string
+  role:        UserRole
+  activo:      boolean
+  permisos:    string[] | null
+  avatar_icon: string | null
+  created_at:  string
 }
 
 const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
@@ -127,7 +130,7 @@ const initials = (nombre: string) =>
   nombre.split(" ").filter(Boolean).map(w => w[0]).slice(0, 2).join("").toUpperCase()
 
 export default function ConfiguracionPage() {
-  const { user, profile, role } = useAuth()
+  const { user, profile, role, refreshProfile } = useAuth()
   const isSuperAdmin = role === "super_admin"
 
   const [tab, setTab] = useState<Tab>("perfil")
@@ -143,16 +146,96 @@ export default function ConfiguracionPage() {
   const [savingPass,  setSavingPass]  = useState(false)
   const [passMsg,     setPassMsg]     = useState<{ ok: boolean; text: string } | null>(null)
 
+  const [savingNotif, setSavingNotif] = useState(false)
+  const [savingAvatar, setSavingAvatar] = useState(false)
+
   useEffect(() => { if (profile?.nombre) setNombre(profile.nombre) }, [profile])
   useEffect(() => { if (profile?.must_change_password) setTab("perfil") }, [profile?.must_change_password])
+
+  async function handleSetAvatarIcon(key: string) {
+    if (!user || !profile || savingAvatar) return
+    const next = profile.avatar_icon === key ? null : key
+    setSavingAvatar(true)
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.from("profiles")
+        .update({ avatar_icon: next }).eq("id", user.id)
+        .select("id").single()
+      if (error || !data) {
+        console.error("[configuracion] error actualizando avatar:", error)
+      } else {
+        logAudit({
+          tabla:          "profiles",
+          registro_id:    user.id,
+          accion:         "perfil.actualizar",
+          descripcion:    `${profile.nombre} ${next ? `eligió el avatar "${next}"` : "quitó su avatar personalizado"}`,
+          usuario_id:     user.id,
+          usuario_nombre: profile.nombre,
+        })
+        await refreshProfile()
+      }
+    } catch (err) {
+      console.error("[configuracion] error actualizando avatar:", err)
+    } finally {
+      setSavingAvatar(false)
+    }
+  }
+
+  async function handleToggleNotificaciones() {
+    if (!user || !profile || savingNotif) return
+    const next = !(profile.notificaciones_activas !== false)
+    setSavingNotif(true)
+    try {
+      const supabase = createClient()
+      // .select().single() detecta si RLS filtró la fila silenciosamente
+      // (update sin error pero sin filas afectadas) en vez de fallar mudo.
+      const { data, error } = await supabase.from("profiles")
+        .update({ notificaciones_activas: next }).eq("id", user.id)
+        .select("id").single()
+      if (error || !data) {
+        console.error("[configuracion] error actualizando preferencia de notificaciones:", error)
+      } else {
+        logAudit({
+          tabla:          "profiles",
+          registro_id:    user.id,
+          accion:         "perfil.actualizar",
+          descripcion:    `${profile.nombre} ${next ? "activó" : "desactivó"} las notificaciones`,
+          usuario_id:     user.id,
+          usuario_nombre: profile.nombre,
+        })
+        await refreshProfile()
+      }
+    } catch (err) {
+      console.error("[configuracion] error actualizando preferencia de notificaciones:", err)
+    } finally {
+      setSavingNotif(false)
+    }
+  }
 
   async function handleSavePerfil() {
     if (!user) return
     setSavingPerfil(true); setPerfilMsg(null)
     try {
       const supabase = createClient()
-      const { error } = await supabase.from("profiles").update({ nombre }).eq("id", user.id)
-      setPerfilMsg(error ? { ok: false, text: error.message } : { ok: true, text: "Perfil actualizado correctamente" })
+      const { data, error } = await supabase.from("profiles")
+        .update({ nombre }).eq("id", user.id)
+        .select("id").single()
+      setPerfilMsg(
+        error || !data
+          ? { ok: false, text: error?.message ?? "No se pudo actualizar el perfil." }
+          : { ok: true, text: "Perfil actualizado correctamente" }
+      )
+      if (!error && data) {
+        logAudit({
+          tabla:          "profiles",
+          registro_id:    user.id,
+          accion:         "perfil.actualizar",
+          descripcion:    `${profile?.nombre ?? user.email} actualizó su nombre a "${nombre}"`,
+          usuario_id:     user.id,
+          usuario_nombre: nombre || user.email,
+        })
+        refreshProfile()
+      }
     } catch (err) {
       console.error("[configuracion] error guardando perfil:", err)
       setPerfilMsg({ ok: false, text: "No se pudo conectar con el servidor." })
@@ -181,6 +264,16 @@ export default function ConfiguracionPage() {
       setPassMsg({ ok: true, text: "Contraseña actualizada" })
       setNewPass("")
       setConfirmPass("")
+      if (user) {
+        logAudit({
+          tabla:          "profiles",
+          registro_id:    user.id,
+          accion:         "perfil.actualizar",
+          descripcion:    `${profile?.nombre ?? user.email} cambió su contraseña`,
+          usuario_id:     user.id,
+          usuario_nombre: profile?.nombre ?? user.email,
+        })
+      }
     } catch (err) {
       console.error("[configuracion] error cambiando contraseña:", err)
       setPassMsg({ ok: false, text: "No se pudo conectar con el servidor." })
@@ -412,7 +505,10 @@ export default function ConfiguracionPage() {
                   <div className="flex items-center gap-4">
                     <Avatar className="h-14 w-14 ring-2 ring-white/40">
                       <AvatarFallback className="bg-white/20 text-white text-lg font-bold backdrop-blur-sm">
-                        {nombre ? initials(nombre) : "??"}
+                        {profile?.avatar_icon && AVATAR_ICONS[profile.avatar_icon]
+                          ? (() => { const Icon = AVATAR_ICONS[profile.avatar_icon]; return <Icon className="h-6 w-6" /> })()
+                          : (nombre ? initials(nombre) : "??")
+                        }
                       </AvatarFallback>
                     </Avatar>
                     <div>
@@ -429,7 +525,36 @@ export default function ConfiguracionPage() {
                 </div>
 
                 <div className="p-6 space-y-4">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">
+                      Avatar {profile?.avatar_icon && <span className="text-muted-foreground/60">— clic de nuevo para volver a tus iniciales</span>}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {AVATAR_ICON_KEYS.map(key => {
+                        const Icon = AVATAR_ICONS[key]
+                        const active = profile?.avatar_icon === key
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            title={key}
+                            disabled={savingAvatar}
+                            onClick={() => handleSetAvatarIcon(key)}
+                            className={cn(
+                              "h-9 w-9 rounded-lg border flex items-center justify-center transition-all disabled:opacity-50",
+                              active
+                                ? "border-[oklch(0.35_0.12_240)] bg-[oklch(0.35_0.12_240)]/10 text-[oklch(0.35_0.12_240)]"
+                                : "border-border text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground"
+                            )}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 mb-1 pt-3 border-t">
                     <UserCog className="h-4 w-4 text-muted-foreground" />
                     <h2 className="text-sm font-bold text-foreground">Información personal</h2>
                   </div>
@@ -453,6 +578,34 @@ export default function ConfiguracionPage() {
                       Guardar cambios
                     </Button>
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border bg-card shadow-sm p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Bell className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <h2 className="text-sm font-bold text-foreground">Notificaciones</h2>
+                      <p className="text-xs text-muted-foreground">Recibir avisos de actividad en la campanita del panel</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={profile?.notificaciones_activas !== false}
+                    onClick={handleToggleNotificaciones}
+                    disabled={savingNotif}
+                    className={cn(
+                      "relative h-6 w-11 flex-shrink-0 rounded-full transition-colors disabled:opacity-50",
+                      profile?.notificaciones_activas !== false ? "bg-[oklch(0.35_0.12_240)]" : "bg-muted-foreground/30"
+                    )}
+                  >
+                    <span className={cn(
+                      "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                      profile?.notificaciones_activas !== false && "translate-x-5"
+                    )} />
+                  </button>
                 </div>
               </div>
 
@@ -559,7 +712,10 @@ export default function ConfiguracionPage() {
                               "text-xs font-bold text-white",
                               u.id === user?.id ? "bg-[oklch(0.35_0.12_240)]" : "bg-muted-foreground/50"
                             )}>
-                              {initials(u.nombre)}
+                              {u.avatar_icon && AVATAR_ICONS[u.avatar_icon]
+                                ? (() => { const Icon = AVATAR_ICONS[u.avatar_icon!]; return <Icon className="h-3.5 w-3.5" /> })()
+                                : initials(u.nombre)
+                              }
                             </AvatarFallback>
                           </Avatar>
                           <div className="min-w-0">

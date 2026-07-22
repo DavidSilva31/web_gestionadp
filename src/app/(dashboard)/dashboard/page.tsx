@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -164,6 +164,10 @@ export default function DashboardPage() {
   const [salChg,     setSalChg]     = useState<string | null>(null)
   const [clientNew,  setClientNew]  = useState(0)
   const [recentMovs, setRecentMovs] = useState<MovRow[]>([])
+  const [visibleMovsCount, setVisibleMovsCount] = useState(5)
+  const movsContainerRef = useRef<HTMLDivElement>(null)
+  const movsHeaderRef    = useRef<HTMLTableRowElement>(null)
+  const movsRowRef       = useRef<HTMLTableRowElement>(null)
   const [allMovs,    setAllMovs]    = useState<MovRow[]>([])
   const [alertas,    setAlertas]    = useState<Alerta[]>([])
   const [ocupacion,  setOcupacion]  = useState<{ zona: string; detalle: string; stock: number; pct: number }[]>([])
@@ -262,7 +266,7 @@ export default function DashboardPage() {
     setEntChg(pctChange(cEnt, pEnt))
     setSalChg(pctChange(cSal, pSal))
     setClientNew(clientNewCount ?? 0)
-    setRecentMovs(movs.slice(0, 5))
+    setRecentMovs(movs.slice(0, 12))
     setAllMovs(movs)
     setAlertas(al)
     setOcupacion(areaStocks)
@@ -271,6 +275,26 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
   useEffect(() => { setChartData(buildChartData(allMovs, chartMonths)) }, [chartMonths, allMovs])
+
+  // Filas de "Movimientos recientes" que caben sin scroll: tope de 3 hasta 1279px
+  // (donde comparte fila con Alertas), y las que entren de ahí para arriba.
+  useEffect(() => {
+    function recompute() {
+      const container = movsContainerRef.current
+      const rowEl      = movsRowRef.current
+      if (!container || !rowEl) return
+      const headerH = movsHeaderRef.current?.offsetHeight ?? 0
+      const rowH    = rowEl.offsetHeight || 44
+      const fit     = Math.max(1, Math.floor((container.clientHeight - headerH) / rowH))
+      const cap     = window.innerWidth < 1280 ? 3 : fit
+      setVisibleMovsCount(Math.min(fit, cap, recentMovs.length || fit))
+    }
+    recompute()
+    const ro = new ResizeObserver(recompute)
+    if (movsContainerRef.current) ro.observe(movsContainerRef.current)
+    window.addEventListener("resize", recompute)
+    return () => { ro.disconnect(); window.removeEventListener("resize", recompute) }
+  }, [recentMovs])
 
   const alertCount = alertas.filter(a => a.nivel !== "info").length
 
@@ -451,11 +475,11 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* ── Contenido principal — 3 paneles 5/4/3 ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 lg:min-h-0">
+        {/* ── Contenido principal — Movimientos + Alertas en lg (Ocupación oculta), 3 paneles 5/4/3 desde xl ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-1 gap-3 lg:min-h-0">
 
-          {/* Movimientos recientes — 5/12 */}
-          <Card className="lg:col-span-5 border-border bg-card flex flex-col lg:min-h-0">
+          {/* Movimientos recientes — 8/12 en lg, 5/12 desde xl */}
+          <Card className="lg:col-span-8 xl:col-span-5 lg:row-start-1 xl:row-start-1 border-border bg-card flex flex-col lg:min-h-0">
             <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border">
               <div className="flex items-center justify-between">
                 <div>
@@ -470,7 +494,7 @@ export default function DashboardPage() {
                 </Link>
               </div>
             </CardHeader>
-            <CardContent className="p-0 flex-1 min-h-0 overflow-hidden">
+            <CardContent ref={movsContainerRef} className="p-0 flex-1 min-h-0 overflow-hidden">
               {loading ? (
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -482,7 +506,7 @@ export default function DashboardPage() {
               ) : (
                 <Table>
                   <TableHeader className="sticky top-0 bg-muted/30 z-10">
-                    <TableRow className="hover:bg-transparent border-border">
+                    <TableRow ref={movsHeaderRef} className="hover:bg-transparent border-border">
                       <TableHead className="section-label pl-4 py-2">Movimiento</TableHead>
                       <TableHead className="section-label py-2">Cliente</TableHead>
                       <TableHead className="section-label text-right py-2">Cant.</TableHead>
@@ -490,8 +514,8 @@ export default function DashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recentMovs.map((m) => (
-                      <TableRow key={m.numero} className="hover:bg-muted/20 border-border/60 cursor-pointer">
+                    {recentMovs.slice(0, visibleMovsCount).map((m, i) => (
+                      <TableRow key={m.numero} ref={i === 0 ? movsRowRef : undefined} className="hover:bg-muted/20 border-border/60 cursor-pointer">
                         <TableCell className="pl-4 py-2.5">
                           <div className="flex items-center gap-2">
                             <div className={cn(
@@ -534,8 +558,8 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Ocupación por área — 4/12 */}
-          <Card className="lg:col-span-4 border-border bg-card flex flex-col lg:min-h-0">
+          {/* Ocupación por área — oculto en lg (no cabe bien a 1024-1279px), 4/12 desde xl */}
+          <Card className="lg:hidden xl:flex xl:col-span-4 xl:row-start-1 border-border bg-card flex-col lg:min-h-0">
             <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border">
               <CardTitle className="text-sm font-medium">Ocupación por área</CardTitle>
               <CardDescription className="text-xs">Stock relativo por zona</CardDescription>
@@ -595,8 +619,8 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Alertas — 3/12 */}
-          <Card className="lg:col-span-3 border-border bg-card flex flex-col lg:min-h-0">
+          {/* Alertas — 4/12 en lg, junto a Movimientos (Ocupación oculta); 3/12 desde xl */}
+          <Card className="lg:col-span-4 xl:col-span-3 lg:row-start-1 xl:row-start-1 border-border bg-card flex flex-col lg:min-h-0">
             <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
@@ -608,7 +632,7 @@ export default function DashboardPage() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-3 flex flex-col gap-2 overflow-y-auto">
+            <CardContent className="p-3 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
               {loading
                 ? <div className="h-24 animate-pulse rounded-md bg-muted/40" />
                 : alertas.map((a, i) => {

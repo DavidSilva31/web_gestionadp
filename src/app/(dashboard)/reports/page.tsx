@@ -423,13 +423,13 @@ export default function ReportsPage() {
               <table className="w-full text-sm table-fixed min-w-[720px]">
                 <colgroup>
                   <col style={{ width: "5%" }}  />
-                  <col style={{ width: "19%" }} />
-                  <col style={{ width: "9%" }}  />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "23%" }} />
+                  <col style={{ width: "17%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "14%" }} />
                   <col style={{ width: "10%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "8%" }}  />
+                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "15%" }} />
                 </colgroup>
                 <thead className="sticky top-0 bg-muted/60 border-b z-10">
                   <tr>
@@ -455,7 +455,10 @@ export default function ReportsPage() {
                         <span className="block truncate">{r.cliente}</span>
                       </td>
                       <td className="px-4 py-4 text-center overflow-hidden">
-                        <span className="font-mono bg-muted px-2 py-0.5 rounded text-foreground">{r.patente}</span>
+                        {r.patente
+                          ? <span className="inline-block max-w-full font-mono bg-muted px-2 py-0.5 rounded text-foreground truncate align-middle">{r.patente}</span>
+                          : <span className="text-muted-foreground">—</span>
+                        }
                       </td>
                       <td className="px-4 py-4 text-center text-muted-foreground overflow-hidden">
                         <span className="block truncate">{r.conductor}</span>
@@ -467,8 +470,8 @@ export default function ReportsPage() {
                           ))}
                         </div>
                       </td>
-                      <td className="px-4 py-4 text-center text-muted-foreground">{r.fecha}</td>
-                      <td className="px-4 py-4 text-center">
+                      <td className="px-4 py-4 text-center text-muted-foreground text-xs whitespace-nowrap overflow-hidden">{r.fecha}</td>
+                      <td className="px-4 py-4 text-center overflow-hidden">
                         <Badge className={cn("text-xs font-semibold border-0", ESTADO_STYLE[r.estado].className)}>
                           {ESTADO_STYLE[r.estado].label}
                         </Badge>

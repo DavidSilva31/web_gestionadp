@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/contexts/auth-context"
+import { logAudit } from "@/lib/audit"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,15 +18,18 @@ import type { Cliente, ServicioCliente, ServicioClienteInsert } from "@/types/da
 // ── ServiceForm (inline add / edit) ──────────────────────────────────────────
 function ServiceForm({
   clienteId,
+  clienteNombre,
   existing,
   onSave,
   onCancel,
 }: {
   clienteId: string
+  clienteNombre: string
   existing: ServicioCliente | null
   onSave: (s: ServicioCliente) => void
   onCancel: () => void
 }) {
+  const { user, profile } = useAuth()
   const [saving,    setSaving]    = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -62,7 +67,17 @@ function ServiceForm({
     }
     setSaving(false)
     if (error) { setSaveError(error.message); return }
-    if (data) onSave(data as ServicioCliente)
+    if (data) {
+      logAudit({
+        tabla:          "servicios_cliente",
+        registro_id:    data.id,
+        accion:         existing ? "servicio.actualizar" : "servicio.crear",
+        descripcion:    `Servicio ${payload.nombre} ${existing ? "actualizado" : "creado"} — ${clienteNombre}`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
+      onSave(data as ServicioCliente)
+    }
   }
 
   const inp = "h-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1"
@@ -123,12 +138,14 @@ function ServiceForm({
 
 // ── ServiceCard ────────────────────────────────────────────────────────────────
 function ServiceCard({
-  srv, onEdit, onDelete,
+  srv, clienteNombre, onEdit, onDelete,
 }: {
   srv: ServicioCliente
+  clienteNombre: string
   onEdit: () => void
   onDelete: () => void
 }) {
+  const { user, profile } = useAuth()
   const [deleting, setDeleting] = useState(false)
 
   async function handleDelete() {
@@ -138,6 +155,14 @@ function ServiceCard({
     const { error } = await supabase.from("servicios_cliente").update({ activo: false }).eq("id", srv.id)
     setDeleting(false)
     if (error) { alert("Error al eliminar: " + error.message); return }
+    logAudit({
+      tabla:          "servicios_cliente",
+      registro_id:    srv.id,
+      accion:         "servicio.eliminar",
+      descripcion:    `Servicio ${srv.nombre} eliminado — ${clienteNombre}`,
+      usuario_id:     user?.id,
+      usuario_nombre: profile?.nombre ?? user?.email,
+    })
     onDelete()
   }
 
@@ -354,6 +379,7 @@ export default function ServiciosPage() {
                   {addingNew && (
                     <ServiceForm
                       clienteId={selectedCliente.id}
+                      clienteNombre={selectedCliente.nombre}
                       existing={null}
                       onSave={handleSaved}
                       onCancel={() => setAddingNew(false)}
@@ -386,6 +412,7 @@ export default function ServiciosPage() {
                             <div className="p-3">
                               <ServiceForm
                                 clienteId={selectedCliente.id}
+                                clienteNombre={selectedCliente.nombre}
                                 existing={srv}
                                 onSave={s => { handleSaved(s); loadServicios() }}
                                 onCancel={() => setEditingId(null)}
@@ -394,6 +421,7 @@ export default function ServiciosPage() {
                           ) : (
                             <ServiceCard
                               srv={srv}
+                              clienteNombre={selectedCliente.nombre}
                               onEdit={() => { setEditingId(srv.id); setAddingNew(false) }}
                               onDelete={() => handleDeleted(srv.id)}
                             />

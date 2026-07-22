@@ -2,39 +2,36 @@
 
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { Search, RefreshCw, Loader2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ExternalLink, ScanLine, PackagePlus, PackageMinus, ChevronLeft, ChevronRight, UserPlus, UserMinus, UserCog } from "lucide-react"
+import { Search, RefreshCw, Loader2, History, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
-import { accionLabel } from "@/lib/audit"
+import { accionLabel, ACCION_STYLE } from "@/lib/audit"
 import { cn } from "@/lib/utils"
 import type { AuditLog, AuditAccion } from "@/lib/audit"
 
 const ACCION_FILTERS: { value: AuditAccion | "all"; label: string }[] = [
   { value: "all",                       label: "Todos"           },
-  { value: "report.crear_borrador",     label: "Creados"         },
-  { value: "report.actualizar",         label: "Actualizados"    },
-  { value: "report.enviar_despacho",    label: "A despacho"      },
-  { value: "report.despachar",          label: "Despachados"     },
-  { value: "report.eliminar",           label: "Eliminados"      },
-  { value: "inventario.ingreso",        label: "Ing. inventario" },
-  { value: "inventario.despacho",       label: "Des. inventario" },
-  { value: "admin.crear_usuario",       label: "Admin usuarios"  },
+  { value: "report.crear_borrador",     label: "Reports"         },
+  { value: "report.despachar",          label: "Despachos"       },
+  { value: "inventario.ingreso",        label: "Movimientos"     },
+  { value: "cliente.crear",             label: "Clientes"        },
+  { value: "inventario.crear_item",     label: "Inventario"      },
+  { value: "servicio.crear",            label: "Servicios/Tarifas" },
+  { value: "admin.crear_usuario",       label: "Usuarios"        },
 ]
 
-const ACCION_STYLE: Record<string, { icon: React.ReactNode; pill: string }> = {
-  "report.crear_borrador":     { icon: <FileText    className="h-3.5 w-3.5" />, pill: "bg-gray-100   text-gray-600   dark:bg-gray-800    dark:text-gray-400"   },
-  "report.actualizar":         { icon: <FilePen     className="h-3.5 w-3.5" />, pill: "bg-blue-100   text-blue-700   dark:bg-blue-900/30  dark:text-blue-400"   },
-  "report.enviar_despacho":    { icon: <FileCheck2  className="h-3.5 w-3.5" />, pill: "bg-amber-100  text-amber-700  dark:bg-amber-900/30 dark:text-amber-400"  },
-  "report.confirmar_despacho": { icon: <Truck       className="h-3.5 w-3.5" />, pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
-  "report.despachar":          { icon: <ScanLine    className="h-3.5 w-3.5" />, pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
-  "report.eliminar":           { icon: <Trash2      className="h-3.5 w-3.5" />, pill: "bg-red-100    text-red-700    dark:bg-red-900/30    dark:text-red-400"    },
-  "inventario.ingreso":        { icon: <PackagePlus  className="h-3.5 w-3.5" />, pill: "bg-sky-100    text-sky-700    dark:bg-sky-900/30    dark:text-sky-400"    },
-  "inventario.despacho":       { icon: <PackageMinus className="h-3.5 w-3.5" />, pill: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
-  "admin.crear_usuario":       { icon: <UserPlus    className="h-3.5 w-3.5" />, pill: "bg-teal-100   text-teal-700   dark:bg-teal-900/30   dark:text-teal-400"   },
-  "admin.eliminar_usuario":    { icon: <UserMinus   className="h-3.5 w-3.5" />, pill: "bg-rose-100   text-rose-700   dark:bg-rose-900/30   dark:text-rose-400"   },
-  "admin.actualizar_usuario":  { icon: <UserCog     className="h-3.5 w-3.5" />, pill: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400" },
+// Cada chip de filtro agrupa varias acciones relacionadas (ej. "Reports" incluye
+// crear/actualizar/enviar/eliminar, pero no los despachos que tienen su propio chip).
+const FILTER_GROUPS: Partial<Record<AuditAccion, AuditAccion[]>> = {
+  "report.crear_borrador": ["report.crear_borrador", "report.actualizar", "report.enviar_despacho", "report.eliminar"],
+  "report.despachar":      ["report.despachar", "report.confirmar_despacho"],
+  "inventario.ingreso":    ["inventario.ingreso", "inventario.despacho"],
+  "cliente.crear":         ["cliente.crear", "cliente.actualizar"],
+  "inventario.crear_item": ["inventario.crear_item", "inventario.actualizar_item", "inventario.eliminar_item"],
+  "servicio.crear":        ["servicio.crear", "servicio.actualizar", "servicio.eliminar", "tarifa.crear", "tarifa.actualizar"],
+  "admin.crear_usuario":   ["admin.crear_usuario", "admin.eliminar_usuario", "admin.actualizar_usuario", "perfil.actualizar"],
 }
 
 const PAGE_SIZE = 50
@@ -58,17 +55,13 @@ export default function AuditoriaPage() {
     let query = supabase
       .from("audit_logs")
       .select("*", { count: "exact" })
-      .in("tabla", ["reports", "inventario_items", "profiles"])
+      .in("tabla", ["reports", "inventario_items", "profiles", "clientes", "tarifas_cliente", "servicios_cliente"])
       .order("created_at", { ascending: false })
       .range(from, to)
 
     if (accionFilter !== "all") {
-      // El filtro "admin.crear_usuario" agrupa todas las acciones admin
-      if (accionFilter === "admin.crear_usuario") {
-        query = query.in("accion", ["admin.crear_usuario", "admin.eliminar_usuario", "admin.actualizar_usuario"])
-      } else {
-        query = query.eq("accion", accionFilter)
-      }
+      const group = FILTER_GROUPS[accionFilter]
+      query = group ? query.in("accion", group) : query.eq("accion", accionFilter)
     }
     if (search.trim())          query = query.ilike("descripcion", `%${search.trim()}%`)
 
@@ -103,7 +96,7 @@ export default function AuditoriaPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <PageHeader title="Auditoría" subtitle="Registro de actividad en reports e inventario">
+      <PageHeader title="Auditoría" subtitle="Registro de actividad en toda la plataforma">
         <Button variant="ghost" size="sm" onClick={() => fetchLogs(page)} disabled={loading} className="h-10 w-10 p-0 text-muted-foreground">
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
@@ -116,13 +109,13 @@ export default function AuditoriaPage() {
       )}
 
       {/* Filtros */}
-      <div className="flex items-center gap-3 px-6 pt-4 pb-4 flex-shrink-0 overflow-x-auto">
-        {/* Chips de acción */}
-        <div className="flex gap-1.5 bg-muted rounded-lg p-0.5 flex-shrink-0">
+      <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3 px-6 pt-4 pb-4 flex-shrink-0">
+        {/* Chips de acción — scroll horizontal propio, nunca empuja la búsqueda fuera de vista */}
+        <div className="flex gap-1.5 bg-muted rounded-lg p-0.5 min-w-0 overflow-x-auto lg:flex-1">
           {ACCION_FILTERS.map(f => (
             <button key={f.value} onClick={() => setAccionFilter(f.value)}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap flex-shrink-0",
                 accionFilter === f.value
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -133,13 +126,13 @@ export default function AuditoriaPage() {
         </div>
 
         {/* Búsqueda */}
-        <div className="relative ml-auto">
+        <div className="relative w-full lg:w-56 flex-shrink-0">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
             placeholder="Buscar por cliente, patente..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="pl-8 h-8 text-xs w-64"
+            className="pl-8 h-8 text-xs w-full"
           />
         </div>
       </div>
@@ -191,14 +184,51 @@ export default function AuditoriaPage() {
               <p className="text-sm">No hay eventos registrados</p>
             </div>
           ) : (
-            <div className="overflow-auto flex-1">
+            <>
+            {/* Mobile/tablet — tarjetas apiladas, sin scroll horizontal */}
+            <div className="lg:hidden overflow-y-auto flex-1 divide-y">
+              {logs.map(log => {
+                const style = ACCION_STYLE[log.accion]
+                return (
+                  <div key={log.id} className="px-4 py-3 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={cn(
+                        "inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0",
+                        style?.pill ?? "bg-muted text-muted-foreground"
+                      )}>
+                        {style?.icon && <style.icon className="h-3.5 w-3.5" />}
+                        {accionLabel(log.accion)}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground flex-shrink-0 text-right">
+                        {new Date(log.created_at).toLocaleString("es-CL", {
+                          day: "2-digit", month: "2-digit", year: "numeric",
+                          hour: "2-digit", minute: "2-digit"
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-foreground break-words">{log.descripcion ?? "—"}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-muted-foreground">{log.usuario_nombre ?? "—"}</span>
+                      {log.tabla === "reports" && (
+                        <Link href={`/reports/${reportIdFromLog(log)}`} className="inline-flex items-center gap-1 text-[11px] text-[oklch(0.35_0.12_240)] font-medium">
+                          Ver report <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Desktop — tabla completa, desde lg */}
+            <div className="hidden lg:block overflow-auto flex-1">
               <table className="w-full text-sm table-fixed min-w-[640px]">
                 <colgroup>
-                  <col style={{ width: "16%" }} />
                   <col style={{ width: "20%" }} />
-                  <col style={{ width: "36%" }} />
-                  <col style={{ width: "20%" }} />
-                  <col style={{ width: "8%" }}  />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "28%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "12%" }} />
                 </colgroup>
                 <thead className="sticky top-0 bg-muted border-b z-10">
                   <tr>
@@ -214,18 +244,18 @@ export default function AuditoriaPage() {
                     const style = ACCION_STYLE[log.accion]
                     return (
                       <tr key={log.id} className={cn("border-b last:border-0 hover:bg-muted/30 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
-                        <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                        <td className="px-4 py-3.5 text-xs text-muted-foreground overflow-hidden">
                           {new Date(log.created_at).toLocaleString("es-CL", {
                             day: "2-digit", month: "2-digit", year: "numeric",
                             hour: "2-digit", minute: "2-digit"
                           })}
                         </td>
-                        <td className="px-4 py-3.5">
+                        <td className="px-4 py-3.5 overflow-hidden">
                           <span className={cn(
-                            "inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full",
+                            "inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap max-w-full",
                             style?.pill ?? "bg-muted text-muted-foreground"
                           )}>
-                            {style?.icon}
+                            {style?.icon && <style.icon className="h-3.5 w-3.5" />}
                             {accionLabel(log.accion)}
                           </span>
                         </td>
@@ -252,6 +282,7 @@ export default function AuditoriaPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
 
           {/* Paginación inferior */}

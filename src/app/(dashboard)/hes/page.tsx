@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import ExcelJS from "exceljs"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/contexts/auth-context"
+import { logAudit } from "@/lib/audit"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,10 +13,11 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   FileSpreadsheet, Search, Settings2, CheckCircle2,
-  AlertCircle, Loader2, ChevronRight, ChevronLeft, FileText, RefreshCw, Download, Wrench,
+  AlertCircle, Loader2, ChevronRight, ChevronLeft, ChevronDown, FileText, RefreshCw, Download, Wrench,
   Calendar as CalendarIcon, Trash2, Pencil,
 } from "lucide-react"
 import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente, ServicioClienteInsert } from "@/types/database"
+import { computeHES, computeBilling, type MovRaw, type HesResult } from "@/lib/hes-calc"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -30,102 +33,10 @@ function todayIsoLocal() {
 }
 const TODAY_ISO = todayIsoLocal()
 
-// ── Types ──────────────────────────────────────────────────────────────────────
-interface MovRaw {
-  id: string; numero: number; tipo: string; unidades: number | null
-  operador: string | null; fecha: string; report_id: string | null
-  reports: { numero: number; sec1_guia_numero: string | null; sec3_numero_guia: string | null } | null
-}
-
-interface DayEntry {
-  fecha:       string
-  operador:    string
-  guias_in:    string
-  pallets_in:  number
-  reports_in:  string
-  guias_out:   string
-  pallets_out: number
-  reports_out: string
-  stock:       number
-  tarifa_dia:  number
-}
-
-interface HesResult {
-  palletDays:    number
-  totalIngresos: number
-  totalDespachos: number
-  dailyLog:      DayEntry[]
-}
-
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmtUF(v: number) { return v.toFixed(4) }
 function fmtCLP(v: number) { return `$${Math.round(v).toLocaleString("es-CL")}` }
-function pad(n: number) { return String(n).padStart(2, "0") }
 function fmtDateDisplay(iso: string) { return iso.split("-").reverse().join("/") }
-
-function daysInMonth(year: number, month: number) {
-  return new Date(year, month + 1, 0).getDate()
-}
-
-function computeHES(movs: MovRaw[], year: number, month: number, tarifaAlmacenaje: number): HesResult {
-  const periodStart = `${year}-${pad(month + 1)}-01`
-  const periodEndDay = daysInMonth(year, month)
-
-  // Starting stock = net ingresos - despachos before the period
-  let stock = 0
-  for (const m of movs) {
-    if (m.fecha < periodStart) {
-      stock += m.tipo === "ingreso" ? (m.unidades ?? 0) : -(m.unidades ?? 0)
-    }
-  }
-
-  // Build daily log for the period
-  const byDate = new Map<string, MovRaw[]>()
-  for (const m of movs) {
-    const d = m.fecha.slice(0, 10)
-    if (d >= periodStart && d <= `${year}-${pad(month + 1)}-${pad(periodEndDay)}`) {
-      if (!byDate.has(d)) byDate.set(d, [])
-      byDate.get(d)!.push(m)
-    }
-  }
-
-  let palletDays = 0
-  let totalIngresos = 0
-  let totalDespachos = 0
-  const dailyLog: DayEntry[] = []
-
-  for (let day = 1; day <= periodEndDay; day++) {
-    const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`
-    const dayMovs = byDate.get(dateStr) ?? []
-
-    const ins  = dayMovs.filter(m => m.tipo === "ingreso")
-    const outs = dayMovs.filter(m => m.tipo === "despacho")
-
-    const palletsIn  = ins.reduce((s, m)  => s + (m.unidades ?? 0), 0)
-    const palletsOut = outs.reduce((s, m) => s + (m.unidades ?? 0), 0)
-
-    stock += palletsIn - palletsOut
-    palletDays += Math.max(stock, 0)
-    totalIngresos  += palletsIn
-    totalDespachos += palletsOut
-
-    const guiasIn  = ins.flatMap(m => m.reports?.sec1_guia_numero ? [m.reports.sec1_guia_numero] : m.reports?.sec3_numero_guia ? [m.reports.sec3_numero_guia] : []).join(" ")
-    const guiasOut = outs.flatMap(m => m.reports?.sec1_guia_numero ? [m.reports.sec1_guia_numero] : m.reports?.sec3_numero_guia ? [m.reports.sec3_numero_guia] : []).join(" ")
-    const repsIn   = ins.map(m => m.reports?.numero ? `REP-${String(m.reports.numero).padStart(3,"0")}` : `MOV-${String(m.numero).padStart(3,"0")}`).join(" ")
-    const repsOut  = outs.map(m => m.reports?.numero ? `REP-${String(m.reports.numero).padStart(3,"0")}` : `MOV-${String(m.numero).padStart(3,"0")}`).join(" ")
-    const operador = dayMovs[0]?.operador ?? ""
-
-    dailyLog.push({
-      fecha: dateStr, operador,
-      guias_in: guiasIn, pallets_in: palletsIn, reports_in: repsIn,
-      guias_out: guiasOut, pallets_out: palletsOut, reports_out: repsOut,
-      stock: Math.max(stock, 0),
-      tarifa_dia: Math.max(stock, 0) * tarifaAlmacenaje,
-    })
-  }
-
-  return { palletDays, totalIngresos, totalDespachos, dailyLog }
-}
 
 // ── Render del .xlsx real (vista previa fiel al archivo descargado) ────────────
 interface PreviewCell {
@@ -273,6 +184,7 @@ function TarifaDialog({
   onClose: () => void
   onSaved: (t: TarifaCliente) => void
 }) {
+  const { user, profile } = useAuth()
   const [saving,    setSaving]    = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<TarifaClienteInsert>>({
@@ -310,7 +222,17 @@ function TarifaDialog({
     }
     setSaving(false)
     if (error) { setSaveError(error.message); return }
-    if (data) onSaved(data as TarifaCliente)
+    if (data) {
+      logAudit({
+        tabla:          "tarifas_cliente",
+        registro_id:    data.id,
+        accion:         existing ? "tarifa.actualizar" : "tarifa.crear",
+        descripcion:    `Tarifa ${(data as TarifaCliente).cotizacion_numero} ${existing ? "actualizada" : "creada"} — ${clienteNombre}`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
+      onSaved(data as TarifaCliente)
+    }
   }
 
   const fieldCls = "h-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1"
@@ -388,6 +310,7 @@ function ServicioDialog({
   onSaved: (s: ServicioCliente) => void
   onDeleted?: (id: string) => void
 }) {
+  const { user, profile } = useAuth()
   const [saving,    setSaving]    = useState(false)
   const [deleting,  setDeleting]  = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -419,7 +342,17 @@ function ServicioDialog({
     }
     setSaving(false)
     if (error) { setSaveError(error.message); return }
-    if (data) onSaved(data as ServicioCliente)
+    if (data) {
+      logAudit({
+        tabla:          "servicios_cliente",
+        registro_id:    data.id,
+        accion:         existing ? "servicio.actualizar" : "servicio.crear",
+        descripcion:    `Servicio ${(data as ServicioCliente).nombre} ${existing ? "actualizado" : "creado"} — ${clienteNombre}`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
+      onSaved(data as ServicioCliente)
+    }
   }
 
   async function handleDelete() {
@@ -428,7 +361,17 @@ function ServicioDialog({
     const supabase = createClient()
     const { error } = await supabase.from("servicios_cliente").update({ activo: false }).eq("id", existing.id)
     setDeleting(false)
-    if (!error) onDeleted?.(existing.id)
+    if (!error) {
+      logAudit({
+        tabla:          "servicios_cliente",
+        registro_id:    existing.id,
+        accion:         "servicio.eliminar",
+        descripcion:    `Servicio ${existing.nombre} eliminado — ${clienteNombre}`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
+      onDeleted?.(existing.id)
+    }
   }
 
   const fieldCls = "h-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1"
@@ -654,6 +597,7 @@ export default function HesPage() {
   const [tarifas,          setTarifas]          = useState<TarifaCliente[]>([])
   const [selectedTarifaId, setSelectedTarifaId] = useState<string | null>(null)
   const [servicios,        setServicios]        = useState<ServicioCliente[]>([])
+  const [serviciosOpen,    setServiciosOpen]    = useState(true)
   const [srvCantidades,    setSrvCantidades]    = useState<Record<string, number>>({})
   const [movs,             setMovs]             = useState<MovRaw[]>([])
   const [selectedMonth,    setSelectedMonth]    = useState(CURRENT_MONTH)
@@ -890,33 +834,11 @@ export default function HesPage() {
   // ── Billing summary ────────────────────────────────────────────────────────
   const billing = useMemo(() => {
     if (!hes || !tarifa) return null
-    const uf = parseFloat(ufValue) || 0
-
-    const rows: { label: string; qty: number | string; unit: string; tarifa: number; totalUF: number }[] = []
-    const addRow = (label: string, qty: number, unit: string, t: number | null) => {
-      if (!t || qty === 0) return
-      rows.push({ label, qty, unit, tarifa: t, totalUF: qty * t })
-    }
-
-    addRow("Almacenaje pallets", hes.palletDays, "pallet-días", tarifa.tarifa_almacenaje_uf)
-    addRow("Ingreso pallets a bodega", hes.totalIngresos, "pallets", tarifa.tarifa_inout_uf)
-    addRow("Salida pallets desde bodega", hes.totalDespachos, "pallets", tarifa.tarifa_inout_uf)
-
-    // Servicios adicionales del cliente — solo los marcados con cantidad > 0
+    const seleccion: Record<string, { cantidad: number; checked: boolean }> = {}
     for (const srv of servicios) {
-      if (!(srvChecked[srv.id] ?? true)) continue
-      const qty = srvCantidades[srv.id] ?? 0
-      if (qty > 0 && srv.tarifa_uf) {
-        addRow(srv.nombre, qty, srv.unidad, srv.tarifa_uf)
-      }
+      seleccion[srv.id] = { cantidad: srvCantidades[srv.id] ?? 0, checked: srvChecked[srv.id] ?? true }
     }
-
-    const totalUF  = rows.reduce((s, r) => s + r.totalUF, 0)
-    const totalCLP = totalUF * uf
-    const minUF    = tarifa.facturacion_minima_uf ?? 0
-    const finalUF  = Math.max(totalUF, minUF)
-
-    return { rows, totalUF, totalCLP: totalUF * uf, finalUF, finalCLP: finalUF * uf, hasMin: finalUF > totalUF }
+    return computeBilling(hes, tarifa, parseFloat(ufValue) || 0, servicios, seleccion)
   }, [hes, tarifa, ufValue, servicios, srvCantidades, srvChecked])
 
   // ── Filtered clients ───────────────────────────────────────────────────────
@@ -929,29 +851,24 @@ export default function HesPage() {
 
   // ── Export Excel ───────────────────────────────────────────────────────────
   async function fetchHesExcel(): Promise<Blob> {
+    // El servidor relee cliente/tarifa/servicios/movimientos de la base y
+    // recalcula todo — solo se manda la selección (qué servicios opcionales
+    // incluir y en qué cantidad), que es una decisión real del usuario, no
+    // un total fabricable.
+    const servicioSeleccion: Record<string, { cantidad: number; checked: boolean }> = {}
+    for (const s of servicios) {
+      servicioSeleccion[s.id] = { cantidad: srvCantidades[s.id] ?? 0, checked: srvChecked[s.id] ?? true }
+    }
     const res = await fetch("/api/hes/export", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
-        cliente: {
-          nombre:   selectedCliente!.nombre,
-          rut:      selectedCliente!.rut,
-          emails:   selectedCliente!.emails,
-          contacto: selectedCliente!.contacto,
-        },
-        tarifa,
-        billing,
-        hes,
-        servicios: servicios.map(s => ({
-          id:       s.id,
-          nombre:   s.nombre,
-          tarifa_uf: s.tarifa_uf ?? 0,
-          unidad:   s.unidad,
-          cantidad: srvCantidades[s.id] ?? 0,
-        })),
-        mes: selectedMonth,
-        anio: selectedYear,
+        clienteId: selectedCliente!.id,
+        tarifaId:  tarifa!.id,
+        mes:       selectedMonth,
+        anio:      selectedYear,
         ufValue,
+        servicioSeleccion,
       }),
     })
     if (!res.ok) throw new Error("Error al generar Excel")
@@ -1187,51 +1104,57 @@ export default function HesPage() {
                     <p className="text-[11px] text-muted-foreground truncate">RUT {selectedCliente.rut}{tarifa ? ` · Cot. ${tarifa.cotizacion_numero}` : ""}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                  {/* Selector de tarifa cuando hay más de una */}
-                  {tarifas.length > 1 && (
-                    <select value={selectedTarifaId ?? ""} onChange={e => setSelectedTarifaId(e.target.value)}
-                      className="h-7 text-[12px] rounded-md border border-border/50 bg-background px-2 focus:outline-none max-w-[180px]">
-                      {tarifas.map(t => (
-                        <option key={t.id} value={t.id}>
-                          {t.cotizacion_numero}{t.clase_imo ? ` · Cl.${t.clase_imo}` : ""}
-                        </option>
-                      ))}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                  {/* Filtros: tarifa / mes / año / refrescar */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {tarifas.length > 1 && (
+                      <select value={selectedTarifaId ?? ""} onChange={e => setSelectedTarifaId(e.target.value)}
+                        className="h-7 text-[12px] rounded-md border border-border/50 bg-background px-2 focus:outline-none max-w-[180px]">
+                        {tarifas.map(t => (
+                          <option key={t.id} value={t.id}>
+                            {t.cotizacion_numero}{t.clase_imo ? ` · Cl.${t.clase_imo}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <select value={selectedMonth} onChange={e => setSelectedMonth(+e.target.value)}
+                      className="h-7 text-[12px] rounded-md border border-border/50 bg-background px-2 focus:outline-none">
+                      {MESES.map((m, i) => <option key={i} value={i}>{m}</option>)}
                     </select>
-                  )}
-                  {/* Month + Year selectors */}
-                  <select value={selectedMonth} onChange={e => setSelectedMonth(+e.target.value)}
-                    className="h-7 text-[12px] rounded-md border border-border/50 bg-background px-2 focus:outline-none">
-                    {MESES.map((m, i) => <option key={i} value={i}>{m}</option>)}
-                  </select>
-                  <select value={selectedYear} onChange={e => setSelectedYear(+e.target.value)}
-                    className="h-7 text-[12px] rounded-md border border-border/50 bg-background px-2 focus:outline-none">
-                    {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                  <Button variant="ghost" size="sm" onClick={loadMovimientos} disabled={loading} className="h-7 w-7 p-0">
-                    <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
-                  </Button>
-                  {/* Editar tarifa actual */}
-                  <Button variant="outline" size="sm" onClick={() => setTarifaDialog(tarifa ?? null)} className="h-7 gap-1.5 text-[11px]">
-                    <Settings2 className="h-3 w-3" />
-                    {tarifa ? "Editar tarifa" : "Configurar tarifa"}
-                  </Button>
-                  {/* Nueva tarifa */}
-                  {tarifa && (
-                    <Button variant="ghost" size="sm" onClick={() => setTarifaDialog(null)} className="h-7 gap-1 text-[11px] text-muted-foreground">
-                      + Nueva
+                    <select value={selectedYear} onChange={e => setSelectedYear(+e.target.value)}
+                      className="h-7 text-[12px] rounded-md border border-border/50 bg-background px-2 focus:outline-none">
+                      {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                    <Button variant="ghost" size="sm" onClick={loadMovimientos} disabled={loading} className="h-7 w-7 p-0 flex-shrink-0">
+                      <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
                     </Button>
-                  )}
-                  <Button
-                    variant="outline" size="sm"
-                    onClick={openPreview}
-                    disabled={exporting || resumenLoading || !tarifa || !billing || !hes}
-                    className="h-7 gap-1.5 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400"
-                  >
-                    {resumenLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-                    Generar HES
-                  </Button>
+                  </div>
 
+                  {/* Acciones: tarifa + generar HES */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Button variant="outline" size="sm" onClick={() => setTarifaDialog(tarifa ?? null)} className="h-7 gap-1.5 text-[11px]">
+                      <Settings2 className="h-3 w-3" />
+                      {tarifa ? "Editar tarifa" : "Configurar tarifa"}
+                    </Button>
+                    {tarifa && (
+                      <Button variant="ghost" size="sm" onClick={() => setTarifaDialog(null)} className="h-7 gap-1 text-[11px] text-muted-foreground">
+                        + Nueva
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={openPreview}
+                      disabled={exporting || resumenLoading || !tarifa || !billing || !hes}
+                      className="h-8 sm:h-7 gap-1.5 text-[12px] sm:text-[11px] flex-1 sm:flex-initial justify-center
+                        bg-emerald-600 hover:bg-emerald-700 text-white border-0
+                        dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:text-white dark:border-0
+                        sm:bg-transparent sm:hover:bg-emerald-50 sm:text-emerald-700 sm:border sm:border-emerald-300
+                        dark:sm:bg-transparent dark:sm:hover:bg-emerald-900/20 dark:sm:border-emerald-700 dark:sm:text-emerald-400"
+                    >
+                      {resumenLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                      Generar HES
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -1255,16 +1178,16 @@ export default function HesPage() {
 
                     {/* ── HES Header (printable) ── */}
                     <div className="bg-background rounded-xl border border-border/40 shadow-sm px-6 py-5 print:border-0 print:shadow-none print:px-0">
-                      <div className="flex items-start justify-between">
-                        <div>
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div className="min-w-0">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Hoja de Estado de Servicio</p>
-                          <h1 className="text-lg font-bold mt-1">HES {selectedCliente.nombre.toUpperCase()} {tarifa.clase_imo ? `· ${tarifa.clase_imo}` : ""}</h1>
+                          <h1 className="text-lg font-bold mt-1 break-words">HES {selectedCliente.nombre.toUpperCase()} {tarifa.clase_imo ? `· ${tarifa.clase_imo}` : ""}</h1>
                           <p className="text-[12px] text-muted-foreground mt-0.5">{MESES[selectedMonth].toUpperCase()} DE {selectedYear}</p>
                         </div>
-                        <div className="text-right space-y-0.5">
+                        <div className="sm:text-right space-y-0.5 flex-shrink-0">
                           <p className="text-[11px] text-muted-foreground">Cotización N° <span className="font-semibold text-foreground">{tarifa.cotizacion_numero}</span></p>
                           {tarifa.clase_imo && <p className="text-[11px] text-muted-foreground">Clase <span className="font-semibold text-foreground">{tarifa.clase_imo}</span></p>}
-                          <div className="flex items-center gap-1.5 mt-2 justify-end">
+                          <div className="flex items-center gap-1.5 mt-2 flex-wrap sm:justify-end">
                             <span className="text-[10px] text-muted-foreground">UF al {fmtDateDisplay(ufDate)}</span>
                             <div className="relative print:hidden">
                               <Button
@@ -1304,39 +1227,54 @@ export default function HesPage() {
                             <span className="hidden print:inline text-[11px] font-semibold">${parseFloat(ufValue).toLocaleString("es-CL")}</span>
                           </div>
                           {ufError && (
-                            <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-1 flex items-center gap-1 justify-end print:hidden">
+                            <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-1 flex items-center gap-1 sm:justify-end print:hidden">
                               <AlertCircle className="size-3 flex-shrink-0" />
                               {ufError}
                             </p>
                           )}
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-3 gap-4 pt-3 border-t border-border/30">
-                        <div><p className="text-[10px] text-muted-foreground">RUT</p><p className="text-[12px] font-medium">{selectedCliente.rut}</p></div>
-                        <div><p className="text-[10px] text-muted-foreground">Email</p><p className="text-[12px] font-medium">{selectedCliente.emails.length > 0 ? selectedCliente.emails.join(", ") : "—"}</p></div>
-                        <div><p className="text-[10px] text-muted-foreground">Contacto</p><p className="text-[12px] font-medium">{selectedCliente.contacto ?? "—"}</p></div>
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 pt-3 border-t border-border/30">
+                        <div className="min-w-0"><p className="text-[10px] text-muted-foreground">RUT</p><p className="text-[12px] font-medium truncate">{selectedCliente.rut}</p></div>
+                        <div className="min-w-0"><p className="text-[10px] text-muted-foreground">Email</p><p className="text-[12px] font-medium truncate">{selectedCliente.emails.length > 0 ? selectedCliente.emails.join(", ") : "—"}</p></div>
+                        <div className="min-w-0"><p className="text-[10px] text-muted-foreground">Contacto</p><p className="text-[12px] font-medium truncate">{selectedCliente.contacto ?? "—"}</p></div>
                       </div>
                     </div>
 
-                    {/* ── Servicios a cobrar ── */}
+                    {/* ── Servicios a cobrar — acordeón, se comprime cuando crece la lista ── */}
                     <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden print:hidden">
-                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-muted/20">
+                      <button
+                        type="button"
+                        onClick={() => setServiciosOpen(v => !v)}
+                        className="w-full flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-muted/20 hover:bg-muted/30 transition-colors"
+                      >
                         <div className="flex items-center gap-2">
                           <Wrench className="h-3.5 w-3.5 text-primary" />
                           <span className="text-[12px] font-semibold">Servicios a cobrar</span>
                           {servicios.length > 0 && (
                             <span className="text-[10px] text-muted-foreground">
-                              — marca los que aplican e ingresa la cantidad
+                              {serviciosOpen
+                                ? "— marca los que aplican e ingresa la cantidad"
+                                : `— ${servicios.filter(s => srvChecked[s.id] ?? true).length} de ${servicios.length} activos`
+                              }
                             </span>
                           )}
                         </div>
-                        <Button variant="ghost" size="sm" onClick={() => setServicioDialog(null)}
-                          className="h-6 gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2">
-                          + Agregar servicio
-                        </Button>
-                      </div>
+                        <div className="flex items-center gap-1">
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={e => { e.stopPropagation(); setServicioDialog(null) }}
+                            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setServicioDialog(null) } }}
+                            className="h-6 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 rounded-md hover:bg-muted/40 cursor-pointer"
+                          >
+                            + Agregar servicio
+                          </span>
+                          <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", serviciosOpen && "rotate-180")} />
+                        </div>
+                      </button>
 
-                      {servicios.length === 0 ? (
+                      {serviciosOpen && (servicios.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
                           <Wrench className="h-7 w-7 opacity-20" />
                           <p className="text-[12px]">Sin servicios configurados para este cliente</p>
@@ -1348,13 +1286,13 @@ export default function HesPage() {
                       ) : (
                         <>
                           {/* Cabecera de columnas */}
-                          <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/20 bg-muted/10">
+                          <div className="flex items-center gap-2 sm:gap-3 px-4 py-1.5 border-b border-border/20 bg-muted/10">
                             <span className="w-4 flex-shrink-0" />
                             <span className="flex-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Servicio</span>
-                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-20 text-right">Cantidad</span>
-                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-16 text-center">Unidad</span>
-                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-24 text-right">Total (UF)</span>
-                            <span className="w-6 flex-shrink-0" />
+                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-14 sm:w-20 text-right">Cant.</span>
+                            <span className="hidden sm:block text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-16 text-center">Unidad</span>
+                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider w-16 sm:w-24 text-right">Total (UF)</span>
+                            <span className="w-4 sm:w-6 flex-shrink-0" />
                           </div>
                           <div className="divide-y divide-border/15">
                             {servicios.map(srv => {
@@ -1363,7 +1301,7 @@ export default function HesPage() {
                               const total   = checked && qty > 0 && srv.tarifa_uf ? qty * srv.tarifa_uf : 0
                               return (
                                 <div key={srv.id} className={cn(
-                                  "flex items-center gap-3 px-4 py-2.5 transition-colors",
+                                  "flex items-center gap-2 sm:gap-3 px-4 py-2.5 transition-colors",
                                   checked ? "hover:bg-muted/20" : "opacity-45"
                                 )}>
                                   {/* Checkbox */}
@@ -1376,7 +1314,7 @@ export default function HesPage() {
                                   {/* Nombre + tarifa */}
                                   <div className="flex-1 min-w-0">
                                     <p className="text-[12px] font-medium truncate">{srv.nombre}</p>
-                                    <p className="text-[10px] text-muted-foreground">
+                                    <p className="text-[10px] text-muted-foreground truncate">
                                       {srv.descripcion
                                         ? `${srv.descripcion}${srv.tarifa_uf != null ? ` · ${srv.tarifa_uf.toFixed(4)} UF/${srv.unidad}` : ""}`
                                         : srv.tarifa_uf != null ? `${srv.tarifa_uf.toFixed(4)} UF / ${srv.unidad}` : "Sin tarifa"
@@ -1389,14 +1327,14 @@ export default function HesPage() {
                                     value={qty > 0 ? qty : ""}
                                     disabled={!checked}
                                     onChange={e => setSrvCantidades(prev => ({ ...prev, [srv.id]: parseFloat(e.target.value) || 0 }))}
-                                    className="h-7 w-20 text-[12px] text-right bg-muted/40 border-border/50 focus-visible:ring-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="h-7 w-14 sm:w-20 text-[12px] text-right bg-muted/40 border-border/50 focus-visible:ring-1 disabled:opacity-40 disabled:cursor-not-allowed px-1.5 sm:px-3"
                                     placeholder="0"
                                   />
                                   {/* Unidad */}
-                                  <span className="text-[11px] text-muted-foreground w-16 text-center truncate flex-shrink-0">{srv.unidad}</span>
+                                  <span className="hidden sm:block text-[11px] text-muted-foreground w-16 text-center truncate flex-shrink-0">{srv.unidad}</span>
                                   {/* Total UF */}
                                   <span className={cn(
-                                    "text-[11px] font-mono w-24 text-right flex-shrink-0 tabular-nums",
+                                    "text-[11px] font-mono w-16 sm:w-24 text-right flex-shrink-0 tabular-nums",
                                     total > 0 ? "text-primary font-semibold" : "text-muted-foreground/30"
                                   )}>
                                     {total > 0 ? total.toFixed(4) : "—"}
@@ -1414,7 +1352,7 @@ export default function HesPage() {
                             })}
                           </div>
                         </>
-                      )}
+                      ))}
                     </div>
 
                     {/* ── Resumen de cobro ── */}
@@ -1424,7 +1362,8 @@ export default function HesPage() {
                           <FileText className="h-3.5 w-3.5 text-primary" />
                           <span className="text-[12px] font-semibold">Resumen de cobro — {MESES[selectedMonth]} {selectedYear}</span>
                         </div>
-                        <table className="w-full text-[12px]">
+                        <div className="overflow-x-auto">
+                        <table className="w-full text-[12px] min-w-[560px]">
                           <thead>
                             <tr className="border-b border-border/30 bg-muted/10">
                               <th className="text-left px-4 py-2 font-medium text-muted-foreground">Descripción</th>
@@ -1460,6 +1399,7 @@ export default function HesPage() {
                             </tr>
                           </tfoot>
                         </table>
+                        </div>
 
                         {/* KPI chips */}
                         <div className="flex gap-3 px-4 py-3 border-t border-border/30 bg-muted/10">

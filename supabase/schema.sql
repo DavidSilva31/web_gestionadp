@@ -8,13 +8,17 @@ CREATE TYPE user_role AS ENUM ('super_admin', 'operador', 'operador_carga');
 
 -- ── Perfiles de usuario ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS profiles (
-  id          UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  nombre      TEXT NOT NULL,
-  email       TEXT NOT NULL,
-  role        user_role NOT NULL DEFAULT 'operador',
-  activo      BOOLEAN DEFAULT TRUE,
-  created_at  TIMESTAMPTZ DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ DEFAULT NOW()
+  id                     UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  nombre                 TEXT NOT NULL,
+  email                  TEXT NOT NULL,
+  role                   user_role NOT NULL DEFAULT 'operador',
+  activo                 BOOLEAN DEFAULT TRUE,
+  permisos               TEXT[],
+  must_change_password   BOOLEAN NOT NULL DEFAULT FALSE,
+  notificaciones_activas BOOLEAN NOT NULL DEFAULT TRUE,
+  avatar_icon            TEXT,
+  created_at             TIMESTAMPTZ DEFAULT NOW(),
+  updated_at             TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Auto-crear perfil al registrar usuario en auth.users
@@ -42,6 +46,43 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Usuarios leen su propio perfil"
   ON profiles FOR SELECT TO authenticated
   USING (auth.uid() = id);
+
+-- Cada usuario puede actualizar su propio perfil (nombre, preferencias).
+-- Los campos sensibles (role/activo/permisos/must_change_password) quedan
+-- protegidos por el trigger de abajo: si el cambio viene de una sesión
+-- "authenticated" normal (no service_role), esos campos se revierten al
+-- valor anterior sin importar qué mande el cliente.
+CREATE POLICY "Usuarios actualizan su propio perfil"
+  ON profiles FOR UPDATE TO authenticated
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+CREATE OR REPLACE FUNCTION protect_profile_privileged_fields()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF auth.role() = 'authenticated' THEN
+    NEW.role                := OLD.role;
+    NEW.activo               := OLD.activo;
+    NEW.permisos             := OLD.permisos;
+    NEW.must_change_password := OLD.must_change_password;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE TRIGGER protect_profile_privileged_fields_trigger
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION protect_profile_privileged_fields();
+
+-- Helper: rol del usuario actual — usado por las policies de abajo para
+-- aplicar el sistema de roles a nivel de base de datos (no solo en el
+-- frontend). SECURITY DEFINER + STABLE: se evalúa una vez por consulta.
+CREATE OR REPLACE FUNCTION current_user_role()
+RETURNS user_role
+LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public
+AS $$
+  SELECT role FROM profiles WHERE id = auth.uid()
+$$;
 
 
 -- ── Secuencia de numeración de reports ───────────────────────
@@ -174,14 +215,18 @@ CREATE OR REPLACE TRIGGER clientes_updated_at
 
 ALTER TABLE clientes ENABLE ROW LEVEL SECURITY;
 
+-- SELECT abierto: operador_carga necesita listar clientes para elegir uno
+-- al crear un report. Solo se restringe quién puede crear/editar clientes.
 CREATE POLICY "Autenticados leen clientes"
   ON clientes FOR SELECT TO authenticated USING (true);
 
-CREATE POLICY "Autenticados crean clientes"
-  ON clientes FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Operador+ crean clientes"
+  ON clientes FOR INSERT TO authenticated
+  WITH CHECK (current_user_role() IN ('operador', 'super_admin'));
 
-CREATE POLICY "Autenticados actualizan clientes"
-  ON clientes FOR UPDATE TO authenticated USING (true);
+CREATE POLICY "Operador+ actualizan clientes"
+  ON clientes FOR UPDATE TO authenticated
+  USING (current_user_role() IN ('operador', 'super_admin'));
 
 -- ── Tabla de auditoría ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -206,8 +251,11 @@ ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Autenticados leen audit_logs"
   ON audit_logs FOR SELECT TO authenticated USING (true);
 
-CREATE POLICY "Autenticados insertan audit_logs"
-  ON audit_logs FOR INSERT TO authenticated WITH CHECK (true);
+-- No se puede insertar un log "a nombre de otro" — usuario_id debe ser el
+-- del propio caller (o NULL, para acciones sin actor identificable).
+CREATE POLICY "Autenticados insertan sus propios audit_logs"
+  ON audit_logs FOR INSERT TO authenticated
+  WITH CHECK (usuario_id = auth.uid() OR usuario_id IS NULL);
 
 -- ── RLS Reports ───────────────────────────────────────────────
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
@@ -273,8 +321,11 @@ CREATE POLICY "Autenticados crean inventario"
 CREATE POLICY "Autenticados actualizan inventario"
   ON inventario_items FOR UPDATE TO authenticated USING (true);
 
-CREATE POLICY "Autenticados eliminan inventario"
-  ON inventario_items FOR DELETE TO authenticated USING (true);
+-- Solo super_admin puede borrar físicamente — la app siempre hace
+-- soft-delete (activo=false) desde la UI normal.
+CREATE POLICY "Solo super_admin elimina inventario físicamente"
+  ON inventario_items FOR DELETE TO authenticated
+  USING (current_user_role() = 'super_admin');
 
 -- ── Vincular sec3 de reports con inventario ───────────────────
 -- Permite que un report de bodegaje (sec3) actualice el stock de un ítem
@@ -518,10 +569,33 @@ CREATE OR REPLACE TRIGGER set_cotizacion_numero
   BEFORE INSERT ON tarifas_cliente
   FOR EACH ROW EXECUTE FUNCTION generate_cotizacion_numero();
 
+-- Precios — operador_carga no tiene /servicios ni /hes en sus rutas.
 ALTER TABLE tarifas_cliente ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Authenticated full access tarifas_cliente"
+CREATE POLICY "Operador+ acceso completo tarifas_cliente"
   ON tarifas_cliente FOR ALL TO authenticated
-  USING (TRUE) WITH CHECK (TRUE);
+  USING (current_user_role() IN ('operador', 'super_admin'))
+  WITH CHECK (current_user_role() IN ('operador', 'super_admin'));
+
+-- ── Servicios adicionales por cliente (HES) ─────────────────────
+CREATE TABLE IF NOT EXISTS servicios_cliente (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cliente_id  UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  nombre      TEXT NOT NULL,
+  descripcion TEXT,
+  tarifa_uf   NUMERIC(10, 4),
+  unidad      TEXT NOT NULL DEFAULT 'unidad',
+  orden       INTEGER NOT NULL DEFAULT 0,
+  activo      BOOLEAN DEFAULT TRUE,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_servicios_cliente_cliente ON servicios_cliente(cliente_id);
+
+ALTER TABLE servicios_cliente ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Operador+ acceso completo servicios_cliente"
+  ON servicios_cliente FOR ALL TO authenticated
+  USING (current_user_role() IN ('operador', 'super_admin'))
+  WITH CHECK (current_user_role() IN ('operador', 'super_admin'));
 
 -- ── Caché de valores UF (HES) ──────────────────────────────────
 -- La UF de una fecha pasada nunca cambia: una vez obtenida de una API
@@ -534,6 +608,7 @@ CREATE TABLE IF NOT EXISTS uf_valores (
 );
 
 ALTER TABLE uf_valores ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Authenticated full access uf_valores"
+CREATE POLICY "Operador+ acceso completo uf_valores"
   ON uf_valores FOR ALL TO authenticated
-  USING (TRUE) WITH CHECK (TRUE);
+  USING (current_user_role() IN ('operador', 'super_admin'))
+  WITH CHECK (current_user_role() IN ('operador', 'super_admin'));

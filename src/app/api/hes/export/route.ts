@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import ExcelJS from "exceljs"
 import path from "path"
 import { createServerSupabaseClient } from "@/lib/supabase-server"
+import { computeHES, computeBilling, type MovRaw, type BillingRow, type DayEntry } from "@/lib/hes-calc"
+import type { TarifaCliente, ServicioCliente } from "@/types/database"
 
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
                "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
@@ -64,25 +66,6 @@ function st(cell: ExcelJS.Cell, o: StyleOpts = {}) {
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-interface BillingRow { label: string; qty: number; unit: string; tarifa: number; totalUF: number }
-interface DayEntry {
-  fecha: string; operador: string
-  guias_in: string; pallets_in: number; reports_in: string
-  guias_out: string; pallets_out: number; reports_out: string
-  stock: number; tarifa_dia: number
-}
-interface TarifaObj {
-  cotizacion_numero:     string
-  clase_imo:             string | null
-  tarifa_almacenaje_uf:  number | null
-  tarifa_inout_uf:       number | null
-  tarifa_consolid_40_uf: number | null
-  tarifa_descons_20_uf:  number | null
-  tarifa_descons_40_uf:  number | null
-  tarifa_palletizado_uf: number | null
-  tarifa_porteo_uf:      number | null
-  facturacion_minima_uf: number | null
-}
 interface ServicioExport {
   id:        string
   nombre:    string
@@ -91,14 +74,15 @@ interface ServicioExport {
   cantidad:  number
 }
 interface ReqBody {
-  cliente:   { nombre: string; rut: string; emails: string[]; contacto: string | null }
-  tarifa:    TarifaObj
-  billing:   { rows: BillingRow[]; finalUF: number; finalCLP: number; hasMin: boolean }
-  hes:       { palletDays: number; totalIngresos: number; totalDespachos: number; dailyLog: DayEntry[] }
-  servicios: ServicioExport[]
+  clienteId: string
+  tarifaId:  string
   mes:       number
   anio:      number
   ufValue:   string
+  // Elección real del usuario (cuánto de cada servicio opcional facturar) —
+  // no son totales, así que es seguro confiar en esto; los montos finales
+  // siempre se recalculan server-side con los datos de la base.
+  servicioSeleccion?: Record<string, { cantidad: number; checked: boolean }>
 }
 
 export async function POST(req: NextRequest) {
@@ -121,20 +105,67 @@ async function handleExport(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Cuerpo de la solicitud inválido." }, { status: 400 })
   }
-  const { cliente, tarifa, billing, hes, servicios: srvs = [], mes, anio, ufValue } = body
+  const { clienteId, tarifaId, mes, anio, ufValue, servicioSeleccion = {} } = body
 
-  if (!cliente?.nombre)
-    return NextResponse.json({ error: "Datos de cliente incompletos" }, { status: 400 })
-  if (!tarifa)
-    return NextResponse.json({ error: "Datos de tarifa incompletos" }, { status: 400 })
-  if (!billing?.rows || !hes?.dailyLog)
-    return NextResponse.json({ error: "Datos de facturación o log diario incompletos" }, { status: 400 })
+  if (!clienteId || !tarifaId)
+    return NextResponse.json({ error: "Cliente o tarifa no especificados" }, { status: 400 })
   if (!Number.isInteger(mes) || mes < 0 || mes > 11)
     return NextResponse.json({ error: "Mes inválido" }, { status: 400 })
   if (!Number.isInteger(anio) || anio < 2020 || anio > 2100)
     return NextResponse.json({ error: "Año inválido" }, { status: 400 })
 
-  const uf      = parseFloat(ufValue) || 0
+  // Todo se relee de la base de datos con la sesión del propio usuario (mismas
+  // policies RLS que en la UI) — el navegador ya no puede mandar totales,
+  // tarifas o datos de cliente fabricados. Si el usuario no tiene permiso
+  // para ver esta tarifa (ej. rol operador_carga), la consulta no devuelve
+  // nada y se corta acá con 404.
+  const [
+    { data: clienteRow, error: clienteErr },
+    { data: tarifaRow,  error: tarifaErr },
+    { data: serviciosRows },
+  ] = await Promise.all([
+    supabase.from("clientes").select("nombre, rut, emails, contacto").eq("id", clienteId).single(),
+    supabase.from("tarifas_cliente").select("*").eq("id", tarifaId).eq("cliente_id", clienteId).single(),
+    supabase.from("servicios_cliente").select("*").eq("cliente_id", clienteId).eq("activo", true),
+  ])
+
+  if (clienteErr || !clienteRow)
+    return NextResponse.json({ error: "Cliente no encontrado o sin permiso para verlo." }, { status: 404 })
+  if (tarifaErr || !tarifaRow)
+    return NextResponse.json({ error: "Tarifa no encontrada o sin permiso para verla." }, { status: 404 })
+
+  const cliente = {
+    nombre:   clienteRow.nombre,
+    rut:      clienteRow.rut,
+    emails:   clienteRow.emails ?? [],
+    contacto: clienteRow.contacto,
+  }
+  const tarifa = tarifaRow as TarifaCliente
+  const serviciosCliente = (serviciosRows ?? []) as ServicioCliente[]
+
+  const nextMonth = new Date(anio, mes + 1, 1)
+  const { data: movsRaw } = await supabase
+    .from("movimientos")
+    .select("id, numero, tipo, unidades, operador, fecha, report_id, reports(numero, sec1_guia_numero, sec3_numero_guia)")
+    .eq("cliente_id", clienteId)
+    .lt("fecha", nextMonth.toISOString())
+    .order("fecha")
+
+  const movs = (movsRaw ?? []) as unknown as MovRaw[]
+  const hes     = computeHES(movs, anio, mes, tarifa.tarifa_almacenaje_uf ?? 0)
+  const ufNum   = parseFloat(ufValue)
+  const ufSafe  = Number.isFinite(ufNum) && ufNum > 0 ? ufNum : 0
+  const billing = computeBilling(hes, tarifa, ufSafe, serviciosCliente, servicioSeleccion)
+
+  const srvs: ServicioExport[] = serviciosCliente.map(s => ({
+    id:        s.id,
+    nombre:    s.nombre,
+    tarifa_uf: s.tarifa_uf ?? 0,
+    unidad:    s.unidad,
+    cantidad:  servicioSeleccion[s.id]?.cantidad ?? 0,
+  }))
+
+  const uf      = ufSafe
   const lastDay = daysInMonth(anio, mes)
   const mesNom  = MESES[mes].toUpperCase()
   const mesTit  = `${MESES[mes]} ${anio}`
