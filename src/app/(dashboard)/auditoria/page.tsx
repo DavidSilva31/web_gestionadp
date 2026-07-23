@@ -176,7 +176,7 @@ export default function AuditoriaPage() {
 
           {loading ? (
             <div className="flex-1 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : logs.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">

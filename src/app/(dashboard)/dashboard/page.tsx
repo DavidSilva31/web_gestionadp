@@ -497,7 +497,7 @@ export default function DashboardPage() {
             <CardContent ref={movsContainerRef} className="p-0 flex-1 min-h-0 overflow-hidden">
               {loading ? (
                 <div className="flex items-center justify-center h-full">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 </div>
               ) : recentMovs.length === 0 ? (
                 <div className="flex items-center justify-center h-full">

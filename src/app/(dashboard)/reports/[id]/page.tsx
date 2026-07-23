@@ -258,7 +258,7 @@ export default function ReportDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
@@ -535,7 +535,7 @@ export default function ReportDetailPage() {
                     <div className="border-t border-emerald-200 dark:border-emerald-800 bg-muted/40">
                       {!signedDocUrl ? (
                         <div className="flex items-center justify-center py-10">
-                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                          <Loader2 className="h-5 w-5 animate-spin text-primary" />
                         </div>
                       ) : /\.(pdf)$/i.test(docPath) ? (
                         <iframe
@@ -562,7 +562,7 @@ export default function ReportDetailPage() {
               {/* Timeline de auditoría */}
               {loadingLogs ? (
                 <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 </div>
               ) : auditLogs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">

@@ -299,7 +299,7 @@ export default function ServiciosPage() {
         <div className="flex-1 overflow-y-auto">
           {loadingClientes ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
             </div>
           ) : filteredClientes.map(c => (
             <button key={c.id} onClick={() => setSelectedId(c.id)}
@@ -371,7 +371,7 @@ export default function ServiciosPage() {
             <div className="flex-1 overflow-y-auto">
               {loadingSrvs ? (
                 <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 </div>
               ) : (
                 <div className="p-4 space-y-3">

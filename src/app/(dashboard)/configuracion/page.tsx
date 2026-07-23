@@ -684,7 +684,7 @@ export default function ConfiguracionPage() {
 
               {loadingUsers ? (
                 <div className="flex items-center justify-center h-40">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 </div>
               ) : (
                 <div>
@@ -734,7 +734,7 @@ export default function ConfiguracionPage() {
                         {/* Rol — select en sm+ */}
                         <div className="hidden sm:block w-36 flex-shrink-0">
                           {savingRoleId === u.id
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground mx-auto" />
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary mx-auto" />
                             : (
                               <select
                                 value={u.role}

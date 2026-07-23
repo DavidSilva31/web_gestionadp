@@ -102,7 +102,7 @@ export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
       <div className="flex-1 relative overflow-hidden">
         {loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground bg-muted/20">
-            <Loader2 className="h-8 w-8 animate-spin" />
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm">Generando vista previa…</p>
           </div>
         )}
