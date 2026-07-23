@@ -8,6 +8,7 @@ export type TipoMovimiento = 'ingreso' | 'despacho'
 export type TipoContenedor = '20ft' | '40ft' | 'isotanque'
 export type SolicitadoPor = 'clientes' | 'hds' | 'operaciones' | 'cuyd'
 export type TransporteTipo = 'propio' | 'externo'
+export type TipoEnvase = 'Tambor' | 'Bidón' | 'IBC' | 'Saco' | 'Caja' | 'Pallet' | 'Granel' | 'Otro'
 
 export interface Report {
   id: string
@@ -132,6 +133,17 @@ export interface Movimiento {
   operador:           string | null
   estado:             MovimientoEstado
   observaciones:      string | null
+  // Datos de manifiesto/lote (opcionales)
+  codigo:             string | null
+  imo:                string | null
+  un:                 string | null
+  cas:                string | null
+  lote:               string | null
+  fecha_elaboracion:  string | null
+  fecha_vencimiento:  string | null
+  peso_envase:        number | null
+  tipo_envase:        TipoEnvase | null
+  posiciones:         number | null
   fecha:              string
   report_id:          string | null
   created_at:         string

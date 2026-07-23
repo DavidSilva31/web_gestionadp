@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   ArrowDownCircle, ArrowUpCircle, RefreshCw, Plus, Search,
-  Loader2, CheckCircle2, Pencil, Link2, Clock, Download,
+  Loader2, CheckCircle2, Pencil, Link2, Clock, Download, ChevronDown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,12 +16,13 @@ import { exportToExcel } from "@/lib/excel"
 import { cn } from "@/lib/utils"
 import type {
   Movimiento, MovimientoInsert, MovimientoTipo, MovimientoServicio,
-  Cliente, InventarioItem, InventarioArea,
+  Cliente, InventarioItem, InventarioArea, TipoEnvase,
 } from "@/types/database"
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
 const SERVICIOS: MovimientoServicio[] = ["Almacenaje", "Transporte", "Porteo", "Logística"]
 const AREAS: InventarioArea[] = ["Bodega IMO", "Zona Isotanques", "Zona RESPEL", "Bodega General"]
+const TIPOS_ENVASE: TipoEnvase[] = ["Tambor", "Bidón", "IBC", "Saco", "Caja", "Pallet", "Granel", "Otro"]
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
 const SERVICIO_BADGE: Record<string, string> = {
@@ -59,6 +60,16 @@ const EMPTY_FORM = (tipo: MovimientoTipo): MovimientoInsert => ({
   operador:           "",
   estado:             "en_proceso",
   observaciones:      null,
+  codigo:             null,
+  imo:                null,
+  un:                 null,
+  cas:                null,
+  lote:               null,
+  fecha_elaboracion:  null,
+  fecha_vencimiento:  null,
+  peso_envase:        null,
+  tipo_envase:        null,
+  posiciones:         null,
   fecha:              new Date().toISOString().slice(0, 16),
   report_id:          null,
   created_by:         null,
@@ -84,6 +95,7 @@ export default function MovimientosPage() {
   const [form,          setForm]          = useState<MovimientoInsert>(EMPTY_FORM("ingreso"))
   const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
   const [exportError,   setExportError]   = useState<string | null>(null)
+  const [manifiestoOpen, setManifiestoOpen] = useState(false)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchMovimientos = useCallback(async () => {
@@ -140,6 +152,7 @@ export default function MovimientosPage() {
     setForm(EMPTY_FORM(tipo))
     setClienteItems([])
     setError(null)
+    setManifiestoOpen(false)
     setDialog(tipo)
   }
 
@@ -156,6 +169,16 @@ export default function MovimientosPage() {
       operador:           m.operador ?? "",
       estado:             m.estado,
       observaciones:      m.observaciones,
+      codigo:             m.codigo,
+      imo:                m.imo,
+      un:                 m.un,
+      cas:                m.cas,
+      lote:               m.lote,
+      fecha_elaboracion:  m.fecha_elaboracion,
+      fecha_vencimiento:  m.fecha_vencimiento,
+      peso_envase:        m.peso_envase,
+      tipo_envase:        m.tipo_envase,
+      posiciones:         m.posiciones,
       fecha:              m.fecha.slice(0, 16),
       report_id:          m.report_id,
       created_by:         m.created_by,
@@ -163,6 +186,7 @@ export default function MovimientosPage() {
     if (m.cliente_id) fetchItemsParaCliente(m.cliente_id)
     else setClienteItems([])
     setError(null)
+    setManifiestoOpen(!!(m.codigo || m.imo || m.un || m.cas || m.lote || m.fecha_elaboracion || m.fecha_vencimiento || m.peso_envase || m.tipo_envase || m.posiciones))
     setDialog(m)
   }
 
@@ -192,10 +216,17 @@ export default function MovimientosPage() {
 
     const payload: MovimientoInsert = {
       ...form,
-      carga:         form.carga.trim(),
-      operador:      form.operador?.trim() || null,
-      observaciones: form.observaciones?.trim() || null,
-      fecha:         new Date(form.fecha as string).toISOString(),
+      carga:              form.carga.trim(),
+      operador:           form.operador?.trim() || null,
+      observaciones:      form.observaciones?.trim() || null,
+      codigo:             form.codigo?.trim() || null,
+      imo:                form.imo?.trim() || null,
+      un:                 form.un?.trim() || null,
+      cas:                form.cas?.trim() || null,
+      lote:               form.lote?.trim() || null,
+      fecha_elaboracion:  form.fecha_elaboracion || null,
+      fecha_vencimiento:  form.fecha_vencimiento || null,
+      fecha:              new Date(form.fecha as string).toISOString(),
     }
 
     try {
@@ -525,7 +556,7 @@ export default function MovimientosPage() {
 
       {/* ── Dialog: nuevo / editar movimiento ── */}
       <Dialog open={dialog !== null} onOpenChange={open => { if (!open) setDialog(null) }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {dialogTipo === "ingreso"
@@ -643,6 +674,127 @@ export default function MovimientosPage() {
                     className="h-9"
                   />
                 </div>
+
+                {/* Datos de manifiesto / lote — colapsable, no siempre aplica */}
+                <div className="col-span-2">
+                  <button
+                    type="button"
+                    onClick={() => setManifiestoOpen(o => !o)}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+                  >
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", manifiestoOpen && "rotate-180")} />
+                    Datos de lote y envase
+                    <span className="text-muted-foreground/60 font-normal normal-case">(opcional)</span>
+                  </button>
+                </div>
+
+                {manifiestoOpen && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Código</Label>
+                      <Input
+                        value={form.codigo ?? ""}
+                        onChange={e => setForm(p => ({ ...p, codigo: e.target.value || null }))}
+                        placeholder="Ej: PROD-0231"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Clase IMO</Label>
+                      <Input
+                        value={form.imo ?? ""}
+                        onChange={e => setForm(p => ({ ...p, imo: e.target.value || null }))}
+                        placeholder="Ej: 2.2"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">N° UN</Label>
+                      <Input
+                        value={form.un ?? ""}
+                        onChange={e => setForm(p => ({ ...p, un: e.target.value || null }))}
+                        placeholder="Ej: 1977"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">N° CAS</Label>
+                      <Input
+                        value={form.cas ?? ""}
+                        onChange={e => setForm(p => ({ ...p, cas: e.target.value || null }))}
+                        placeholder="Ej: 7727-37-9"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Lote</Label>
+                      <Input
+                        value={form.lote ?? ""}
+                        onChange={e => setForm(p => ({ ...p, lote: e.target.value || null }))}
+                        placeholder="N° de lote"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tipo de envase</Label>
+                      <select
+                        value={form.tipo_envase ?? ""}
+                        onChange={e => setForm(p => ({ ...p, tipo_envase: (e.target.value as TipoEnvase) || null }))}
+                        className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="">Sin especificar</option>
+                        {TIPOS_ENVASE.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Fecha elaboración</Label>
+                      <Input
+                        type="date"
+                        value={form.fecha_elaboracion ?? ""}
+                        onChange={e => setForm(p => ({ ...p, fecha_elaboracion: e.target.value || null }))}
+                        className="h-9 text-xs"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Fecha vencimiento</Label>
+                      <Input
+                        type="date"
+                        value={form.fecha_vencimiento ?? ""}
+                        onChange={e => setForm(p => ({ ...p, fecha_vencimiento: e.target.value || null }))}
+                        className="h-9 text-xs"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Peso envase (kg)</Label>
+                      <Input
+                        type="number" min={0} step="0.01"
+                        value={form.peso_envase ?? ""}
+                        onChange={e => setForm(p => ({ ...p, peso_envase: e.target.value ? parseFloat(e.target.value) : null }))}
+                        placeholder="0"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Posiciones</Label>
+                      <Input
+                        type="number" min={0}
+                        value={form.posiciones ?? ""}
+                        onChange={e => setForm(p => ({ ...p, posiciones: e.target.value ? parseInt(e.target.value) : null }))}
+                        placeholder="0"
+                        className="h-9"
+                      />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
