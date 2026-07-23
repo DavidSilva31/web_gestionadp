@@ -416,7 +416,7 @@ export function Topbar() {
               <div className="max-h-80 overflow-y-auto">
                 {notifLoading ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   </div>
                 ) : items.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-10 gap-2">

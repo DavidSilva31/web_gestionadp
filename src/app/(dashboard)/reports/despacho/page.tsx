@@ -376,7 +376,7 @@ export default function DespachoPage() {
           <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
             {loading ? (
               <div className="flex items-center justify-center h-40">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-center">

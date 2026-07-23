@@ -359,7 +359,7 @@ function InventarioContent() {
             <div className="flex-1 overflow-y-auto">
               {loading ? (
                 <div className="flex items-center justify-center h-32">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 </div>
               ) : filteredClientes.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-8">Sin clientes activos</p>
@@ -478,7 +478,7 @@ function InventarioContent() {
                 <div className="flex-1 min-h-0 overflow-hidden">
                   {loadingItems ? (
                     <div className="flex items-center justify-center h-32">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
                     </div>
                   ) : items.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
@@ -828,7 +828,7 @@ export default function InventarioPage() {
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     }>
       <InventarioContent />

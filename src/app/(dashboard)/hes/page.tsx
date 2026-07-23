@@ -1061,7 +1061,7 @@ export default function HesPage() {
           <div className="flex-1 overflow-y-auto">
             {!clientesLoaded ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
               </div>
             ) : filteredClientes.map(c => (
               <button key={c.id} onClick={() => setSelectedId(c.id)}
@@ -1162,7 +1162,7 @@ export default function HesPage() {
               <div className="flex-1 overflow-y-auto p-5 bg-muted/10">
                 {loading || tarifasLoading ? (
                   <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
                 ) : !tarifa ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-3">

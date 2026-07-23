@@ -9,7 +9,7 @@ export function NavigationLoadingOverlay() {
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
     </div>
   )
 }

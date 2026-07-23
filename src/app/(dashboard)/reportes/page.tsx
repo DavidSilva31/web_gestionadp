@@ -326,7 +326,7 @@ export default function ReportesPage() {
             <CardContent className="flex flex-col px-4 py-3 gap-3 lg:flex-1 lg:min-h-0">
               {loading ? (
                 <div className="h-32 lg:flex-1 flex items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
               ) : mensual.length === 0 ? (
                 <div className="h-32 lg:flex-1 flex flex-col items-center justify-center gap-2">
@@ -422,7 +422,7 @@ export default function ReportesPage() {
               </CardHeader>
               <CardContent className="flex flex-col justify-between px-4 py-3 lg:flex-1 lg:min-h-0">
                 {loading ? (
-                  <div className="flex-1 flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                  <div className="flex-1 flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
                 ) : topItems.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-2 py-8">
                     <div className="p-3 rounded-xl bg-muted/50"><TrendingUp className="h-6 w-6 text-muted-foreground/25" /></div>
@@ -473,7 +473,7 @@ export default function ReportesPage() {
               </CardHeader>
               <CardContent className="flex flex-col justify-between px-4 py-3 lg:flex-1 lg:min-h-0">
                 {loading ? (
-                  <div className="flex-1 flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                  <div className="flex-1 flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
                 ) : topClientes.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-2 py-8">
                     <div className="p-3 rounded-xl bg-muted/50"><Users className="h-6 w-6 text-muted-foreground/25" /></div>
@@ -522,7 +522,7 @@ export default function ReportesPage() {
               <CardContent className="px-4 py-3 flex flex-col justify-between gap-3 lg:flex-1 lg:min-h-0">
                 {loading ? (
                   <div className="flex-1 flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3">
@@ -576,7 +576,7 @@ export default function ReportesPage() {
               <CardContent className="flex p-0 lg:flex-1 lg:min-h-0">
                 {loading ? (
                   <div className="flex-1 flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
                 ) : (
                   <>
@@ -662,7 +662,7 @@ export default function ReportesPage() {
             </CardHeader>
             <CardContent className="px-3 py-2 flex-1 min-h-0">
               {loading ? (
-                <div className="h-full flex items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+                <div className="h-full flex items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-primary" /></div>
               ) : mensual.length === 0 ? (
                 <div className="h-full flex items-center justify-center"><p className="text-[10px] text-muted-foreground">Sin movimientos registrados</p></div>
               ) : (
@@ -691,7 +691,7 @@ export default function ReportesPage() {
               </CardHeader>
               <CardContent className="px-3 py-1.5 flex-1 min-h-0 flex flex-col justify-center gap-1.5">
                 {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mx-auto" />
+                  <Loader2 className="h-4 w-4 animate-spin text-primary mx-auto" />
                 ) : topItems.length === 0 ? (
                   <p className="text-[10px] text-muted-foreground text-center">Sin datos</p>
                 ) : topItems.slice(0, 3).map(p => (
@@ -716,7 +716,7 @@ export default function ReportesPage() {
               </CardHeader>
               <CardContent className="px-3 py-1.5 flex-1 min-h-0 flex flex-col justify-center gap-1.5">
                 {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mx-auto" />
+                  <Loader2 className="h-4 w-4 animate-spin text-primary mx-auto" />
                 ) : topClientes.length === 0 ? (
                   <p className="text-[10px] text-muted-foreground text-center">Sin datos</p>
                 ) : topClientes.slice(0, 3).map(c => (
@@ -744,7 +744,7 @@ export default function ReportesPage() {
               </CardHeader>
               <CardContent className="px-3 py-1.5 flex-1 min-h-0 flex flex-col justify-center gap-1">
                 {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mx-auto" />
+                  <Loader2 className="h-4 w-4 animate-spin text-primary mx-auto" />
                 ) : AREA_ORDER.map(area => {
                   const d  = areaData.find(x => x.area === area) ?? { area, entradas: 0, salidas: 0, total: 0, pct: 0 }
                   const ac = AREA_COLORS[area] ?? { dot: "bg-muted" }
@@ -774,7 +774,7 @@ export default function ReportesPage() {
               </CardHeader>
               <CardContent className="px-3 py-1.5 flex-1 min-h-0 flex flex-col justify-center gap-1">
                 {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mx-auto" />
+                  <Loader2 className="h-4 w-4 animate-spin text-primary mx-auto" />
                 ) : (
                   <>
                     {([
