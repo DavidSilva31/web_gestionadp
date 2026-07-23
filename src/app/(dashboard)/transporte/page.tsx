@@ -160,7 +160,7 @@ export default function TransportePage() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-2 sm:gap-3 px-4 sm:px-6 pt-4 pb-3 flex-shrink-0">
         {[
-          { icon: <Truck className="h-4 w-4 text-[oklch(0.35_0.12_240)]" />, bg: "bg-[oklch(0.35_0.12_240)]/10", count: counts.todos,              label: "Total"          },
+          { icon: <Truck className="h-4 w-4 text-primary" />, bg: "bg-primary/10", count: counts.todos,              label: "Total"          },
           { icon: <Clock className="h-4 w-4 text-amber-600" />,               bg: "bg-amber-50 dark:bg-amber-900/20", count: counts.pendiente_despacho, label: "Pendientes" },
           { icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,      bg: "bg-emerald-50 dark:bg-emerald-900/20", count: counts.despachado,  label: "Despachados"    },
         ].map(s => (
@@ -190,7 +190,7 @@ export default function TransportePage() {
               <span className="hidden sm:inline">{tab.label}</span>
               <span className={cn(
                 "ml-0.5 px-1.5 rounded-full text-[10px] font-semibold",
-                activeTab === tab.key ? "bg-[oklch(0.35_0.12_240)] text-white" : "bg-muted-foreground/20 text-muted-foreground"
+                activeTab === tab.key ? "bg-primary text-primary-foreground" : "bg-muted-foreground/20 text-muted-foreground"
               )}>
                 {counts[tab.key]}
               </span>
@@ -242,7 +242,7 @@ export default function TransportePage() {
                       onClick={() => router.push(`/reports/${r.id}`)}
                       className={cn("border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer", i % 2 !== 0 && "bg-muted/10")}
                     >
-                      <td className="px-4 py-4 font-mono font-semibold text-[oklch(0.35_0.12_240)]">#{r.numero}</td>
+                      <td className="px-4 py-4 font-mono font-semibold text-primary">#{r.numero}</td>
                       <td className="px-4 py-4 font-medium text-foreground overflow-hidden">
                         <span className="block truncate">{r.cliente}</span>
                       </td>

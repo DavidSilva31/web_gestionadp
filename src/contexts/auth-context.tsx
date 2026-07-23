@@ -37,6 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .single()
     if (error) console.error('[auth] error obteniendo perfil:', error)
     setProfile(data ?? null)
+    document.documentElement.setAttribute('data-accent', data?.accent_color || 'celeste')
   }, [])
 
   useEffect(() => {
@@ -55,7 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       else {
         setProfile(null)
         setLoading(false)
-        if (event === "SIGNED_OUT") router.replace("/login")
+        if (event === "SIGNED_OUT") {
+          document.documentElement.setAttribute('data-accent', 'celeste')
+          router.replace("/login")
+        }
       }
     })
 

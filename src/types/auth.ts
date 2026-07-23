@@ -10,6 +10,7 @@ export interface Profile {
   must_change_password: boolean
   notificaciones_activas: boolean
   avatar_icon:          string | null
+  accent_color:         string
   created_at:           string
   updated_at:           string
 }

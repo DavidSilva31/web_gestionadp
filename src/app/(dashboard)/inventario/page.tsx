@@ -323,7 +323,7 @@ function InventarioContent() {
           </Button>
           {selected && (
             <Button size="sm" onClick={openNew}
-              className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+              className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground">
               <Plus className="h-3.5 w-3.5" />
               Registrar ítem
             </Button>
@@ -376,7 +376,7 @@ function InventarioContent() {
                         className={cn(
                           "w-full text-left px-3 py-2.5 rounded-lg flex items-center gap-2.5 transition-colors group",
                           isSel
-                            ? "bg-[oklch(0.35_0.12_240)] text-white"
+                            ? "bg-primary text-primary-foreground"
                             : "hover:bg-muted/60 text-foreground"
                         )}
                       >
@@ -730,7 +730,7 @@ function InventarioContent() {
               size="sm"
               disabled={saving || !form.descripcion.trim()}
               onClick={handleSave}
-              className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white"
+              className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground"
             >
               {saving
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

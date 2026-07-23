@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS profiles (
   must_change_password   BOOLEAN NOT NULL DEFAULT FALSE,
   notificaciones_activas BOOLEAN NOT NULL DEFAULT TRUE,
   avatar_icon            TEXT,
+  accent_color           TEXT NOT NULL DEFAULT 'celeste'
+                           CHECK (accent_color IN ('celeste','verde','indigo','morado','rosa','naranja','teal')),
   created_at             TIMESTAMPTZ DEFAULT NOW(),
   updated_at             TIMESTAMPTZ DEFAULT NOW()
 );

@@ -154,7 +154,7 @@ export default function ClientesPage() {
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
         <Button size="sm" onClick={openNew}
-          className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+          className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground">
           <Plus className="h-3.5 w-3.5" />
           Nuevo cliente
         </Button>
@@ -232,7 +232,7 @@ export default function ClientesPage() {
                       <td className="px-4 py-3.5 text-center">
                         <Link href={`/inventario?cliente=${c.id}`}>
                           <Button variant="ghost" size="sm"
-                            className="h-7 w-7 sm:w-auto sm:gap-1.5 text-xs text-muted-foreground hover:text-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.35_0.12_240)]/10 p-0 sm:px-2">
+                            className="h-7 w-7 sm:w-auto sm:gap-1.5 text-xs text-muted-foreground hover:text-primary hover:bg-primary/10 p-0 sm:px-2">
                             <Warehouse className="h-3.5 w-3.5" />
                             <span className="hidden sm:inline">Ver</span>
                           </Button>
@@ -376,7 +376,7 @@ export default function ClientesPage() {
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => setDialog(null)}>Cancelar</Button>
           <Button size="sm" disabled={saving || !form.nombre || !form.rut} onClick={handleSave}
-            className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+            className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground">
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
             {dialog === "new" ? "Crear cliente" : "Guardar cambios"}
           </Button>
