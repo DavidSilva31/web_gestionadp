@@ -146,6 +146,86 @@
 }
 
 /* ============================================================
+   ACENTOS PERSONALIZABLES — solo tema claro
+   Elegibles desde Mi Perfil (profiles.accent_color). "celeste" es el
+   default y coincide con los valores ya definidos arriba en :root,
+   así que no necesita bloque propio. Los colores semánticos (badges
+   de éxito/advertencia/error) y el sidebar (siempre azul marino) no
+   se ven afectados — solo --primary/--secondary/--accent/--ring/--chart.
+   ============================================================ */
+:root[data-accent="verde"]:not(.dark) {
+  --primary: oklch(0.38 0.09 150);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.64 0.14 150);
+  --secondary-foreground: oklch(1 0 0);
+  --accent: oklch(0.95 0.02 150);
+  --accent-foreground: oklch(0.38 0.09 150);
+  --ring: oklch(0.64 0.14 150);
+  --chart-1: oklch(0.38 0.09 150);
+  --chart-2: oklch(0.64 0.14 150);
+}
+
+:root[data-accent="indigo"]:not(.dark) {
+  --primary: oklch(0.37 0.15 275);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.60 0.17 275);
+  --secondary-foreground: oklch(1 0 0);
+  --accent: oklch(0.95 0.02 275);
+  --accent-foreground: oklch(0.37 0.15 275);
+  --ring: oklch(0.60 0.17 275);
+  --chart-1: oklch(0.37 0.15 275);
+  --chart-2: oklch(0.60 0.17 275);
+}
+
+:root[data-accent="morado"]:not(.dark) {
+  --primary: oklch(0.38 0.13 300);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.62 0.16 300);
+  --secondary-foreground: oklch(1 0 0);
+  --accent: oklch(0.95 0.02 300);
+  --accent-foreground: oklch(0.38 0.13 300);
+  --ring: oklch(0.62 0.16 300);
+  --chart-1: oklch(0.38 0.13 300);
+  --chart-2: oklch(0.62 0.16 300);
+}
+
+:root[data-accent="rosa"]:not(.dark) {
+  --primary: oklch(0.42 0.16 350);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.65 0.17 350);
+  --secondary-foreground: oklch(1 0 0);
+  --accent: oklch(0.95 0.02 350);
+  --accent-foreground: oklch(0.42 0.16 350);
+  --ring: oklch(0.65 0.17 350);
+  --chart-1: oklch(0.42 0.16 350);
+  --chart-2: oklch(0.65 0.17 350);
+}
+
+:root[data-accent="naranja"]:not(.dark) {
+  --primary: oklch(0.58 0.19 45);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.72 0.17 50);
+  --secondary-foreground: oklch(0.20 0.02 50);
+  --accent: oklch(0.95 0.025 55);
+  --accent-foreground: oklch(0.45 0.16 45);
+  --ring: oklch(0.68 0.18 48);
+  --chart-1: oklch(0.58 0.19 45);
+  --chart-2: oklch(0.72 0.17 50);
+}
+
+:root[data-accent="teal"]:not(.dark) {
+  --primary: oklch(0.36 0.08 185);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.62 0.11 185);
+  --secondary-foreground: oklch(1 0 0);
+  --accent: oklch(0.95 0.015 185);
+  --accent-foreground: oklch(0.36 0.08 185);
+  --ring: oklch(0.62 0.11 185);
+  --chart-1: oklch(0.36 0.08 185);
+  --chart-2: oklch(0.62 0.11 185);
+}
+
+/* ============================================================
    DARK MODE
    ============================================================ */
 .dark {

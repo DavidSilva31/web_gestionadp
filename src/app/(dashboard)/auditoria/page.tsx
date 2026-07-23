@@ -210,7 +210,7 @@ export default function AuditoriaPage() {
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] text-muted-foreground">{log.usuario_nombre ?? "—"}</span>
                       {log.tabla === "reports" && (
-                        <Link href={`/reports/${reportIdFromLog(log)}`} className="inline-flex items-center gap-1 text-[11px] text-[oklch(0.35_0.12_240)] font-medium">
+                        <Link href={`/reports/${reportIdFromLog(log)}`} className="inline-flex items-center gap-1 text-[11px] text-primary font-medium">
                           Ver report <ExternalLink className="h-3 w-3" />
                         </Link>
                       )}
@@ -268,7 +268,7 @@ export default function AuditoriaPage() {
                         <td className="px-4 py-3.5 text-center">
                           {log.tabla === "reports" ? (
                             <Link href={`/reports/${reportIdFromLog(log)}`}>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-[oklch(0.35_0.12_240)]">
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
                                 <ExternalLink className="h-3.5 w-3.5" />
                               </Button>
                             </Link>

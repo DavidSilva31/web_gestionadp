@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { AVATAR_ICONS, AVATAR_ICON_KEYS } from "@/lib/avatar-icons"
+import { ACCENT_COLORS, ACCENT_COLOR_KEYS } from "@/lib/accent-colors"
 import { ROLE_LABELS } from "@/types/auth"
 import { cn } from "@/lib/utils"
 import type { UserRole } from "@/types/auth"
@@ -90,7 +91,7 @@ function ModuleCheckboxes({
                     if (e.target.checked) onChange([...selected, m.href])
                     else onChange(selected.filter(x => x !== m.href))
                   }}
-                  className="h-3.5 w-3.5 rounded border-input accent-[oklch(0.35_0.12_240)]"
+                  className="h-3.5 w-3.5 rounded border-input accent-primary"
                 />
                 {m.label}
               </label>
@@ -148,6 +149,7 @@ export default function ConfiguracionPage() {
 
   const [savingNotif, setSavingNotif] = useState(false)
   const [savingAvatar, setSavingAvatar] = useState(false)
+  const [savingAccent, setSavingAccent] = useState(false)
 
   useEffect(() => { if (profile?.nombre) setNombre(profile.nombre) }, [profile])
   useEffect(() => { if (profile?.must_change_password) setTab("perfil") }, [profile?.must_change_password])
@@ -178,6 +180,38 @@ export default function ConfiguracionPage() {
       console.error("[configuracion] error actualizando avatar:", err)
     } finally {
       setSavingAvatar(false)
+    }
+  }
+
+  async function handleSetAccentColor(key: string) {
+    if (!user || !profile || savingAccent || profile.accent_color === key) return
+    const prev = profile.accent_color
+    setSavingAccent(true)
+    document.documentElement.setAttribute("data-accent", key) // preview instantáneo
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.from("profiles")
+        .update({ accent_color: key }).eq("id", user.id)
+        .select("id").single()
+      if (error || !data) {
+        console.error("[configuracion] error actualizando color de acento:", error)
+        document.documentElement.setAttribute("data-accent", prev)
+      } else {
+        logAudit({
+          tabla:          "profiles",
+          registro_id:    user.id,
+          accion:         "perfil.actualizar",
+          descripcion:    `${profile.nombre} cambió el color de acento a "${ACCENT_COLORS[key]?.label ?? key}"`,
+          usuario_id:     user.id,
+          usuario_nombre: profile.nombre,
+        })
+        await refreshProfile()
+      }
+    } catch (err) {
+      console.error("[configuracion] error actualizando color de acento:", err)
+      document.documentElement.setAttribute("data-accent", prev)
+    } finally {
+      setSavingAccent(false)
     }
   }
 
@@ -474,7 +508,7 @@ export default function ConfiguracionPage() {
             className={cn(
               "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left flex-shrink-0 whitespace-nowrap md:whitespace-normal md:w-full",
               tab === t.key
-                ? "bg-[oklch(0.35_0.12_240)] text-white shadow-sm"
+                ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
@@ -501,7 +535,7 @@ export default function ConfiguracionPage() {
                 </div>
               )}
               <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-                <div className="bg-gradient-to-r from-[oklch(0.35_0.12_240)] to-[oklch(0.45_0.15_260)] px-6 py-5">
+                <div className="bg-gradient-to-r from-primary to-primary/70 px-6 py-5">
                   <div className="flex items-center gap-4">
                     <Avatar className="h-14 w-14 ring-2 ring-white/40">
                       <AvatarFallback className="bg-white/20 text-white text-lg font-bold backdrop-blur-sm">
@@ -543,11 +577,41 @@ export default function ConfiguracionPage() {
                             className={cn(
                               "h-9 w-9 rounded-lg border flex items-center justify-center transition-all disabled:opacity-50",
                               active
-                                ? "border-[oklch(0.35_0.12_240)] bg-[oklch(0.35_0.12_240)]/10 text-[oklch(0.35_0.12_240)]"
+                                ? "border-primary bg-primary/10 text-primary"
                                 : "border-border text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground"
                             )}
                           >
                             <Icon className="h-4 w-4" />
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">
+                      Color de acento <span className="text-muted-foreground/60">— se aplica en el tema claro</span>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {ACCENT_COLOR_KEYS.map(key => {
+                        const preset = ACCENT_COLORS[key]
+                        const active = (profile?.accent_color ?? "celeste") === key
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            title={preset.label}
+                            disabled={savingAccent}
+                            onClick={() => handleSetAccentColor(key)}
+                            className={cn(
+                              "h-9 w-9 rounded-lg border-2 flex items-center justify-center transition-all disabled:opacity-50",
+                              active ? "border-foreground" : "border-transparent hover:border-muted-foreground/40"
+                            )}
+                          >
+                            <span
+                              className="h-5 w-5 rounded-full ring-1 ring-black/10"
+                              style={{ backgroundColor: preset.swatch }}
+                            />
                           </button>
                         )
                       })}
@@ -573,7 +637,7 @@ export default function ConfiguracionPage() {
                   <StatusMsg msg={perfilMsg} />
                   <div className="flex justify-end pt-1">
                     <Button onClick={handleSavePerfil} disabled={savingPerfil} size="sm"
-                      className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white px-5">
+                      className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground px-5">
                       {savingPerfil ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                       Guardar cambios
                     </Button>
@@ -598,7 +662,7 @@ export default function ConfiguracionPage() {
                     disabled={savingNotif}
                     className={cn(
                       "relative h-6 w-11 flex-shrink-0 rounded-full transition-colors disabled:opacity-50",
-                      profile?.notificaciones_activas !== false ? "bg-[oklch(0.35_0.12_240)]" : "bg-muted-foreground/30"
+                      profile?.notificaciones_activas !== false ? "bg-primary" : "bg-muted-foreground/30"
                     )}
                   >
                     <span className={cn(
@@ -650,7 +714,7 @@ export default function ConfiguracionPage() {
                     onClick={handleChangePassword}
                     disabled={savingPass || !newPass || !confirmPass || newPass !== confirmPass || newPass.length < 8}
                     size="sm"
-                    className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white px-5">
+                    className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground px-5">
                     {savingPass ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
                     Actualizar contraseña
                   </Button>
@@ -670,7 +734,7 @@ export default function ConfiguracionPage() {
                   </p>
                 </div>
                 <Button size="sm" onClick={() => { setCreateMsg(null); setInvitedEmail(null); setCreateOpen(true) }}
-                  className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+                  className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground">
                   <Plus className="h-3.5 w-3.5" />
                   Nuevo usuario
                 </Button>
@@ -710,7 +774,7 @@ export default function ConfiguracionPage() {
                           <Avatar className="h-8 w-8 flex-shrink-0">
                             <AvatarFallback className={cn(
                               "text-xs font-bold text-white",
-                              u.id === user?.id ? "bg-[oklch(0.35_0.12_240)]" : "bg-muted-foreground/50"
+                              u.id === user?.id ? "bg-primary" : "bg-muted-foreground/50"
                             )}>
                               {u.avatar_icon && AVATAR_ICONS[u.avatar_icon]
                                 ? (() => { const Icon = AVATAR_ICONS[u.avatar_icon!]; return <Icon className="h-3.5 w-3.5" /> })()
@@ -890,7 +954,7 @@ export default function ConfiguracionPage() {
           {!invitedEmail && (
             <Button size="sm" disabled={creating || !newUser.nombre || !newUser.email}
               onClick={handleCreateUser}
-              className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+              className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground">
               {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
               Crear usuario
             </Button>
@@ -962,7 +1026,7 @@ export default function ConfiguracionPage() {
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => setPermisosUser(null)}>Cancelar</Button>
           <Button size="sm" disabled={savingPermisos} onClick={handleSavePermisos}
-            className="gap-1.5 bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white">
+            className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground">
             {savingPermisos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             Guardar
           </Button>

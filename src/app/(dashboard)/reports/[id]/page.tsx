@@ -377,7 +377,7 @@ export default function ReportDetailPage() {
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 Guardar borrador
               </Button>
-              <Button size="sm" className="gap-1.5 h-8 text-xs bg-[oklch(0.35_0.12_240)] hover:bg-[oklch(0.30_0.12_240)] text-white" disabled={saving} onClick={() => handleSave("pendiente_despacho")}>
+              <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving} onClick={() => handleSave("pendiente_despacho")}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                 Enviar a despacho
               </Button>
@@ -580,7 +580,7 @@ export default function ReportDetailPage() {
                         </div>
                         <div className={cn(
                           "flex-1 rounded-xl border bg-card px-4 py-3.5 space-y-1",
-                          i === 0 && "border-[oklch(0.35_0.12_240)]/30 bg-[oklch(0.35_0.12_240)]/5"
+                          i === 0 && "border-primary/30 bg-primary/5"
                         )}>
                           <div className="flex items-start justify-between gap-3">
                             <p className="text-xs font-semibold text-foreground leading-tight">
@@ -625,7 +625,7 @@ export default function ReportDetailPage() {
               ))}
             </div>
             {tabIndex < TABS.length - 2 ? (
-              <button onClick={nextTab} className="text-xs text-[oklch(0.35_0.12_240)] hover:text-[oklch(0.30_0.12_240)] flex items-center gap-1 font-medium">
+              <button onClick={nextTab} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 font-medium">
                 Siguiente <ChevronRight className="h-3.5 w-3.5" />
               </button>
             ) : (

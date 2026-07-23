@@ -112,7 +112,7 @@ function ReportCard({ report, onDispatch }: { report: PendingReport; onDispatch:
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="font-mono font-bold text-sm text-[oklch(0.35_0.12_240)]">#{report.numero}</span>
+            <span className="font-mono font-bold text-sm text-primary">#{report.numero}</span>
             <span className="font-semibold text-sm text-foreground truncate">{report.cliente}</span>
             <span className="ml-auto text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
               <Clock className="h-3 w-3 inline mr-1" />
