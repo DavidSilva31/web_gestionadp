@@ -163,6 +163,9 @@
   --ring: oklch(0.64 0.14 150);
   --chart-1: oklch(0.38 0.09 150);
   --chart-2: oklch(0.64 0.14 150);
+  --sidebar-primary: var(--secondary);
+  --sidebar-primary-foreground: var(--secondary-foreground);
+  --sidebar-ring: var(--secondary);
 }
 
 :root[data-accent="indigo"]:not(.dark) {
@@ -175,6 +178,9 @@
   --ring: oklch(0.60 0.17 275);
   --chart-1: oklch(0.37 0.15 275);
   --chart-2: oklch(0.60 0.17 275);
+  --sidebar-primary: var(--secondary);
+  --sidebar-primary-foreground: var(--secondary-foreground);
+  --sidebar-ring: var(--secondary);
 }
 
 :root[data-accent="morado"]:not(.dark) {
@@ -187,6 +193,9 @@
   --ring: oklch(0.62 0.16 300);
   --chart-1: oklch(0.38 0.13 300);
   --chart-2: oklch(0.62 0.16 300);
+  --sidebar-primary: var(--secondary);
+  --sidebar-primary-foreground: var(--secondary-foreground);
+  --sidebar-ring: var(--secondary);
 }
 
 :root[data-accent="rosa"]:not(.dark) {
@@ -199,6 +208,9 @@
   --ring: oklch(0.65 0.17 350);
   --chart-1: oklch(0.42 0.16 350);
   --chart-2: oklch(0.65 0.17 350);
+  --sidebar-primary: var(--secondary);
+  --sidebar-primary-foreground: var(--secondary-foreground);
+  --sidebar-ring: var(--secondary);
 }
 
 :root[data-accent="naranja"]:not(.dark) {
@@ -211,6 +223,9 @@
   --ring: oklch(0.68 0.18 48);
   --chart-1: oklch(0.58 0.19 45);
   --chart-2: oklch(0.72 0.17 50);
+  --sidebar-primary: var(--secondary);
+  --sidebar-primary-foreground: var(--secondary-foreground);
+  --sidebar-ring: var(--secondary);
 }
 
 :root[data-accent="teal"]:not(.dark) {
@@ -223,6 +238,9 @@
   --ring: oklch(0.62 0.11 185);
   --chart-1: oklch(0.36 0.08 185);
   --chart-2: oklch(0.62 0.11 185);
+  --sidebar-primary: var(--secondary);
+  --sidebar-primary-foreground: var(--secondary-foreground);
+  --sidebar-ring: var(--secondary);
 }
 
 /* ============================================================
