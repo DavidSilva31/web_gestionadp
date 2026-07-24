@@ -44,3 +44,6 @@ next-env.d.ts
 /propuesta_ADP_Gestion.html
 /propuesta_ADP_Gestion.pdf
 /public/HES*IMO*.xlsx
+
+# Local Netlify folder
+.netlify

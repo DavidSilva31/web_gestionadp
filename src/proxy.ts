@@ -39,8 +39,20 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError) console.error("[proxy] error verificando sesión:", userError.message)
+  // supabase.auth.getUser() puede *lanzar* (no solo devolver `error`) cuando la
+  // cookie trae un refresh token inválido/revocado (ej. AuthApiError: Invalid
+  // Refresh Token). Sin este try/catch, la excepción no capturada tumbaba toda
+  // la edge function en Netlify en vez de simplemente tratar al usuario como
+  // no autenticado.
+  let user: { id: string } | null = null
+  try {
+    const { data, error: userError } = await supabase.auth.getUser()
+    if (userError) console.error("[proxy] error verificando sesión:", userError.message)
+    user = data.user
+  } catch (err) {
+    console.error("[proxy] excepción verificando sesión:", err instanceof Error ? err.message : err)
+    user = null
+  }
 
   // Ruta raíz → redirigir según estado de sesión
   if (pathname === '/') {
