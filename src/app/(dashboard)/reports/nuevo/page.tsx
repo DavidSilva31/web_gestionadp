@@ -34,7 +34,7 @@ const INITIAL: FormData = {
   nombre_operador: "",
 }
 
-interface ClienteOption { id: string; nombre: string; rut: string }
+interface ClienteOption { id: string; nombre: string; rut: string | null }
 
 function ClienteCombobox({ value, onChange, onChangeId }: {
   value: string
@@ -66,7 +66,7 @@ function ClienteCombobox({ value, onChange, onChangeId }: {
   const filtered = query
     ? clientes.filter(c =>
         c.nombre.toLowerCase().includes(query.toLowerCase()) ||
-        c.rut.toLowerCase().includes(query.toLowerCase())
+        (c.rut?.toLowerCase().includes(query.toLowerCase()) ?? false)
       )
     : clientes
 

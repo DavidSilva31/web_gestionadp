@@ -119,7 +119,7 @@ async function globalSearch(q: string): Promise<GroupedResults> {
       id:       c.id,
       type:     "cliente",
       title:    c.nombre,
-      subtitle: `RUT ${c.rut}${c.sector ? ` · ${c.sector}` : ""}`,
+      subtitle: `${c.rut ? `RUT ${c.rut}` : "Sin RUT"}${c.sector ? ` · ${c.sector}` : ""}`,
       badge:    `CLI-${String(c.numero).padStart(3, "0")}`,
       href:     `/clientes`,
     })),

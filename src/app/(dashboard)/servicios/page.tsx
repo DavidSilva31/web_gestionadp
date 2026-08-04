@@ -252,7 +252,7 @@ export default function ServiciosPage() {
 
   const filteredClientes = useMemo(
     () => clientes.filter(c =>
-      c.nombre.toLowerCase().includes(search.toLowerCase()) || c.rut.includes(search)
+      c.nombre.toLowerCase().includes(search.toLowerCase()) || (c.rut?.includes(search) ?? false)
     ),
     [clientes, search]
   )

@@ -45,5 +45,8 @@ next-env.d.ts
 /propuesta_ADP_Gestion.pdf
 /public/HES*IMO*.xlsx
 
+# datos reales de clientes (PII) — repo es público, nunca deben subirse
+/docs/
+
 # Local Netlify folder
 .netlify
