@@ -87,8 +87,14 @@ export interface Cliente {
   id:         string
   numero:     number
   nombre:     string
-  rut:        string
+  rut:        string | null
   contacto:   string | null
+  contacto_cargo:      string | null
+  contacto_telefono:   string | null
+  contacto2_nombre:    string | null
+  contacto2_cargo:     string | null
+  contacto2_email:     string | null
+  contacto2_telefono:  string | null
   emails:     string[]
   sector:     string | null
   activo:     boolean

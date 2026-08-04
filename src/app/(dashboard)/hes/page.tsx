@@ -843,7 +843,7 @@ export default function HesPage() {
 
   // ── Filtered clients ───────────────────────────────────────────────────────
   const filteredClientes = useMemo(() =>
-    clientes.filter(c => c.nombre.toLowerCase().includes(search.toLowerCase()) || c.rut.includes(search)),
+    clientes.filter(c => c.nombre.toLowerCase().includes(search.toLowerCase()) || (c.rut?.includes(search) ?? false)),
     [clientes, search]
   )
 
@@ -897,7 +897,7 @@ export default function HesPage() {
         <HesResumenPDF data={{
           cliente: {
             nombre:   selectedCliente.nombre,
-            rut:      selectedCliente.rut,
+            rut:      selectedCliente.rut ?? "",
             emails:   selectedCliente.emails,
             contacto: selectedCliente.contacto,
           },
