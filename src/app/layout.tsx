@@ -35,9 +35,10 @@ export default function RootLayout({
         {/* Aplica el tema antes de que React hidrate para evitar flash */}
         <script dangerouslySetInnerHTML={{ __html: `
           try {
-            var t = localStorage.getItem("theme");
-            var dark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
-            if (dark) { document.documentElement.classList.add("dark"); document.documentElement.style.colorScheme = "dark"; }
+            if (localStorage.getItem("theme") === "dark") {
+              document.documentElement.classList.add("dark");
+              document.documentElement.style.colorScheme = "dark";
+            }
           } catch(e) {}
         ` }} />
       </head>

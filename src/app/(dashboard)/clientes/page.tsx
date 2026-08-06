@@ -133,8 +133,11 @@ export default function ClientesPage() {
           usuario_nombre: profile?.nombre ?? user?.email,
         })
       } else if (dialog) {
-        const { error: err } = await supabase.from("clientes").update(payload).eq("id", dialog.id)
-        if (err) { setError(err.message); setSaving(false); return }
+        // .select().single() detecta si RLS bloqueó el update silenciosamente
+        // (sin error pero sin filas afectadas) en vez de reportar éxito falso.
+        const { data: updated, error: err } = await supabase.from("clientes")
+          .update(payload).eq("id", dialog.id).select("id").single()
+        if (err || !updated) { setError(err?.message ?? "No se pudo actualizar el cliente."); setSaving(false); return }
         logAudit({
           tabla:          "clientes",
           registro_id:    dialog.id,

@@ -359,9 +359,10 @@ function ServicioDialog({
     if (!existing) return
     setDeleting(true)
     const supabase = createClient()
-    const { error } = await supabase.from("servicios_cliente").update({ activo: false }).eq("id", existing.id)
+    const { data, error } = await supabase.from("servicios_cliente")
+      .update({ activo: false }).eq("id", existing.id).select("id").single()
     setDeleting(false)
-    if (!error) {
+    if (!error && data) {
       logAudit({
         tabla:          "servicios_cliente",
         registro_id:    existing.id,
