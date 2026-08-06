@@ -85,16 +85,12 @@ function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ email: forgotEmail }),
       })
-      const json = await res.json()
-
       if (!res.ok) {
-        if (json.error === "not_registered") {
-          setForgotResult({ ok: false, text: "No estás registrado en el sistema. Contacta al administrador." })
-        } else {
-          setForgotResult({ ok: false, text: json.error ?? "Error al enviar el correo." })
-        }
+        setForgotResult({ ok: false, text: "No se pudo procesar la solicitud. Intenta de nuevo." })
       } else {
-        setForgotResult({ ok: true, text: "Revisa tu correo. Te hemos enviado un enlace para restablecer tu contraseña." })
+        // Mensaje siempre igual, exista o no el correo — evita que alguien
+        // pueda usar esta pantalla para averiguar qué correos tienen cuenta.
+        setForgotResult({ ok: true, text: "Si el correo está registrado, te hemos enviado un enlace para restablecer tu contraseña." })
       }
     } finally {
       setForgotLoading(false)

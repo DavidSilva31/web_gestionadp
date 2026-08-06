@@ -152,9 +152,10 @@ function ServiceCard({
     if (!confirm(`¿Eliminar servicio "${srv.nombre}"?`)) return
     setDeleting(true)
     const supabase = createClient()
-    const { error } = await supabase.from("servicios_cliente").update({ activo: false }).eq("id", srv.id)
+    const { data, error } = await supabase.from("servicios_cliente")
+      .update({ activo: false }).eq("id", srv.id).select("id").single()
     setDeleting(false)
-    if (error) { alert("Error al eliminar: " + error.message); return }
+    if (error || !data) { alert("Error al eliminar: " + (error?.message ?? "sin permiso")); return }
     logAudit({
       tabla:          "servicios_cliente",
       registro_id:    srv.id,
