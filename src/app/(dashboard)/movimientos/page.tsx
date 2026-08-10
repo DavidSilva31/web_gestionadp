@@ -16,7 +16,7 @@ import { exportToExcel } from "@/lib/excel"
 import { cn } from "@/lib/utils"
 import type {
   Movimiento, MovimientoInsert, MovimientoTipo, MovimientoServicio,
-  Cliente, InventarioItem, InventarioArea, TipoEnvase,
+  Cliente, InventarioItem, InventarioArea, TipoEnvase, TarifaCliente,
 } from "@/types/database"
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ const EMPTY_FORM = (tipo: MovimientoTipo): MovimientoInsert => ({
   carga:              "",
   area:               null,
   inventario_item_id: null,
+  tarifa_cliente_id:  null,
   unidades:           null,
   operador:           "",
   estado:             "en_proceso",
@@ -80,6 +81,8 @@ export default function MovimientosPage() {
   const [movimientos,   setMovimientos]   = useState<Movimiento[]>([])
   const [clientes,      setClientes]      = useState<Cliente[]>([])
   const [clienteItems,  setClienteItems]  = useState<InventarioItem[]>([])
+  const [clienteTarifas, setClienteTarifas] = useState<TarifaCliente[]>([])
+  const [loadingTarifas, setLoadingTarifas] = useState(false)
   const [loading,       setLoading]       = useState(true)
   const currentYear = new Date().getFullYear()
   const [yearFilter,    setYearFilter]    = useState(currentYear)
@@ -147,10 +150,29 @@ export default function MovimientosPage() {
     setLoadingItems(false)
   }, [])
 
+  // Cargar tarifas del cliente — clientes con más de una (ej. PROQUIMIN) deben
+  // elegir a cuál pertenece el movimiento; con una sola se asigna sola.
+  const fetchTarifasParaCliente = useCallback(async (clienteId: string): Promise<TarifaCliente[]> => {
+    setLoadingTarifas(true)
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("tarifas_cliente")
+      .select("*")
+      .eq("cliente_id", clienteId)
+      .eq("activo", true)
+      .order("clase_imo")
+    if (error) console.error("[movimientos] error obteniendo tarifas del cliente:", error)
+    const tarifas = (data as TarifaCliente[]) ?? []
+    setClienteTarifas(tarifas)
+    setLoadingTarifas(false)
+    return tarifas
+  }, [])
+
   // ── Acciones ───────────────────────────────────────────────────────────────
   function openNew(tipo: MovimientoTipo) {
     setForm(EMPTY_FORM(tipo))
     setClienteItems([])
+    setClienteTarifas([])
     setError(null)
     setManifiestoOpen(false)
     setDialog(tipo)
@@ -165,6 +187,7 @@ export default function MovimientosPage() {
       carga:              m.carga,
       area:               m.area,
       inventario_item_id: m.inventario_item_id,
+      tarifa_cliente_id:  m.tarifa_cliente_id,
       unidades:           m.unidades,
       operador:           m.operador ?? "",
       estado:             m.estado,
@@ -183,23 +206,36 @@ export default function MovimientosPage() {
       report_id:          m.report_id,
       created_by:         m.created_by,
     })
-    if (m.cliente_id) fetchItemsParaCliente(m.cliente_id)
-    else setClienteItems([])
+    if (m.cliente_id) {
+      fetchItemsParaCliente(m.cliente_id)
+      fetchTarifasParaCliente(m.cliente_id)
+    } else {
+      setClienteItems([])
+      setClienteTarifas([])
+    }
     setError(null)
     setManifiestoOpen(!!(m.codigo || m.imo || m.un || m.cas || m.lote || m.fecha_elaboracion || m.fecha_vencimiento || m.peso_envase || m.tipo_envase || m.posiciones))
     setDialog(m)
   }
 
-  function handleClienteChange(clienteId: string) {
+  async function handleClienteChange(clienteId: string) {
     const c = clientes.find(x => x.id === clienteId)
     setForm(p => ({
       ...p,
       cliente_id:         clienteId || null,
       cliente_nombre:     c?.nombre ?? null,
       inventario_item_id: null,
+      tarifa_cliente_id:  null,
     }))
-    if (clienteId) fetchItemsParaCliente(clienteId)
-    else setClienteItems([])
+    if (clienteId) {
+      fetchItemsParaCliente(clienteId)
+      const tarifas = await fetchTarifasParaCliente(clienteId)
+      // Un solo contrato activo → se asigna sola, sin pedirle nada al usuario.
+      if (tarifas.length === 1) setForm(p => ({ ...p, tarifa_cliente_id: tarifas[0].id }))
+    } else {
+      setClienteItems([])
+      setClienteTarifas([])
+    }
   }
 
   async function marcarCompletado(m: Movimiento) {
@@ -212,6 +248,10 @@ export default function MovimientosPage() {
 
   async function handleSave() {
     if (!form.carga.trim()) { setError("La descripción de carga es obligatoria"); return }
+    if (form.servicio === "Almacenaje" && clienteTarifas.length > 1 && !form.tarifa_cliente_id) {
+      setError("Este cliente tiene varios contratos — indica a cuál tarifa pertenece este movimiento.")
+      return
+    }
     setSaving(true); setError(null)
 
     const payload: MovimientoInsert = {
@@ -621,6 +661,27 @@ export default function MovimientosPage() {
             {/* Ítem de inventario (solo Almacenaje) */}
             {form.servicio === "Almacenaje" && (
               <>
+                {clienteTarifas.length > 1 && (
+                  <div className="col-span-2 space-y-1.5">
+                    <Label className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
+                      Tarifa / Clase *
+                      <span className="text-muted-foreground font-normal ml-1 normal-case">
+                        este cliente tiene {clienteTarifas.length} contratos en paralelo — indica a cuál pertenece
+                      </span>
+                    </Label>
+                    <select
+                      value={form.tarifa_cliente_id ?? ""}
+                      onChange={e => setForm(p => ({ ...p, tarifa_cliente_id: e.target.value || null }))}
+                      className="h-9 w-full rounded-md border border-amber-400 bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="">Selecciona a cuál tarifa pertenece</option>
+                      {clienteTarifas.map(t => (
+                        <option key={t.id} value={t.id}>{t.clase_imo ?? t.cotizacion_numero}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div className="col-span-2 space-y-1.5">
                   <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Ítem de inventario
@@ -841,7 +902,7 @@ export default function MovimientosPage() {
             <Button variant="outline" size="sm" onClick={() => setDialog(null)}>Cancelar</Button>
             <Button
               size="sm"
-              disabled={saving || !form.carga.trim()}
+              disabled={saving || !form.carga.trim() || (form.servicio === "Almacenaje" && clienteTarifas.length > 1 && !form.tarifa_cliente_id)}
               onClick={handleSave}
               className={cn(
                 "gap-1.5 text-white",

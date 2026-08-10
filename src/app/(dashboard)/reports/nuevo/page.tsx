@@ -16,10 +16,11 @@ import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSett
 interface FormData extends ReportFormData {
   cliente_id:              string
   sec3_inventario_item_id: string
+  tarifa_cliente_id:       string
 }
 
 const INITIAL: FormData = {
-  cliente: "", cliente_id: "", fecha: new Date().toISOString().split("T")[0], patente: "", conductor: "",
+  cliente: "", cliente_id: "", tarifa_cliente_id: "", fecha: new Date().toISOString().split("T")[0], patente: "", conductor: "",
   rut_conductor: "", empresa_transporte: "", transporte_tipo: "externo", hds_header: false,
   sec1_activa: false, sec1_tipo_movimiento: "", sec1_tipo_contenedor: "", sec1_carga_normal: false,
   sec1_carga_imo: false, sec1_clase_imo: "", sec1_nu: "", sec1_hora_inicio: "", sec1_hora_termino: "",
@@ -104,6 +105,58 @@ function ClienteCombobox({ value, onChange, onChangeId }: {
         </div>
       )}
     </div>
+  )
+}
+
+interface TarifaOption { id: string; clase_imo: string | null; cotizacion_numero: string }
+
+// Clientes con más de una tarifa en paralelo (ej. PROQUIMIN) deben elegir a
+// cuál pertenece este report — de lo contrario el movimiento auto-generado al
+// despachar quedaría sin saber a qué contrato facturarlo. Con una sola
+// tarifa activa se asigna sola, sin pedirle nada al operador.
+function TarifaSelect({ clienteId, value, onChange, onCountChange }: {
+  clienteId: string
+  value: string
+  onChange: (id: string) => void
+  onCountChange?: (count: number) => void
+}) {
+  const [tarifas, setTarifas] = useState<TarifaOption[]>([])
+
+  useEffect(() => {
+    setTarifas([])
+    if (!clienteId) { onCountChange?.(0); return }
+    createClient()
+      .from("tarifas_cliente")
+      .select("id, clase_imo, cotizacion_numero")
+      .eq("cliente_id", clienteId)
+      .eq("activo", true)
+      .order("clase_imo")
+      .then(({ data }) => {
+        const list = (data as TarifaOption[]) ?? []
+        setTarifas(list)
+        onCountChange?.(list.length)
+      })
+  }, [clienteId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (tarifas.length === 1) onChange(tarifas[0].id)
+  }, [tarifas]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (tarifas.length <= 1) return null
+
+  return (
+    <Field label="Tarifa / Clase" required className="col-span-1 sm:col-span-3">
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="h-8 w-full rounded-md border border-amber-400 bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+      >
+        <option value="">Este cliente tiene {tarifas.length} contratos — selecciona a cuál pertenece</option>
+        {tarifas.map(t => (
+          <option key={t.id} value={t.id}>{t.clase_imo ?? t.cotizacion_numero}</option>
+        ))}
+      </select>
+    </Field>
   )
 }
 
@@ -197,6 +250,7 @@ export default function NuevoReportPage() {
   const router = useRouter()
   const { user, profile } = useAuth()
   const [form,    setForm]    = useState<FormData>(INITIAL)
+  const [tarifasCount, setTarifasCount] = useState(0)
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
   const [hdsFiles,    setHdsFiles]    = useState<File[]>([])
@@ -260,6 +314,7 @@ export default function NuevoReportPage() {
     return {
       estado,
       cliente:            form.cliente,
+      tarifa_cliente_id:  form.tarifa_cliente_id || null,
       fecha:              form.fecha,
       patente:            form.patente,
       conductor:          form.conductor,
@@ -316,6 +371,10 @@ export default function NuevoReportPage() {
   async function handleSave(estado: "borrador" | "pendiente_despacho") {
     if (!form.cliente || !form.patente || !form.conductor) {
       setError("Cliente, patente y conductor son obligatorios.")
+      return
+    }
+    if (tarifasCount > 1 && !form.tarifa_cliente_id) {
+      setError("Este cliente tiene varios contratos — selecciona a cuál tarifa pertenece este report.")
       return
     }
     setError(null)
@@ -484,6 +543,7 @@ export default function NuevoReportPage() {
                     onChangeId={id => setForm(prev => ({
                       ...prev,
                       cliente_id: id,
+                      tarifa_cliente_id: "",
                       sec3_inventario_item_id: "",
                       sec3_producto: "",
                       sec3_clase_imo: "",
@@ -491,6 +551,12 @@ export default function NuevoReportPage() {
                     }))}
                   />
                 </Field>
+                <TarifaSelect
+                  clienteId={form.cliente_id}
+                  value={form.tarifa_cliente_id}
+                  onChange={id => set("tarifa_cliente_id", id)}
+                  onCountChange={setTarifasCount}
+                />
                 <Field label="Fecha">
                   <Input type="date" value={form.fecha} onChange={e => set("fecha", e.target.value)} className="h-8 text-xs" />
                 </Field>
