@@ -14,10 +14,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   FileSpreadsheet, Search, Settings2, CheckCircle2,
   AlertCircle, Loader2, ChevronRight, ChevronLeft, ChevronDown, FileText, RefreshCw, Download, Wrench,
-  Calendar as CalendarIcon, Trash2, Pencil,
+  Calendar as CalendarIcon, Trash2, Pencil, Mail,
 } from "lucide-react"
 import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente, ServicioClienteInsert } from "@/types/database"
-import { computeHES, computeBilling, type MovRaw, type HesResult } from "@/lib/hes-calc"
+import { computeHES, computeBilling, getPeriodRange, type MovRaw, type HesResult, type BillingResult } from "@/lib/hes-calc"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -85,8 +85,18 @@ function fmtCellValue(cell: ExcelJS.Cell): string {
 async function buildPreviewSheet(buffer: ArrayBuffer): Promise<PreviewSheet> {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buffer)
-  const ws = wb.worksheets[0]
+  return renderSheet(wb, wb.worksheets[0])
+}
 
+// Modo unificado: el .xlsx trae una hoja por tarifa/CI + "Resumen general" —
+// se parsean todas para poder cambiar entre ellas en la vista previa.
+async function buildAllPreviewSheets(buffer: ArrayBuffer): Promise<{ name: string; sheet: PreviewSheet }[]> {
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(buffer)
+  return wb.worksheets.map(ws => ({ name: ws.name, sheet: renderSheet(wb, ws) }))
+}
+
+function renderSheet(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet): PreviewSheet {
   const colToNum = (s: string) => s.split("").reduce((a, ch) => a * 26 + (ch.charCodeAt(0) - 64), 0)
 
   type Span = { rowSpan: number; colSpan: number }
@@ -191,8 +201,11 @@ function TarifaDialog({
     cliente_id:            clienteId,
     cotizacion_numero:     existing?.cotizacion_numero     ?? "",
     clase_imo:             existing?.clase_imo             ?? "",
+    moneda:                existing?.moneda                ?? "UF",
     tarifa_almacenaje_uf:  existing?.tarifa_almacenaje_uf  ?? null,
     tarifa_inout_uf:       existing?.tarifa_inout_uf       ?? 0.06,
+    tarifa_almacenaje_clp: existing?.tarifa_almacenaje_clp ?? null,
+    tarifa_inout_clp:      existing?.tarifa_inout_clp      ?? null,
     tarifa_descons_20_uf:  existing?.tarifa_descons_20_uf  ?? null,
     tarifa_descons_40_uf:  existing?.tarifa_descons_40_uf  ?? null,
     tarifa_consolid_40_uf: existing?.tarifa_consolid_40_uf ?? null,
@@ -201,6 +214,7 @@ function TarifaDialog({
     facturacion_minima_uf: existing?.facturacion_minima_uf ?? null,
     activo: true,
   })
+  const isClp = form.moneda === "CLP"
 
   function setField<K extends keyof TarifaClienteInsert>(k: K, v: TarifaClienteInsert[K]) {
     setForm(prev => ({ ...prev, [k]: v }))
@@ -262,11 +276,68 @@ function TarifaDialog({
           </div>
 
           <div className="border-t border-border/40 pt-3">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tarifas (en UF)</p>
+            <div className="space-y-1 mb-3">
+              <Label className={labelCls}>Moneda de almacenaje / in-out</Label>
+              <div className="inline-flex rounded-md border border-border/50 overflow-hidden">
+                {(["UF", "CLP"] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setField("moneda", m)}
+                    className={cn(
+                      "px-3 py-1.5 text-[12px] font-medium transition-colors",
+                      form.moneda === m ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {m === "UF" ? "UF" : "Pesos ($)"}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground/70">
+                {isClp
+                  ? "Este cliente factura almacenaje e in/out en pesos fijos, no indexados a la UF (ej. BASF)."
+                  : "La mayoría de los clientes factura en UF — cambia a Pesos solo si el contrato es en $ fijos."}
+              </p>
+            </div>
+
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tarifas</p>
             <div className="grid grid-cols-2 gap-3">
+              {isClp ? (
+                <>
+                  <div className="space-y-1">
+                    <Label className={labelCls}>Almacenaje ($/pallet/día)</Label>
+                    <Input className={fieldCls} type="number" step="1"
+                      value={form.tarifa_almacenaje_clp ?? ""}
+                      onChange={e => setField("tarifa_almacenaje_clp", num(e.target.value))}
+                      placeholder="Ej: 842" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className={labelCls}>IN / OUT ($/pallet)</Label>
+                    <Input className={fieldCls} type="number" step="1"
+                      value={form.tarifa_inout_clp ?? ""}
+                      onChange={e => setField("tarifa_inout_clp", num(e.target.value))}
+                      placeholder="Ej: 2806" />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <Label className={labelCls}>Almacenaje (UF/pallet/día)</Label>
+                    <Input className={fieldCls} type="number" step="0.0001"
+                      value={form.tarifa_almacenaje_uf ?? ""}
+                      onChange={e => setField("tarifa_almacenaje_uf", num(e.target.value))}
+                      placeholder="Ej: 0.0045" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className={labelCls}>IN / OUT (UF/pallet)</Label>
+                    <Input className={fieldCls} type="number" step="0.0001"
+                      value={form.tarifa_inout_uf ?? ""}
+                      onChange={e => setField("tarifa_inout_uf", num(e.target.value))}
+                      placeholder="Ej: 0.06" />
+                  </div>
+                </>
+              )}
               {[
-                { label: "Almacenaje (UF/pallet/día)",      key: "tarifa_almacenaje_uf",  ph: "Ej: 0.0045" },
-                { label: "IN / OUT (UF/pallet)",             key: "tarifa_inout_uf",       ph: "Ej: 0.06"   },
                 { label: "Desconsolidación 20\" (UF/cont)", key: "tarifa_descons_20_uf",  ph: "Ej: 3.5"    },
                 { label: "Desconsolidación 40\" (UF/cont)", key: "tarifa_descons_40_uf",  ph: "Ej: 5.0"    },
                 { label: "Consolidación 40\" (UF/cont)",    key: "tarifa_consolid_40_uf", ph: "Ej: 4.0"    },
@@ -462,11 +533,22 @@ function PreviewDialog({
   clienteNombre, activeTab, onTabChange,
   resumenLoading, resumenError, resumenUrl,
   loading, error, sheet,
-  onClose, onDownload, downloading,
+  onClose, onDownload, downloading, onOpenSend,
+  isUnificado, unifiedResults, unifiedServiciosBilling, unifiedTotalCLP, unifiedLoading, unifiedError,
+  previewSheets, activeSheetIdx, onActiveSheetChange,
 }: {
   clienteNombre: string
   activeTab: "resumen" | "detalle"
   onTabChange: (tab: "resumen" | "detalle") => void
+  isUnificado: boolean
+  unifiedResults: { tarifa: TarifaCliente; hes: HesResult; billing: BillingResult }[]
+  unifiedServiciosBilling: BillingResult | null
+  unifiedTotalCLP: number
+  unifiedLoading: boolean
+  unifiedError: string | null
+  previewSheets: { name: string; sheet: PreviewSheet }[]
+  activeSheetIdx: number
+  onActiveSheetChange: (i: number) => void
   resumenLoading: boolean
   resumenError:   string | null
   resumenUrl:     string | null
@@ -475,9 +557,13 @@ function PreviewDialog({
   sheet:    PreviewSheet | null
   onClose:  () => void
   onDownload: () => void
+  onOpenSend: () => void
   downloading: boolean
 }) {
-  const ready = activeTab === "resumen" ? (!resumenLoading && !!resumenUrl) : (!loading && !!sheet)
+  const activeSheet = previewSheets[activeSheetIdx]?.sheet ?? sheet
+  const ready = activeTab === "resumen"
+    ? (!resumenLoading && !!resumenUrl)
+    : (!loading && !!activeSheet)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -542,24 +628,43 @@ function PreviewDialog({
                 <AlertCircle className="h-8 w-8 text-amber-500/60" />
                 <p className="text-[12px]">{error}</p>
               </div>
-            ) : sheet ? (
-              <div className="bg-card rounded-lg border border-border/40 shadow-sm inline-block p-2 max-w-full overflow-auto">
+            ) : activeSheet ? (
+              <div className="space-y-3">
+                {previewSheets.length > 1 && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {previewSheets.map((s, i) => (
+                      <button
+                        key={s.name}
+                        onClick={() => onActiveSheetChange(i)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors border",
+                          i === activeSheetIdx
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border/50 hover:text-foreground"
+                        )}
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="bg-card rounded-lg border border-border/40 shadow-sm inline-block p-2 max-w-full overflow-auto">
                 <div className="relative" style={{ width: "fit-content" }}>
-                  {sheet.logo && (
+                  {activeSheet.logo && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={sheet.logo.dataUrl}
+                      src={activeSheet.logo.dataUrl}
                       alt="Logo ADP"
                       className="absolute pointer-events-none"
-                      style={{ left: sheet.logo.leftPx, top: sheet.logo.topPx, width: sheet.logo.width, height: sheet.logo.height }}
+                      style={{ left: activeSheet.logo.leftPx, top: activeSheet.logo.topPx, width: activeSheet.logo.width, height: activeSheet.logo.height }}
                     />
                   )}
                   <table style={{ borderCollapse: "collapse", tableLayout: "fixed" }}>
                     <colgroup>
-                      {sheet.colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
+                      {activeSheet.colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
                     </colgroup>
                     <tbody>
-                      {sheet.rows.map((row, i) => (
+                      {activeSheet.rows.map((row, i) => (
                         <tr key={i} style={{ height: row.height }}>
                           {row.cells.map(cell => (
                             <td key={cell.key} rowSpan={cell.rowSpan} colSpan={cell.colSpan}
@@ -572,6 +677,7 @@ function PreviewDialog({
                     </tbody>
                   </table>
                 </div>
+                </div>
               </div>
             ) : null
           )}
@@ -579,12 +685,181 @@ function PreviewDialog({
 
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-border/40 flex-shrink-0">
           <Button variant="ghost" size="sm" onClick={onClose} className="h-8 text-[12px]">Cerrar</Button>
+          <Button variant="outline" size="sm" onClick={onOpenSend} className="h-8 gap-1.5 text-[12px]">
+            <Mail className="h-3.5 w-3.5" /> Enviar HES
+          </Button>
           <Button size="sm" onClick={onDownload} disabled={downloading || !ready}
             className="h-8 gap-1.5 text-[12px] bg-emerald-600 hover:bg-emerald-700 text-white">
             {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             {activeTab === "resumen" ? "Descargar PDF" : "Descargar Excel"}
           </Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Popup para enviar el HES por correo al email de contacto del cliente ────
+function EnviarHesDialog({ clienteNombre, emails, onClose, onSend }: {
+  clienteNombre: string
+  emails: string[]
+  onClose: () => void
+  onSend: (adjuntos: { resumen: boolean; detalle: boolean }) => Promise<{ success: boolean; error?: string; enviadoA?: string[] }>
+}) {
+  const [resumen, setResumen] = useState(true)
+  const [detalle, setDetalle] = useState(true)
+  const [sending, setSending] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+  const [sentTo,  setSentTo]  = useState<string[] | null>(null)
+
+  async function handleSend() {
+    setSending(true); setError(null)
+    const res = await onSend({ resumen, detalle })
+    setSending(false)
+    if (res.success) setSentTo(res.enviadoA ?? emails)
+    else setError(res.error ?? "No se pudo enviar el correo.")
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[420px]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
+          <div>
+            <h2 className="text-[14px] font-semibold">Enviar HES por correo</h2>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{clienteNombre}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
+        </div>
+
+        {sentTo ? (
+          <div className="p-6 flex flex-col items-center gap-2 text-center">
+            <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+            <p className="text-[12px]">Correo enviado a {sentTo.join(", ")}.</p>
+          </div>
+        ) : (
+          <div className="p-5 space-y-3">
+            {emails.length === 0 ? (
+              <p className="text-[12px] text-amber-600">Este cliente no tiene un email de contacto registrado.</p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                Destinatario(s): <span className="text-foreground">{emails.join(", ")}</span>
+              </p>
+            )}
+            <div className="space-y-2 pt-1">
+              <label className="flex items-center gap-2 text-[12px] cursor-pointer">
+                <input type="checkbox" checked={resumen} onChange={e => setResumen(e.target.checked)} />
+                Resumen (PDF)
+              </label>
+              <label className="flex items-center gap-2 text-[12px] cursor-pointer">
+                <input type="checkbox" checked={detalle} onChange={e => setDetalle(e.target.checked)} />
+                Detalle (Excel)
+              </label>
+            </div>
+            {error && <p className="text-[11px] text-destructive">{error}</p>}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-border/40">
+          <Button variant="ghost" size="sm" onClick={onClose} className="h-8 text-[12px]">
+            {sentTo ? "Cerrar" : "Cancelar"}
+          </Button>
+          {!sentTo && (
+            <Button size="sm" onClick={handleSend} disabled={sending || emails.length === 0 || (!resumen && !detalle)}
+              className="h-8 gap-1.5 text-[12px]">
+              {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+              Enviar
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Vista apilada del modo "Ver todas" — una tarjeta de cobro por tarifa/CI
+// + servicios a nivel cliente + total general. Se usa en la pantalla
+// principal y dentro de la pestaña "Resumen" de la vista previa. ──────────────
+function UnifiedResumenCards({ results, serviciosBilling, totalCLP, loading, error }: {
+  results: { tarifa: TarifaCliente; hes: HesResult; billing: BillingResult }[]
+  serviciosBilling: BillingResult | null
+  totalCLP: number
+  loading: boolean
+  error:   string | null
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-4">
+      {error && (
+        <p className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg border border-destructive/20">{error}</p>
+      )}
+      {results.map(({ tarifa: t, hes: h, billing: b }) => (
+        <div key={t.id} className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/20">
+            <span className="text-[12px] font-semibold">{t.clase_imo ?? t.cotizacion_numero}</span>
+            <span className="text-[11px] text-muted-foreground">{h.palletDays.toLocaleString("es-CL")} pallet-días · {h.totalIngresos} in · {h.totalDespachos} out</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px] min-w-[480px]">
+              <thead>
+                <tr className="border-b border-border/30 bg-muted/10">
+                  <th className="text-left px-4 py-1.5 font-medium text-muted-foreground">Descripción</th>
+                  <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">Cantidad</th>
+                  <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">Tarifa</th>
+                  <th className="text-right px-4 py-1.5 font-medium text-muted-foreground">Total ($)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {b.rows.length === 0 ? (
+                  <tr><td colSpan={4} className="px-4 py-3 text-center text-muted-foreground text-[11px]">Sin movimientos este período</td></tr>
+                ) : b.rows.map((r, i) => (
+                  <tr key={i} className="border-b border-border/20">
+                    <td className="px-4 py-1.5">{r.label}</td>
+                    <td className="text-right px-3 py-1.5 font-mono">{r.qty.toLocaleString("es-CL")} <span className="text-muted-foreground text-[10px]">{r.unit}</span></td>
+                    <td className="text-right px-3 py-1.5 font-mono">{r.moneda === "CLP" ? fmtCLP(r.tarifa) : `${fmtUF(r.tarifa)} UF`}</td>
+                    <td className="text-right px-4 py-1.5 font-mono">{fmtCLP(r.totalCLP)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border/60 bg-primary/5 font-bold">
+                  <td colSpan={3} className="px-4 py-2 text-[12px]">TOTAL {t.clase_imo ?? ""}</td>
+                  <td className="text-right px-4 py-2 font-mono text-[12px] text-primary">{fmtCLP(b.finalCLP)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      ))}
+
+      {serviciosBilling && serviciosBilling.rows.length > 0 && (
+        <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-border/30 bg-muted/20">
+            <span className="text-[12px] font-semibold">Servicios adicionales (a nivel cliente)</span>
+          </div>
+          <table className="w-full text-[12px]">
+            <tbody>
+              {serviciosBilling.rows.map((r, i) => (
+                <tr key={i} className="border-b border-border/20">
+                  <td className="px-4 py-1.5">{r.label}</td>
+                  <td className="text-right px-3 py-1.5 font-mono">{r.qty.toLocaleString("es-CL")} <span className="text-muted-foreground text-[10px]">{r.unit}</span></td>
+                  <td className="text-right px-4 py-1.5 font-mono">{fmtCLP(r.totalCLP)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="bg-primary/5 rounded-xl border-2 border-primary/30 px-6 py-4 flex items-center justify-between">
+        <span className="text-sm font-bold">TOTAL GENERAL</span>
+        <span className="text-lg font-bold text-primary font-mono">{fmtCLP(totalCLP)}</span>
       </div>
     </div>
   )
@@ -618,25 +893,43 @@ export default function HesPage() {
   const [tarifasLoading,   setTarifasLoading]   = useState(false)
   const [exporting,        setExporting]        = useState(false)
   const [showPreview,      setShowPreview]      = useState(false)
+  const [showSendDialog,   setShowSendDialog]   = useState(false)
   const [previewTab,       setPreviewTab]       = useState<"resumen" | "detalle">("resumen")
   const [previewLoading,   setPreviewLoading]   = useState(false)
   const [previewError,     setPreviewError]     = useState<string | null>(null)
   const [previewSheet,     setPreviewSheet]     = useState<PreviewSheet | null>(null)
   const [previewBlob,      setPreviewBlob]      = useState<Blob | null>(null)
+  // Modo unificado: varias hojas (una por tarifa/CI + resumen general) en el mismo archivo
+  const [previewSheets,    setPreviewSheets]    = useState<{ name: string; sheet: PreviewSheet }[]>([])
+  const [activeSheetIdx,   setActiveSheetIdx]   = useState(0)
   const [resumenLoading,   setResumenLoading]   = useState(false)
   const [resumenError,     setResumenError]     = useState<string | null>(null)
   const [resumenUrl,       setResumenUrl]       = useState<string | null>(null)
   const [resumenBlob,      setResumenBlob]      = useState<Blob | null>(null)
   const [clientesLoaded,   setClientesLoaded]   = useState(false)
   const [tarifaMap,        setTarifaMap]        = useState<Record<string, boolean>>({})
+  const [unifiedResults,   setUnifiedResults]   = useState<{ tarifa: TarifaCliente; hes: HesResult; billing: BillingResult }[]>([])
+  const [unifiedLoading,   setUnifiedLoading]   = useState(false)
+  const [unifiedError,     setUnifiedError]     = useState<string | null>(null)
 
-  // Tarifa actualmente seleccionada (derivada)
+  const TODAS = "__todas__"
+  const isUnificado = selectedTarifaId === TODAS
+
+  // Tarifa actualmente seleccionada (derivada) — null en modo "Ver todas"
   const tarifa = useMemo<TarifaCliente | null>(
-    () => tarifas.find(t => t.id === selectedTarifaId) ?? tarifas[0] ?? null,
-    [tarifas, selectedTarifaId]
+    () => isUnificado ? null : (tarifas.find(t => t.id === selectedTarifaId) ?? tarifas[0] ?? null),
+    [tarifas, selectedTarifaId, isUnificado]
   )
 
   const selectedCliente = useMemo(() => clientes.find(c => c.id === selectedId) ?? null, [clientes, selectedId])
+
+  // Ciclo de facturación del cliente (por defecto mes calendario). Clientes
+  // como PROQUIMIN facturan en ciclos rodantes (ej. 26 de un mes a 25 del
+  // siguiente) — ver dia_corte_facturacion en la tabla clientes.
+  const periodo = useMemo(
+    () => getPeriodRange(selectedYear, selectedMonth, selectedCliente?.dia_corte_facturacion ?? 1),
+    [selectedYear, selectedMonth, selectedCliente]
+  )
 
   // ── Fetch UF de la fecha seleccionada ───────────────────────────────────────
   // 1) caché en Supabase (uf_valores) — la UF de un día pasado nunca cambia,
@@ -762,7 +1055,7 @@ export default function HesPage() {
   useEffect(() => {
     const supabase = createClient()
     Promise.all([
-      supabase.from("clientes").select("id, nombre, rut, emails, contacto").eq("activo", true).order("nombre"),
+      supabase.from("clientes").select("id, nombre, rut, emails, contacto, dia_corte_facturacion").eq("activo", true).order("nombre"),
       supabase.from("tarifas_cliente").select("cliente_id").eq("activo", true),
     ]).then(([{ data: cls }, { data: tars }]) => {
       setClientes((cls ?? []) as unknown as Cliente[])
@@ -782,7 +1075,7 @@ export default function HesPage() {
       .then(({ data }) => {
         const list = (data ?? []) as TarifaCliente[]
         setTarifas(list)
-        setSelectedTarifaId(list[0]?.id ?? null)
+        setSelectedTarifaId(list.length > 1 ? TODAS : (list[0]?.id ?? null))
         setTarifasLoading(false)
       })
   }, [selectedId])
@@ -807,30 +1100,77 @@ export default function HesPage() {
 
   // ── Load movimientos for selected client + year ────────────────────────────
   const loadMovimientos = useCallback(async () => {
-    if (!selectedId) return
+    if (!selectedId || !tarifa) { setMovs([]); return }
     setLoading(true)
     setMovs([])  // reset to prevent stale prior-client data during fetch
     const supabase = createClient()
-    // Use first instant of next month with .lt() to include the entire last day
-    const nextMonth = new Date(selectedYear, selectedMonth + 1, 1)
-    const { data } = await supabase
+    // Use first instant of the day after the period's last day with .lt() to
+    // include the entire last day (el período puede no coincidir con el mes
+    // calendario si el cliente tiene un día de corte propio, ej. PROQUIMIN).
+    const [endY, endM, endD] = periodo.end.split("-").map(Number)
+    const nextDay = new Date(endY, endM - 1, endD + 1)
+    let query = supabase
       .from("movimientos")
       .select("id, numero, tipo, unidades, operador, fecha, report_id, reports(numero, sec1_guia_numero, sec3_numero_guia)")
       .eq("cliente_id", selectedId)
-      .lt("fecha", nextMonth.toISOString())
-      .order("fecha")
+      .lt("fecha", nextDay.toISOString())
+    // Clientes con más de una tarifa en paralelo (ej. PROQUIMIN) deben tener
+    // sus movimientos etiquetados con a cuál pertenecen — de lo contrario se
+    // mezclarían pallets de productos distintos en un mismo HES. Con una sola
+    // tarifa activa, se incluyen también movimientos viejos sin etiquetar.
+    query = tarifas.length > 1
+      ? query.eq("tarifa_cliente_id", tarifa.id)
+      : query.or(`tarifa_cliente_id.eq.${tarifa.id},tarifa_cliente_id.is.null`)
+    const { data } = await query.order("fecha")
     setMovs((data as unknown as MovRaw[]) ?? [])
     setLoading(false)
-  }, [selectedId, selectedMonth, selectedYear])
+  }, [selectedId, periodo, tarifa, tarifas.length])
 
   useEffect(() => { loadMovimientos() }, [loadMovimientos])
+
+  // ── Modo "Ver todas" — calcula HES+cobro para cada tarifa del cliente ──────
+  const loadUnificado = useCallback(async () => {
+    if (!selectedId || !isUnificado || tarifas.length === 0) { setUnifiedResults([]); return }
+    setUnifiedLoading(true)
+    setUnifiedError(null)
+    const supabase = createClient()
+    const [endY, endM, endD] = periodo.end.split("-").map(Number)
+    const nextDay = new Date(endY, endM - 1, endD + 1)
+    try {
+      const results = await Promise.all(tarifas.map(async t => {
+        let query = supabase
+          .from("movimientos")
+          .select("id, numero, tipo, unidades, operador, fecha, report_id, reports(numero, sec1_guia_numero, sec3_numero_guia)")
+          .eq("cliente_id", selectedId)
+          .lt("fecha", nextDay.toISOString())
+        query = tarifas.length > 1
+          ? query.eq("tarifa_cliente_id", t.id)
+          : query.or(`tarifa_cliente_id.eq.${t.id},tarifa_cliente_id.is.null`)
+        const { data } = await query.order("fecha")
+        const movs = (data as unknown as MovRaw[]) ?? []
+        const tarifaAlmacenaje = t.moneda === "CLP" ? (t.tarifa_almacenaje_clp ?? 0) : (t.tarifa_almacenaje_uf ?? 0)
+        const hesResult = computeHES(movs, periodo.start, periodo.end, tarifaAlmacenaje)
+        // Los servicios adicionales son a nivel cliente, no por tarifa — no se
+        // duplican en cada tarjeta, se muestran una sola vez en el total general.
+        const billingResult = computeBilling(hesResult, t, parseFloat(ufValue) || 0, [], {})
+        return { tarifa: t, hes: hesResult, billing: billingResult }
+      }))
+      setUnifiedResults(results)
+    } catch {
+      setUnifiedError("No se pudieron calcular todas las tarifas.")
+    } finally {
+      setUnifiedLoading(false)
+    }
+  }, [selectedId, periodo, tarifas, isUnificado, ufValue])
+
+  useEffect(() => { loadUnificado() }, [loadUnificado])
 
   // ── Compute HES ────────────────────────────────────────────────────────────
   const hes = useMemo<HesResult | null>(() => {
     if (!selectedId || movs.length === 0) return null
-    const tarifaAlmacenaje = tarifa?.tarifa_almacenaje_uf ?? 0
-    return computeHES(movs, selectedYear, selectedMonth, tarifaAlmacenaje)
-  }, [movs, selectedId, selectedYear, selectedMonth, tarifa])
+    const tarifaAlmacenaje = tarifa?.moneda === "CLP" ? (tarifa?.tarifa_almacenaje_clp ?? 0) : (tarifa?.tarifa_almacenaje_uf ?? 0)
+    return computeHES(movs, periodo.start, periodo.end, tarifaAlmacenaje)
+  }, [movs, selectedId, periodo, tarifa])
 
   // ── Billing summary ────────────────────────────────────────────────────────
   const billing = useMemo(() => {
@@ -841,6 +1181,28 @@ export default function HesPage() {
     }
     return computeBilling(hes, tarifa, parseFloat(ufValue) || 0, servicios, seleccion)
   }, [hes, tarifa, ufValue, servicios, srvCantidades, srvChecked])
+
+  // ── Modo "Ver todas" — servicios (a nivel cliente) + total general ─────────
+  const unifiedServiciosBilling = useMemo(() => {
+    if (!isUnificado) return null
+    const seleccion: Record<string, { cantidad: number; checked: boolean }> = {}
+    for (const srv of servicios) {
+      seleccion[srv.id] = { cantidad: srvCantidades[srv.id] ?? 0, checked: srvChecked[srv.id] ?? true }
+    }
+    const emptyHes: HesResult = { palletDays: 0, totalIngresos: 0, totalDespachos: 0, dailyLog: [] }
+    const dummyTarifa = { moneda: "UF", tarifa_almacenaje_uf: null, tarifa_inout_uf: null, tarifa_almacenaje_clp: null, tarifa_inout_clp: null, facturacion_minima_uf: null } as unknown as TarifaCliente
+    return computeBilling(emptyHes, dummyTarifa, parseFloat(ufValue) || 0, servicios, seleccion)
+  }, [isUnificado, servicios, srvCantidades, srvChecked, ufValue])
+
+  const unifiedTotalCLP = useMemo(
+    () => unifiedResults.reduce((s, r) => s + r.billing.finalCLP, 0) + (unifiedServiciosBilling?.finalCLP ?? 0),
+    [unifiedResults, unifiedServiciosBilling]
+  )
+
+  const unifiedTotalUF = useMemo(
+    () => unifiedResults.reduce((s, r) => s + r.billing.finalUF, 0) + (unifiedServiciosBilling?.finalUF ?? 0),
+    [unifiedResults, unifiedServiciosBilling]
+  )
 
   // ── Filtered clients ───────────────────────────────────────────────────────
   const filteredClientes = useMemo(() =>
@@ -863,7 +1225,14 @@ export default function HesPage() {
     const res = await fetch("/api/hes/export", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
+      body:    JSON.stringify(isUnificado ? {
+        clienteId: selectedCliente!.id,
+        tarifaIds: tarifas.map(t => t.id),
+        mes:       selectedMonth,
+        anio:      selectedYear,
+        ufValue,
+        servicioSeleccion,
+      } : {
         clienteId: selectedCliente!.id,
         tarifaId:  tarifa!.id,
         mes:       selectedMonth,
@@ -874,6 +1243,37 @@ export default function HesPage() {
     })
     if (!res.ok) throw new Error("Error al generar Excel")
     return res.blob()
+  }
+
+  // ── Enviar HES por correo al email de contacto del cliente ─────────────────
+  async function handleSendEmail(adjuntos: { resumen: boolean; detalle: boolean }) {
+    if (!selectedCliente) return { success: false, error: "Sin cliente seleccionado." }
+    const servicioSeleccion: Record<string, { cantidad: number; checked: boolean }> = {}
+    for (const s of servicios) {
+      servicioSeleccion[s.id] = { cantidad: srvCantidades[s.id] ?? 0, checked: srvChecked[s.id] ?? true }
+    }
+    try {
+      const res = await fetch("/api/hes/send-email", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(isUnificado ? {
+          clienteId: selectedCliente.id,
+          tarifaIds: tarifas.map(t => t.id),
+          mes: selectedMonth, anio: selectedYear, ufValue, ufDate,
+          servicioSeleccion, adjuntos,
+        } : {
+          clienteId: selectedCliente.id,
+          tarifaId:  tarifa!.id,
+          mes: selectedMonth, anio: selectedYear, ufValue, ufDate,
+          servicioSeleccion, adjuntos,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) return { success: false, error: json.error ?? "No se pudo enviar el correo." }
+      return { success: true, enviadoA: json.enviadoA as string[] }
+    } catch {
+      return { success: false, error: "No se pudo enviar el correo." }
+    }
   }
 
   function triggerBlobDownload(blob: Blob, filename: string) {
@@ -887,29 +1287,66 @@ export default function HesPage() {
 
   // Resumen (PDF): datos de cliente + cobro, sin el detalle día a día — se
   // genera 100% en el cliente, no requiere ida y vuelta al servidor.
+  // En modo "Ver todas" el PDF trae una fila por CI + servicios + total general,
+  // con el mismo formato que el resumen de una sola tarifa.
   async function generateResumen() {
-    if (!selectedCliente || !tarifa || !billing) return
+    if (!selectedCliente) return
+    if (isUnificado ? tarifas.length === 0 : (!tarifa || !billing)) return
     setResumenLoading(true)
     setResumenError(null)
     try {
-      const { pdf }            = await import("@react-pdf/renderer")
-      const { HesResumenPDF }  = await import("@/components/hes/hes-resumen-pdf")
-      const blob = await pdf(
-        <HesResumenPDF data={{
-          cliente: {
-            nombre:   selectedCliente.nombre,
-            rut:      selectedCliente.rut ?? "",
-            emails:   selectedCliente.emails,
-            contacto: selectedCliente.contacto,
-          },
-          tarifa: { cotizacion_numero: tarifa.cotizacion_numero, clase_imo: tarifa.clase_imo },
-          billing,
-          mes: selectedMonth,
-          anio: selectedYear,
-          ufValue,
-          ufDate,
-        }} />
-      ).toBlob()
+      const { pdf } = await import("@react-pdf/renderer")
+      const clienteData = {
+        nombre:   selectedCliente.nombre,
+        rut:      selectedCliente.rut ?? "",
+        emails:   selectedCliente.emails,
+        contacto: selectedCliente.contacto,
+      }
+      let blob: Blob
+      if (isUnificado) {
+        const { HesResumenUnificadoPDF } = await import("@/components/hes/hes-resumen-unificado-pdf")
+        const filas: { label: string; cotizacion: string | null; totalUF: number; totalCLP: number }[] = unifiedResults.map(r => ({
+          label:      r.tarifa.clase_imo ?? r.tarifa.cotizacion_numero,
+          cotizacion: r.tarifa.cotizacion_numero,
+          totalUF:    r.billing.finalUF,
+          totalCLP:   r.billing.finalCLP,
+        }))
+        for (const sr of unifiedServiciosBilling?.rows ?? []) {
+          filas.push({
+            label:      `Servicio: ${sr.label}`,
+            cotizacion: null,
+            totalUF:    sr.moneda === "CLP" ? 0 : sr.totalCLP / (parseFloat(ufValue) || 1),
+            totalCLP:   sr.totalCLP,
+          })
+        }
+        blob = await pdf(
+          <HesResumenUnificadoPDF data={{
+            cliente: clienteData,
+            filas,
+            totalUF:  unifiedTotalUF,
+            totalCLP: unifiedTotalCLP,
+            mes: selectedMonth,
+            anio: selectedYear,
+            ufValue,
+            ufDate,
+            logoSrc: `${window.location.origin}/adp_logo_hd.png`,
+          }} />
+        ).toBlob()
+      } else {
+        const { HesResumenPDF } = await import("@/components/hes/hes-resumen-pdf")
+        blob = await pdf(
+          <HesResumenPDF data={{
+            cliente: clienteData,
+            tarifa: { cotizacion_numero: tarifa!.cotizacion_numero, clase_imo: tarifa!.clase_imo },
+            billing: billing!,
+            mes: selectedMonth,
+            anio: selectedYear,
+            ufValue,
+            ufDate,
+            logoSrc: `${window.location.origin}/adp_logo_hd.png`,
+          }} />
+        ).toBlob()
+      }
       setResumenBlob(blob)
       setResumenUrl(URL.createObjectURL(blob))
     } catch {
@@ -921,15 +1358,18 @@ export default function HesPage() {
 
   // Detalle (Excel): genera el .xlsx real y lo parsea en el cliente para
   // renderizarlo tal cual quedará el archivo descargado (mismas fusiones, colores y formatos).
-  // Se genera solo la primera vez que se selecciona la pestaña (queda en caché).
+  // En modo "Ver todas" el archivo trae varias hojas (resumen general + una por CI).
   async function generateDetalle() {
-    if (!selectedCliente || !tarifa || !billing || !hes) return
+    if (isUnificado ? (tarifas.length === 0) : (!selectedCliente || !tarifa || !billing || !hes)) return
     setPreviewLoading(true)
     setPreviewError(null)
     try {
       const blob = await fetchHesExcel()
       setPreviewBlob(blob)
-      setPreviewSheet(await buildPreviewSheet(await blob.arrayBuffer()))
+      const sheets = await buildAllPreviewSheets(await blob.arrayBuffer())
+      setPreviewSheets(sheets)
+      setActiveSheetIdx(0)
+      setPreviewSheet(sheets[0]?.sheet ?? null)
     } catch {
       setPreviewError("No se pudo generar la vista previa del Excel.")
     } finally {
@@ -939,12 +1379,16 @@ export default function HesPage() {
 
   // Abre la vista previa con la pestaña Resumen por defecto.
   async function openPreview() {
-    if (!selectedCliente || !tarifa || !billing || !hes) return
+    if (isUnificado ? (tarifas.length === 0 || unifiedResults.length === 0) : (!selectedCliente || !tarifa || !billing || !hes)) return
     setShowPreview(true)
     setPreviewTab("resumen")
-    setPreviewError(null); setPreviewSheet(null); setPreviewBlob(null)
+    setPreviewError(null); setPreviewSheet(null); setPreviewBlob(null); setPreviewSheets([]); setActiveSheetIdx(0)
     setResumenError(null); setResumenUrl(null); setResumenBlob(null)
     await generateResumen()
+    // En modo unificado no hay PDF de resumen — el único archivo descargable
+    // es el Excel, así que se pre-genera de una vez (sin esperar a que abran
+    // la pestaña Detalle) para que "Descargar" funcione desde cualquier pestaña.
+    if (isUnificado) await generateDetalle()
   }
 
   function selectPreviewTab(tab: "resumen" | "detalle") {
@@ -960,7 +1404,8 @@ export default function HesPage() {
   }
 
   function handleDownloadFromPreview() {
-    const filenameBase = `HES_${selectedCliente!.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[selectedMonth].toUpperCase()}_${selectedYear}`
+    const suffix = isUnificado ? "_UNIFICADO" : ""
+    const filenameBase = `HES_${selectedCliente!.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[selectedMonth].toUpperCase()}_${selectedYear}${suffix}`
     if (previewTab === "resumen") {
       if (!resumenBlob) return
       setExporting(true)
@@ -1039,7 +1484,26 @@ export default function HesPage() {
           sheet={previewSheet}
           onClose={closePreview}
           onDownload={handleDownloadFromPreview}
+          onOpenSend={() => setShowSendDialog(true)}
           downloading={exporting}
+          isUnificado={isUnificado}
+          unifiedResults={unifiedResults}
+          unifiedServiciosBilling={unifiedServiciosBilling}
+          unifiedTotalCLP={unifiedTotalCLP}
+          unifiedLoading={unifiedLoading}
+          unifiedError={unifiedError}
+          previewSheets={previewSheets}
+          activeSheetIdx={activeSheetIdx}
+          onActiveSheetChange={setActiveSheetIdx}
+        />
+      )}
+
+      {showSendDialog && selectedCliente && (
+        <EnviarHesDialog
+          clienteNombre={selectedCliente.nombre}
+          emails={selectedCliente.emails}
+          onClose={() => setShowSendDialog(false)}
+          onSend={handleSendEmail}
         />
       )}
 
@@ -1111,6 +1575,7 @@ export default function HesPage() {
                     {tarifas.length > 1 && (
                       <select value={selectedTarifaId ?? ""} onChange={e => setSelectedTarifaId(e.target.value)}
                         className="h-7 text-[12px] rounded-md border border-border/50 bg-background px-2 focus:outline-none max-w-[180px]">
+                        <option value={TODAS}>Ver todas ({tarifas.length})</option>
                         {tarifas.map(t => (
                           <option key={t.id} value={t.id}>
                             {t.cotizacion_numero}{t.clase_imo ? ` · Cl.${t.clase_imo}` : ""}
@@ -1133,19 +1598,25 @@ export default function HesPage() {
 
                   {/* Acciones: tarifa + generar HES */}
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <Button variant="outline" size="sm" onClick={() => setTarifaDialog(tarifa ?? null)} className="h-7 gap-1.5 text-[11px]">
-                      <Settings2 className="h-3 w-3" />
-                      {tarifa ? "Editar tarifa" : "Configurar tarifa"}
-                    </Button>
-                    {tarifa && (
-                      <Button variant="ghost" size="sm" onClick={() => setTarifaDialog(null)} className="h-7 gap-1 text-[11px] text-muted-foreground">
-                        + Nueva
-                      </Button>
+                    {!isUnificado && (
+                      <>
+                        <Button variant="outline" size="sm" onClick={() => setTarifaDialog(tarifa ?? null)} className="h-7 gap-1.5 text-[11px]">
+                          <Settings2 className="h-3 w-3" />
+                          {tarifa ? "Editar tarifa" : "Configurar tarifa"}
+                        </Button>
+                        {tarifa && (
+                          <Button variant="ghost" size="sm" onClick={() => setTarifaDialog(null)} className="h-7 gap-1 text-[11px] text-muted-foreground">
+                            + Nueva
+                          </Button>
+                        )}
+                      </>
                     )}
                     <Button
                       variant="outline" size="sm"
                       onClick={openPreview}
-                      disabled={exporting || resumenLoading || !tarifa || !billing || !hes}
+                      disabled={isUnificado
+                        ? (unifiedLoading || unifiedResults.length === 0)
+                        : (exporting || resumenLoading || !tarifa || !billing || !hes)}
                       className="h-8 sm:h-7 gap-1.5 text-[12px] sm:text-[11px] flex-1 sm:flex-initial justify-center
                         bg-emerald-600 hover:bg-emerald-700 text-white border-0
                         dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:text-white dark:border-0
@@ -1164,6 +1635,21 @@ export default function HesPage() {
                 {loading || tarifasLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : isUnificado ? (
+                  <div className="space-y-4">
+                    <div className="bg-background rounded-xl border border-border/40 shadow-sm px-6 py-5">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Hoja de Estado de Servicio — Unificado</p>
+                      <h1 className="text-lg font-bold mt-1">HES {selectedCliente.nombre.toUpperCase()} · Todas las tarifas ({tarifas.length})</h1>
+                      <p className="text-sm text-muted-foreground mt-0.5">{MESES[selectedMonth]} {selectedYear}</p>
+                    </div>
+                    <UnifiedResumenCards
+                      results={unifiedResults}
+                      serviciosBilling={unifiedServiciosBilling}
+                      totalCLP={unifiedTotalCLP}
+                      loading={unifiedLoading}
+                      error={unifiedError}
+                    />
                   </div>
                 ) : !tarifa ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-3">
@@ -1369,8 +1855,8 @@ export default function HesPage() {
                             <tr className="border-b border-border/30 bg-muted/10">
                               <th className="text-left px-4 py-2 font-medium text-muted-foreground">Descripción</th>
                               <th className="text-right px-3 py-2 font-medium text-muted-foreground">Cantidad</th>
-                              <th className="text-right px-3 py-2 font-medium text-muted-foreground">Tarifa (UF)</th>
-                              <th className="text-right px-3 py-2 font-medium text-muted-foreground">Total Neto (UF)</th>
+                              <th className="text-right px-3 py-2 font-medium text-muted-foreground">Tarifa</th>
+                              <th className="text-right px-3 py-2 font-medium text-muted-foreground">Total (UF)</th>
                               <th className="text-right px-4 py-2 font-medium text-muted-foreground">Total Neto ($)</th>
                             </tr>
                           </thead>
@@ -1379,9 +1865,9 @@ export default function HesPage() {
                               <tr key={i} className="border-b border-border/20 hover:bg-muted/20">
                                 <td className="px-4 py-2">{r.label}</td>
                                 <td className="text-right px-3 py-2 font-mono">{typeof r.qty === "number" ? r.qty.toLocaleString("es-CL") : r.qty} <span className="text-muted-foreground text-[10px]">{r.unit}</span></td>
-                                <td className="text-right px-3 py-2 font-mono">{fmtUF(r.tarifa)}</td>
-                                <td className="text-right px-3 py-2 font-mono font-semibold">{fmtUF(r.totalUF)}</td>
-                                <td className="text-right px-4 py-2 font-mono text-muted-foreground">{fmtCLP(r.totalUF * (parseFloat(ufValue) || 0))}</td>
+                                <td className="text-right px-3 py-2 font-mono">{r.moneda === "CLP" ? fmtCLP(r.tarifa) : `${fmtUF(r.tarifa)} UF`}</td>
+                                <td className="text-right px-3 py-2 font-mono font-semibold">{r.moneda === "CLP" ? "—" : fmtUF(r.totalCLP / (parseFloat(ufValue) || 1))}</td>
+                                <td className="text-right px-4 py-2 font-mono text-muted-foreground">{fmtCLP(r.totalCLP)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1450,7 +1936,7 @@ export default function HesPage() {
                                 <th className="text-right px-3 py-2 font-medium">Pallets OUT</th>
                                 <th className="text-left px-3 py-2 font-medium">Report OUT</th>
                                 <th className="text-right px-3 py-2 font-medium">Stock</th>
-                                <th className="text-right px-3 py-2 font-medium">Tarifa (UF)</th>
+                                <th className="text-right px-3 py-2 font-medium">Tarifa ({tarifa?.moneda === "CLP" ? "$" : "UF"})</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1472,7 +1958,9 @@ export default function HesPage() {
                                   </td>
                                   <td className="px-3 py-1.5 font-mono text-[10px] text-primary/70 truncate max-w-[100px]">{row.reports_out || "—"}</td>
                                   <td className="text-right px-3 py-1.5 font-mono font-bold">{row.stock.toLocaleString("es-CL")}</td>
-                                  <td className="text-right px-3 py-1.5 font-mono text-muted-foreground">{row.tarifa_dia > 0 ? fmtUF(row.tarifa_dia) : "—"}</td>
+                                  <td className="text-right px-3 py-1.5 font-mono text-muted-foreground">
+                                    {row.tarifa_dia > 0 ? (tarifa?.moneda === "CLP" ? fmtCLP(row.tarifa_dia) : fmtUF(row.tarifa_dia)) : "—"}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>

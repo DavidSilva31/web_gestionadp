@@ -79,6 +79,10 @@ export interface Report {
   fecha_despacho: string | null
   dispatched_by: string | null
   updated_at: string
+
+  // A qué tarifa/clase del cliente pertenece (clientes con más de un
+  // contrato en paralelo) — se propaga al movimiento auto-creado al despachar.
+  tarifa_cliente_id: string | null
 }
 
 export type ReportInsert = Omit<Report, 'id' | 'numero' | 'created_at' | 'updated_at'>
@@ -98,6 +102,7 @@ export interface Cliente {
   emails:     string[]
   sector:     string | null
   activo:     boolean
+  dia_corte_facturacion: number
   created_at: string
   updated_at: string
 }
@@ -135,6 +140,7 @@ export interface Movimiento {
   carga:              string
   area:               InventarioArea | null
   inventario_item_id: string | null
+  tarifa_cliente_id:  string | null
   unidades:           number | null
   operador:           string | null
   estado:             MovimientoEstado
@@ -164,8 +170,11 @@ export interface TarifaCliente {
   cliente_id:              string
   cotizacion_numero:       string
   clase_imo:               string | null
+  moneda:                  'UF' | 'CLP'
   tarifa_almacenaje_uf:    number | null
   tarifa_inout_uf:         number | null
+  tarifa_almacenaje_clp:   number | null
+  tarifa_inout_clp:        number | null
   tarifa_descons_20_uf:    number | null
   tarifa_descons_40_uf:    number | null
   tarifa_consolid_40_uf:   number | null
@@ -183,7 +192,9 @@ export interface ServicioCliente {
   cliente_id:  string
   nombre:      string
   descripcion: string | null
+  moneda:      'UF' | 'CLP'
   tarifa_uf:   number | null
+  tarifa_clp:  number | null
   unidad:      string
   orden:       number
   activo:      boolean
