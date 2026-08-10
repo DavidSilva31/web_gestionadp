@@ -2,25 +2,17 @@ import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/render
 
 const BLUE = "#1F3864"
 const GREY = "#64748B"
-const AMBER_BG = "#FFF8E1"
-const AMBER_TXT = "#7B3C00"
 
-export interface HesResumenPDFData {
+export interface HesResumenUnificadoPDFData {
   cliente: { nombre: string; rut: string; emails: string[]; contacto: string | null }
-  tarifa:  { cotizacion_numero: string; clase_imo: string | null }
-  billing: {
-    rows: { label: string; qty: number | string; unit: string; moneda: "UF" | "CLP"; tarifa: number; totalCLP: number }[]
-    finalUF: number
-    finalCLP: number
-    hasMin: boolean
-  }
+  filas: { label: string; cotizacion: string | null; totalUF: number; totalCLP: number }[]
+  totalUF: number
+  totalCLP: number
   mes: number
   anio: number
   ufValue: string
   ufDate: string
-  // URL o data: URI del logo — en el navegador es `${window.location.origin}/adp_logo_hd.png`;
-  // al renderizar en el servidor (envío de correo) no existe `window`, así que se pasa
-  // explícito en vez de calcularlo dentro del componente.
+  // Ver nota en hes-resumen-pdf.tsx — necesario para poder renderizar server-side.
   logoSrc: string
 }
 
@@ -50,20 +42,17 @@ const s = StyleSheet.create({
   tHeadRow: { flexDirection: "row", backgroundColor: BLUE },
   tRow: { flexDirection: "row", borderTop: "0.5 solid #E2E8F0", alignItems: "center" },
   tRowAlt: { backgroundColor: "#F8FAFC" },
-  tRowMin: { backgroundColor: AMBER_BG },
   tRowTotal: { backgroundColor: "#E8EEF6", borderTop: `1 solid ${BLUE}` },
 
-  cDesc:   { width: "34%", fontSize: 7.5, padding: 7, fontFamily: "Helvetica-Bold", color: "#fff" },
-  cQty:    { width: "16%", fontSize: 7.5, padding: 7, textAlign: "right", color: "#fff", fontFamily: "Helvetica-Bold" },
-  cTarifa: { width: "16%", fontSize: 7.5, padding: 7, textAlign: "right", color: "#fff", fontFamily: "Helvetica-Bold" },
-  cUF:     { width: "17%", fontSize: 7.5, padding: 7, textAlign: "right", color: "#fff", fontFamily: "Helvetica-Bold" },
-  cCLP:    { width: "17%", fontSize: 7.5, padding: 7, textAlign: "right", color: "#fff", fontFamily: "Helvetica-Bold" },
+  cDesc: { width: "40%", fontSize: 7.5, padding: 7, fontFamily: "Helvetica-Bold", color: "#fff" },
+  cCot:  { width: "20%", fontSize: 7.5, padding: 7, textAlign: "right", color: "#fff", fontFamily: "Helvetica-Bold" },
+  cUF:   { width: "20%", fontSize: 7.5, padding: 7, textAlign: "right", color: "#fff", fontFamily: "Helvetica-Bold" },
+  cCLP:  { width: "20%", fontSize: 7.5, padding: 7, textAlign: "right", color: "#fff", fontFamily: "Helvetica-Bold" },
 
-  cDescV:   { width: "34%", fontSize: 8, padding: 7 },
-  cQtyV:    { width: "16%", fontSize: 8, padding: 7, textAlign: "right" },
-  cTarifaV: { width: "16%", fontSize: 8, padding: 7, textAlign: "right" },
-  cUFV:     { width: "17%", fontSize: 8, padding: 7, textAlign: "right" },
-  cCLPV:    { width: "17%", fontSize: 8, padding: 7, textAlign: "right" },
+  cDescV: { width: "40%", fontSize: 8, padding: 7 },
+  cCotV:  { width: "20%", fontSize: 8, padding: 7, textAlign: "right" },
+  cUFV:   { width: "20%", fontSize: 8, padding: 7, textAlign: "right" },
+  cCLPV:  { width: "20%", fontSize: 8, padding: 7, textAlign: "right" },
 
   footer: { position: "absolute", bottom: 18, left: 34, right: 34, flexDirection: "row", justifyContent: "space-between", fontSize: 7, color: "#A0AEC0", borderTop: "0.5 solid #E2E8F0", paddingTop: 6 },
 })
@@ -71,18 +60,18 @@ const s = StyleSheet.create({
 function fmtUF(v: number) { return v.toFixed(4) }
 function fmtCLP(v: number) { return `$${Math.round(v).toLocaleString("es-CL")}` }
 
-export function HesResumenPDF({ data }: { data: HesResumenPDFData }) {
-  const { cliente, tarifa, billing, mes, anio, ufValue, ufDate, logoSrc } = data
+export function HesResumenUnificadoPDF({ data }: { data: HesResumenUnificadoPDFData }) {
+  const { cliente, filas, totalUF, totalCLP, mes, anio, ufValue, ufDate, logoSrc } = data
   const periodoLabel = `${MESES[mes]} ${anio}`
   const uf = parseFloat(ufValue) || 0
 
   return (
-    <Document title={`HES Resumen — ${cliente.nombre} — ${periodoLabel}`}>
+    <Document title={`HES Resumen general — ${cliente.nombre} — ${periodoLabel}`}>
       <Page size="A4" style={s.page}>
         <View style={s.header} fixed>
           <Image style={s.logo} src={logoSrc} />
           <View style={s.headerRight}>
-            <Text style={s.title}>Hoja de Estado de Servicio — Resumen</Text>
+            <Text style={s.title}>Hoja de Estado de Servicio — Resumen general</Text>
             <Text style={s.subtitle}>Altos del Puerto · {periodoLabel}</Text>
             <Text style={s.genDate}>
               Generado el {new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" })}
@@ -91,17 +80,11 @@ export function HesResumenPDF({ data }: { data: HesResumenPDFData }) {
         </View>
 
         <View style={s.clienteBox}>
-          <Text style={s.clienteNombre}>
-            {cliente.nombre.toUpperCase()}{tarifa.clase_imo ? ` — CLASE ${tarifa.clase_imo.toUpperCase()}` : ""}
-          </Text>
+          <Text style={s.clienteNombre}>{cliente.nombre.toUpperCase()}</Text>
           <View style={s.clienteRow}>
             <View style={s.clienteField}>
               <Text style={s.clienteLabel}>RUT</Text>
               <Text style={s.clienteVal}>{cliente.rut}</Text>
-            </View>
-            <View style={s.clienteField}>
-              <Text style={s.clienteLabel}>Cotización N°</Text>
-              <Text style={s.clienteVal}>{tarifa.cotizacion_numero}</Text>
             </View>
             {cliente.contacto && (
               <View style={s.clienteField}>
@@ -122,38 +105,27 @@ export function HesResumenPDF({ data }: { data: HesResumenPDFData }) {
           </View>
         </View>
 
-        <Text style={s.sectionTitle}>Resumen de cobro — {periodoLabel}</Text>
+        <Text style={s.sectionTitle}>Resumen general — {periodoLabel}</Text>
 
         <View style={s.table}>
           <View style={s.tHeadRow}>
-            <Text style={s.cDesc}>Descripción</Text>
-            <Text style={s.cQty}>Cantidad</Text>
-            <Text style={s.cTarifa}>Tarifa</Text>
+            <Text style={s.cDesc}>Tarifa / Clase</Text>
+            <Text style={s.cCot}>Cotización N°</Text>
             <Text style={s.cUF}>Total (UF)</Text>
             <Text style={s.cCLP}>Total Neto ($)</Text>
           </View>
-          {billing.rows.map((r, i) => (
+          {filas.map((r, i) => (
             <View key={i} style={[s.tRow, i % 2 !== 0 ? s.tRowAlt : {}]}>
               <Text style={s.cDescV}>{r.label}</Text>
-              <Text style={s.cQtyV}>{typeof r.qty === "number" ? r.qty.toLocaleString("es-CL") : r.qty} {r.unit}</Text>
-              <Text style={s.cTarifaV}>{r.moneda === "CLP" ? fmtCLP(r.tarifa) : `${fmtUF(r.tarifa)} UF`}</Text>
-              <Text style={[s.cUFV, { fontFamily: "Helvetica-Bold" }]}>{r.moneda === "CLP" ? "—" : fmtUF(r.totalCLP / uf)}</Text>
+              <Text style={s.cCotV}>{r.cotizacion ?? "—"}</Text>
+              <Text style={[s.cUFV, { fontFamily: "Helvetica-Bold" }]}>{fmtUF(r.totalUF)}</Text>
               <Text style={s.cCLPV}>{fmtCLP(r.totalCLP)}</Text>
             </View>
           ))}
-          {billing.hasMin && (
-            <View style={[s.tRow, s.tRowMin]}>
-              <Text style={[s.cDescV, { fontFamily: "Helvetica-Bold", color: AMBER_TXT, width: "66%" }]}>
-                Facturación mínima aplicada
-              </Text>
-              <Text style={[s.cUFV, { fontFamily: "Helvetica-Bold", color: AMBER_TXT }]}>{fmtUF(billing.finalUF)}</Text>
-              <Text style={[s.cCLPV, { color: AMBER_TXT }]}>{fmtCLP(billing.finalCLP)}</Text>
-            </View>
-          )}
           <View style={[s.tRow, s.tRowTotal]}>
-            <Text style={[s.cDescV, { fontFamily: "Helvetica-Bold", fontSize: 9.5, width: "66%" }]}>TOTAL NETO</Text>
-            <Text style={[s.cUFV, { fontFamily: "Helvetica-Bold", fontSize: 9.5 }]}>{fmtUF(billing.finalUF)} UF</Text>
-            <Text style={[s.cCLPV, { fontFamily: "Helvetica-Bold", fontSize: 9.5, color: BLUE }]}>{fmtCLP(billing.finalCLP)}</Text>
+            <Text style={[s.cDescV, { fontFamily: "Helvetica-Bold", fontSize: 9.5, width: "60%" }]}>TOTAL GENERAL</Text>
+            <Text style={[s.cUFV, { fontFamily: "Helvetica-Bold", fontSize: 9.5 }]}>{fmtUF(totalUF)} UF</Text>
+            <Text style={[s.cCLPV, { fontFamily: "Helvetica-Bold", fontSize: 9.5, color: BLUE }]}>{fmtCLP(totalCLP)}</Text>
           </View>
         </View>
 

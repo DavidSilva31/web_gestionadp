@@ -41,7 +41,7 @@ const initials = (nombre: string) =>
 const EMPTY: ClienteInsert = {
   nombre: "", rut: "", contacto: "", contacto_cargo: "", contacto_telefono: "",
   contacto2_nombre: "", contacto2_cargo: "", contacto2_email: "", contacto2_telefono: "",
-  emails: [], sector: "", activo: true,
+  emails: [], sector: "", activo: true, dia_corte_facturacion: 1,
 }
 
 export default function ClientesPage() {
@@ -85,6 +85,7 @@ export default function ClientesPage() {
       contacto2_nombre: c.contacto2_nombre ?? "", contacto2_cargo: c.contacto2_cargo ?? "",
       contacto2_email: c.contacto2_email ?? "", contacto2_telefono: c.contacto2_telefono ?? "",
       emails: c.emails ?? [], sector: c.sector ?? "", activo: c.activo,
+      dia_corte_facturacion: c.dia_corte_facturacion,
     })
     setError(null)
     setDialog(c)
