@@ -20,6 +20,7 @@ import {
   FileSpreadsheet,
   Wrench,
   Loader2,
+  Warehouse,
 } from "lucide-react"
 import {
   Sidebar,
@@ -43,6 +44,7 @@ import { ROLE_ROUTES, ROLE_LABELS } from "@/types/auth"
 const ALL_NAV_ITEMS = [
   { href: "/dashboard",        label: "Inicio",      icon: LayoutDashboard, group: "inicio"     },
   { href: "/inventario",       label: "Inventario",  icon: Package,         group: "inventario" },
+  { href: "/instalaciones",    label: "Instalaciones", icon: Warehouse,     group: "inventario" },
   { href: "/movimientos",      label: "Movimientos", icon: ArrowLeftRight,  group: "inventario" },
   { href: "/clientes",         label: "Clientes",    icon: Users,           group: "clientes"   },
   { href: "/servicios",        label: "Servicios",   icon: Wrench,          group: "clientes"   },

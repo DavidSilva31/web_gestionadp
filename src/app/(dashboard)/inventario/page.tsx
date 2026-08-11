@@ -25,6 +25,7 @@ import type {
   InventarioItemInsert,
   InventarioCategoria,
   InventarioArea,
+  InstalacionAlmacenamiento,
 } from "@/types/database"
 
 const CATEGORIAS: InventarioCategoria[] = [
@@ -88,6 +89,8 @@ const EMPTY_FORM: InventarioItemInsert = {
   observaciones: null,
   activo:        true,
   created_by:    null,
+  instalacion_id: null,
+  peso_ton:       null,
 }
 
 // ── Inner component (requiere useSearchParams → envuelto en Suspense) ──────────
@@ -112,6 +115,7 @@ function InventarioContent() {
   const [deletingBusy, setDeletingBusy] = useState(false)
   const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
   const [exportError,  setExportError]  = useState<string | null>(null)
+  const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)
@@ -132,6 +136,11 @@ function InventarioContent() {
     }
     setClienteItems(grouped)
     setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    createClient().from("instalaciones_almacenamiento").select("*").eq("activo", true).order("orden")
+      .then(({ data }) => setInstalaciones((data ?? []) as InstalacionAlmacenamiento[]))
   }, [])
 
   useEffect(() => { fetchClientes() }, [fetchClientes])
@@ -193,6 +202,8 @@ function InventarioContent() {
       observaciones: item.observaciones,
       activo:        item.activo,
       created_by:    item.created_by,
+      instalacion_id: item.instalacion_id,
+      peso_ton:       item.peso_ton,
     })
     setError(null)
     setDialog(item)
@@ -649,6 +660,20 @@ function InventarioContent() {
 
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Instalación
+              </Label>
+              <select
+                value={form.instalacion_id ?? ""}
+                onChange={e => setForm(p => ({ ...p, instalacion_id: e.target.value || null }))}
+                className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">Sin asignar</option>
+                {instalaciones.map(i => <option key={i.id} value={i.id}>{i.codigo}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Clase IMO
               </Label>
               <Input
@@ -699,6 +724,21 @@ function InventarioContent() {
               {dialog !== "new" && (
                 <p className="text-[10px] text-muted-foreground">Actualizado vía movimientos</p>
               )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Peso estimado (ton)
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.001"
+                value={form.peso_ton ?? ""}
+                onChange={e => setForm(p => ({ ...p, peso_ton: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                placeholder="Opcional — para medir ocupación de la instalación"
+                className="h-9"
+              />
             </div>
 
             <div className="space-y-1.5">

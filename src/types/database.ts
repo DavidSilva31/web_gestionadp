@@ -126,6 +126,8 @@ export interface InventarioItem {
   created_at:    string
   updated_at:    string
   created_by:    string | null
+  instalacion_id: string | null
+  peso_ton:       number | null
 }
 
 export type InventarioItemInsert = Omit<InventarioItem, 'id' | 'numero' | 'created_at' | 'updated_at'>
@@ -220,3 +222,29 @@ export interface HesFolio {
   enviado_a:           string[] | null
   enviado_at:          string | null
 }
+
+export interface InstalacionSustancia {
+  id:             string
+  instalacion_id: string
+  sustancia:      string
+  clase_imo:      string | null
+  orden:          number
+}
+
+export type InstalacionSustanciaInsert = Omit<InstalacionSustancia, 'id'>
+
+export interface InstalacionAlmacenamiento {
+  id:                          string
+  codigo:                      string
+  tipo:                        'Bodega' | 'Patio'
+  capacidad:                   string
+  capacidad_ton:               number | null
+  resolucion_sanitaria_numero: string | null
+  resolucion_sanitaria_fecha:  string | null
+  orden:                       number
+  activo:                      boolean
+  created_at:                  string
+  updated_at:                  string
+}
+
+export type InstalacionAlmacenamientoInsert = Omit<InstalacionAlmacenamiento, 'id' | 'created_at' | 'updated_at'>
