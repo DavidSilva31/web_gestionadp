@@ -19,6 +19,7 @@ const ACCION_FILTERS: { value: AuditAccion | "all"; label: string }[] = [
   { value: "cliente.crear",             label: "Clientes"        },
   { value: "inventario.crear_item",     label: "Inventario"      },
   { value: "servicio.crear",            label: "Servicios/Tarifas" },
+  { value: "hes.generar",               label: "HES"             },
   { value: "admin.crear_usuario",       label: "Usuarios"        },
 ]
 
@@ -31,6 +32,7 @@ const FILTER_GROUPS: Partial<Record<AuditAccion, AuditAccion[]>> = {
   "cliente.crear":         ["cliente.crear", "cliente.actualizar"],
   "inventario.crear_item": ["inventario.crear_item", "inventario.actualizar_item", "inventario.eliminar_item"],
   "servicio.crear":        ["servicio.crear", "servicio.actualizar", "servicio.eliminar", "tarifa.crear", "tarifa.actualizar"],
+  "hes.generar":           ["hes.generar", "hes.enviar"],
   "admin.crear_usuario":   ["admin.crear_usuario", "admin.eliminar_usuario", "admin.actualizar_usuario", "perfil.actualizar"],
 }
 
@@ -55,7 +57,7 @@ export default function AuditoriaPage() {
     let query = supabase
       .from("audit_logs")
       .select("*", { count: "exact" })
-      .in("tabla", ["reports", "inventario_items", "profiles", "clientes", "tarifas_cliente", "servicios_cliente"])
+      .in("tabla", ["reports", "inventario_items", "profiles", "clientes", "tarifas_cliente", "servicios_cliente", "hes_folios"])
       .order("created_at", { ascending: false })
       .range(from, to)
 

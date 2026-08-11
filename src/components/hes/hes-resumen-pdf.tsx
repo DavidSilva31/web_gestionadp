@@ -22,6 +22,9 @@ export interface HesResumenPDFData {
   // al renderizar en el servidor (envío de correo) no existe `window`, así que se pasa
   // explícito en vez de calcularlo dentro del componente.
   logoSrc: string
+  // Folio correlativo asignado al generar el HES — null si no se pudo asignar
+  // (no debe bloquear la generación del documento).
+  folioNumero?: number | null
 }
 
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -34,6 +37,7 @@ const s = StyleSheet.create({
   logo: { width: 96, height: 40, objectFit: "contain" },
   headerRight: { alignItems: "flex-end" },
   title: { fontSize: 13, fontFamily: "Helvetica-Bold", color: BLUE },
+  folio: { fontSize: 9, fontFamily: "Helvetica-Bold", color: GREY, marginTop: 2 },
   subtitle: { fontSize: 8.5, color: GREY, marginTop: 2 },
   genDate: { fontSize: 7, color: "#A0AEC0", marginTop: 3 },
 
@@ -72,7 +76,7 @@ function fmtUF(v: number) { return v.toFixed(4) }
 function fmtCLP(v: number) { return `$${Math.round(v).toLocaleString("es-CL")}` }
 
 export function HesResumenPDF({ data }: { data: HesResumenPDFData }) {
-  const { cliente, tarifa, billing, mes, anio, ufValue, ufDate, logoSrc } = data
+  const { cliente, tarifa, billing, mes, anio, ufValue, ufDate, logoSrc, folioNumero } = data
   const periodoLabel = `${MESES[mes]} ${anio}`
   const uf = parseFloat(ufValue) || 0
 
@@ -83,6 +87,9 @@ export function HesResumenPDF({ data }: { data: HesResumenPDFData }) {
           <Image style={s.logo} src={logoSrc} />
           <View style={s.headerRight}>
             <Text style={s.title}>Hoja de Estado de Servicio — Resumen</Text>
+            {folioNumero != null && (
+              <Text style={s.folio}>N° HES-{String(folioNumero).padStart(6, "0")}</Text>
+            )}
             <Text style={s.subtitle}>Altos del Puerto · {periodoLabel}</Text>
             <Text style={s.genDate}>
               Generado el {new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" })}

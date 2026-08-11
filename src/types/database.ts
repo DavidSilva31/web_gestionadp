@@ -202,3 +202,21 @@ export interface ServicioCliente {
 }
 
 export type ServicioClienteInsert = Omit<ServicioCliente, 'id' | 'created_at'>
+
+export interface HesFolio {
+  id:                  string
+  numero:              number
+  cliente_id:          string
+  tarifa_ids:          string[]
+  mes:                 number
+  anio:                number
+  periodo_start:       string
+  periodo_end:         string
+  total_uf:            number | null
+  total_clp:           number | null
+  generado_por:        string | null
+  generado_por_nombre: string | null
+  generado_at:         string
+  enviado_a:           string[] | null
+  enviado_at:          string | null
+}

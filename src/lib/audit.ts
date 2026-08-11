@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase"
 import {
   FileText, FilePen, FileCheck2, Truck, ScanLine, Trash2,
   PackagePlus, PackageMinus, Boxes, Users, Wrench, Coins,
-  UserPlus, UserMinus, UserCog, type LucideIcon,
+  UserPlus, UserMinus, UserCog, FileSpreadsheet, Mail, type LucideIcon,
 } from "lucide-react"
 
 export type AuditAccion =
@@ -28,6 +28,8 @@ export type AuditAccion =
   | "admin.crear_usuario"
   | "admin.eliminar_usuario"
   | "admin.actualizar_usuario"
+  | "hes.generar"
+  | "hes.enviar"
 
 export interface AuditLog {
   id:             string
@@ -65,6 +67,8 @@ const ACCION_LABEL: Record<AuditAccion, string> = {
   "admin.crear_usuario":         "Usuario creado",
   "admin.eliminar_usuario":      "Usuario eliminado",
   "admin.actualizar_usuario":    "Usuario actualizado",
+  "hes.generar":                 "HES generado",
+  "hes.enviar":                  "HES enviado por correo",
 }
 
 export function accionLabel(accion: string) {
@@ -95,6 +99,8 @@ export const ACCION_STYLE: Record<string, { icon: LucideIcon; pill: string }> = 
   "admin.crear_usuario":        { icon: UserPlus,      pill: "bg-teal-100    text-teal-700    dark:bg-teal-900/30  dark:text-teal-400"    },
   "admin.eliminar_usuario":     { icon: UserMinus,     pill: "bg-rose-100    text-rose-700    dark:bg-rose-900/30  dark:text-rose-400"    },
   "admin.actualizar_usuario":   { icon: UserCog,       pill: "bg-indigo-100  text-indigo-700  dark:bg-indigo-900/30 dark:text-indigo-400"  },
+  "hes.generar":                { icon: FileSpreadsheet, pill: "bg-teal-100    text-teal-700    dark:bg-teal-900/30  dark:text-teal-400"    },
+  "hes.enviar":                 { icon: Mail,          pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
 }
 
 // Subset de acciones que generan campanita/notificación — evita saturar con
