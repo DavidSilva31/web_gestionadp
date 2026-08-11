@@ -48,11 +48,20 @@ function LoginForm() {
       return
     }
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("role, activo")
       .eq("id", session.user.id)
       .single()
+
+    // Un error de red/timeout no significa que la cuenta esté desactivada —
+    // no hay que confundir "no pudimos verificar" con "está deshabilitada".
+    if (profileError) {
+      await supabase.auth.signOut()
+      setError("No se pudo verificar el estado de tu cuenta. Intenta de nuevo en unos segundos.")
+      setLoading(false)
+      return
+    }
 
     if (!profile?.activo) {
       await supabase.auth.signOut()
@@ -175,6 +184,14 @@ function LoginForm() {
                 <div className="flex items-center gap-2 text-destructive bg-destructive/10 rounded-lg px-3 py-2.5 text-sm mb-4">
                   <AlertCircle className="h-4 w-4 flex-shrink-0" />
                   Tu cuenta está desactivada. Contacta al administrador del sistema.
+                </div>
+              )}
+
+              {/* Banner error transitorio verificando la cuenta (desde middleware) */}
+              {errorParam === "verificacion_fallida" && (
+                <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-sm mb-4 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-400">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  No pudimos verificar tu cuenta por un problema de conexión. Intenta iniciar sesión de nuevo.
                 </div>
               )}
 

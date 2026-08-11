@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import {
   Search, Wrench, Plus, Pencil, Trash2, Loader2,
-  ChevronRight, GripVertical, Check, X, ArrowLeft,
+  ChevronRight, GripVertical, Check, X, ArrowLeft, AlertCircle,
 } from "lucide-react"
 import type { Cliente, ServicioCliente, ServicioClienteInsert } from "@/types/database"
 
@@ -185,14 +185,14 @@ function ServiceCard({
           )}
         </div>
       </div>
-      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+      <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
         <Button variant="ghost" size="sm" onClick={onEdit}
-          className="h-6 w-6 p-0 hover:bg-primary/10 hover:text-primary">
-          <Pencil className="h-3 w-3" />
+          className="h-7 w-7 p-0 hover:bg-primary/10 hover:text-primary">
+          <Pencil className="h-3.5 w-3.5" />
         </Button>
         <Button variant="ghost" size="sm" onClick={handleDelete} disabled={deleting}
-          className="h-6 w-6 p-0 hover:bg-destructive/10 hover:text-destructive">
-          {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+          className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive">
+          {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
         </Button>
       </div>
     </div>
@@ -207,6 +207,8 @@ export default function ServiciosPage() {
   const [servicios,      setServicios]      = useState<ServicioCliente[]>([])
   const [loadingClientes,setLoadingClientes]= useState(true)
   const [loadingSrvs,    setLoadingSrvs]    = useState(false)
+  const [clientesError,  setClientesError]  = useState<string | null>(null)
+  const [srvError,       setSrvError]       = useState<string | null>(null)
   const [addingNew,      setAddingNew]      = useState(false)
   const [editingId,      setEditingId]      = useState<string | null>(null)
   const [servicioMap,    setServicioMap]    = useState<Record<string, number>>({})
@@ -222,7 +224,8 @@ export default function ServiciosPage() {
     Promise.all([
       supabase.from("clientes").select("id, nombre, rut").eq("activo", true).order("nombre"),
       supabase.from("servicios_cliente").select("cliente_id").eq("activo", true),
-    ]).then(([{ data: cls }, { data: srvs }]) => {
+    ]).then(([{ data: cls, error: e1 }, { data: srvs, error: e2 }]) => {
+      if (e1 ?? e2) { setClientesError((e1 ?? e2)!.message); setLoadingClientes(false); return }
       setClientes((cls ?? []) as Cliente[])
       const map: Record<string, number> = {}
       for (const s of srvs ?? []) map[s.cliente_id] = (map[s.cliente_id] ?? 0) + 1
@@ -235,15 +238,17 @@ export default function ServiciosPage() {
   const loadServicios = useCallback(async () => {
     if (!selectedId) { setServicios([]); return }
     setLoadingSrvs(true)
+    setSrvError(null)
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("servicios_cliente")
       .select("*")
       .eq("cliente_id", selectedId)
       .eq("activo", true)
       .order("orden")
       .order("nombre")
-    setServicios((data ?? []) as ServicioCliente[])
+    if (error) setSrvError(error.message)
+    else setServicios((data ?? []) as ServicioCliente[])
     setLoadingSrvs(false)
   }, [selectedId])
 
@@ -303,6 +308,11 @@ export default function ServiciosPage() {
           {loadingClientes ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            </div>
+          ) : clientesError ? (
+            <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground px-3 text-center">
+              <AlertCircle className="h-6 w-6 text-destructive/60" />
+              <p className="text-[11px]">No se pudieron cargar los clientes: {clientesError}</p>
             </div>
           ) : filteredClientes.map(c => (
             <button key={c.id} onClick={() => setSelectedId(c.id)}
@@ -375,6 +385,12 @@ export default function ServiciosPage() {
               {loadingSrvs ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                </div>
+              ) : srvError ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+                  <AlertCircle className="h-8 w-8 text-destructive/60" />
+                  <p className="text-sm">No se pudieron cargar los servicios: {srvError}</p>
+                  <Button size="sm" variant="outline" onClick={loadServicios} className="gap-1.5 text-xs">Reintentar</Button>
                 </div>
               ) : (
                 <div className="p-4 space-y-3">

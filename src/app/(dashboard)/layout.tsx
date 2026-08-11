@@ -18,12 +18,18 @@ export default async function DashboardLayout({
 
   if (!user) redirect("/login")
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("activo")
     .eq("id", user.id)
     .single()
 
+  // Un error de red/timeout no significa que la cuenta esté desactivada —
+  // no hay que confundir "no pudimos verificar" con "está deshabilitada".
+  if (profileError) {
+    console.error("[dashboard/layout] no se pudo verificar el estado de la cuenta:", profileError)
+    redirect("/login?error=verificacion_fallida")
+  }
   if (!profile?.activo) redirect("/login?error=cuenta_desactivada")
 
   return (

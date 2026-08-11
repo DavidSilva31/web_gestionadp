@@ -83,8 +83,8 @@ export default function ReportesPage() {
     const [
       { data: movData,        error: e1 },
       { count: clientesCount, error: e2 },
-      { data: stockData },
-      { data: reportsData },
+      { data: stockData,      error: e3 },
+      { data: reportsData,    error: e4 },
     ] = await Promise.all([
       supabase
         .from("movimientos")
@@ -107,7 +107,7 @@ export default function ReportesPage() {
         .lt("created_at", currEndIso),
     ])
 
-    if (e1 ?? e2) { setFetchError((e1 ?? e2)!.message); setLoading(false); return }
+    if (e1 ?? e2 ?? e3 ?? e4) { setFetchError((e1 ?? e2 ?? e3 ?? e4)!.message); setLoading(false); return }
 
     const movs = movData ?? []
 

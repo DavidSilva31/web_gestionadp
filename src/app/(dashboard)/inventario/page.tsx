@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   Package, Plus, Search, RefreshCw, ChevronRight, ArrowLeft,
-  Loader2, Pencil, Warehouse, Trash2, Download,
+  Loader2, Pencil, Warehouse, Trash2, Download, AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -105,6 +105,7 @@ function InventarioContent() {
   const [saving,       setSaving]       = useState(false)
   const [error,        setError]        = useState<string | null>(null)
   const [fetchError,   setFetchError]   = useState<string | null>(null)
+  const [itemsError,   setItemsError]   = useState<string | null>(null)
   const [dialog,       setDialog]       = useState<null | "new" | InventarioItem>(null)
   const [form,         setForm]         = useState<InventarioItemInsert>(EMPTY_FORM)
   const [deleting,     setDeleting]     = useState<InventarioItem | null>(null)
@@ -137,15 +138,18 @@ function InventarioContent() {
 
   const fetchItemsForCliente = useCallback(async (clienteId: string) => {
     setLoadingItems(true)
+    setItemsError(null)
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("inventario_items")
       .select("*")
       .eq("cliente_id", clienteId)
       .eq("activo", true)
       .order("numero")
-    if (data) {
-      setClienteItems(prev => ({ ...prev, [clienteId]: data as InventarioItem[] }))
+    if (error) {
+      setItemsError(error.message)
+    } else {
+      setClienteItems(prev => ({ ...prev, [clienteId]: (data ?? []) as InventarioItem[] }))
     }
     setLoadingItems(false)
   }, [])
@@ -480,6 +484,14 @@ function InventarioContent() {
                     <div className="flex items-center justify-center h-32">
                       <Loader2 className="h-5 w-5 animate-spin text-primary" />
                     </div>
+                  ) : itemsError ? (
+                    <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+                      <AlertCircle className="h-8 w-8 text-destructive/60" />
+                      <p className="text-sm">No se pudo cargar el inventario: {itemsError}</p>
+                      <Button size="sm" variant="outline" onClick={() => selected && fetchItemsForCliente(selected.id)} className="gap-1.5 text-xs">
+                        Reintentar
+                      </Button>
+                    </div>
                   ) : items.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                       <Package className="h-10 w-10 opacity-20" />
@@ -559,7 +571,7 @@ function InventarioContent() {
                                   </Badge>
                                 </td>
                                 <td className="px-2 py-3 text-center">
-                                  <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <div className="flex items-center justify-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                                     <Button variant="ghost" size="icon"
                                       className="h-7 w-7 text-muted-foreground hover:text-foreground"
                                       onClick={() => openEdit(item)}>
