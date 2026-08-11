@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Resend } from "resend"
 import { createServerSupabaseClient } from "@/lib/supabase-server"
-import { getPeriodRange } from "@/lib/hes-calc"
+import { getPeriodRange, isValidPeriodOverride } from "@/lib/hes-calc"
 import {
   loadCliente, buildHesData, buildWorkbook, excelBuffer, excelFilename, MESES,
   type ServicioSeleccion,
 } from "@/lib/hes-workbook"
 import { renderResumenPdfBuffer, renderResumenUnificadoPdfBuffer } from "@/lib/hes-pdf-server"
+import { logAuditServer } from "@/lib/audit"
 
 interface ReqBody {
   clienteId:  string
@@ -20,6 +21,14 @@ interface ReqBody {
   adjuntos: { resumen: boolean; detalle: boolean }
   // Opcional — por defecto se usan los emails de contacto del cliente.
   destinatarios?: string[]
+  // Rango de fechas elegido a mano — si viene, pisa el período calculado a
+  // partir de mes/anio (ver export/route.ts para más contexto).
+  periodStart?: string
+  periodEnd?:   string
+  // Folio asignado por /api/hes/folio al abrir la vista previa — se estampa
+  // en los adjuntos y, si viene folioId, se marca ese folio como enviado.
+  folioNumero?: number | null
+  folioId?:     string | null
 }
 
 export async function POST(req: NextRequest) {
@@ -45,7 +54,7 @@ async function handleSendEmail(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Cuerpo de la solicitud inválido." }, { status: 400 })
   }
-  const { clienteId, tarifaId, tarifaIds, mes, anio, ufValue, ufDate, servicioSeleccion = {}, adjuntos, destinatarios } = body
+  const { clienteId, tarifaId, tarifaIds, mes, anio, ufValue, ufDate, servicioSeleccion = {}, adjuntos, destinatarios, periodStart, periodEnd, folioNumero, folioId } = body
 
   if (!clienteId || (!tarifaId && !tarifaIds?.length))
     return NextResponse.json({ error: "Cliente o tarifa no especificados" }, { status: 400 })
@@ -60,9 +69,21 @@ async function handleSendEmail(req: NextRequest) {
   if (!clienteInfo)
     return NextResponse.json({ error: "Cliente no encontrado o sin permiso para verlo." }, { status: 404 })
   const { cliente, diaCorte } = clienteInfo
-  const period = getPeriodRange(anio, mes, diaCorte)
+  const override = { start: periodStart, end: periodEnd }
+  const period = isValidPeriodOverride(override) ? override : getPeriodRange(anio, mes, diaCorte)
 
-  const destino = (destinatarios?.length ? destinatarios : cliente.emails).filter(Boolean)
+  const { data: callerProfile } = await supabase.from("profiles").select("role, nombre").eq("id", user.id).single()
+
+  // Los destinatarios personalizados (fuera de los emails de contacto del
+  // cliente) solo los puede pedir un super_admin — de lo contrario cualquier
+  // usuario autenticado (incl. operador_carga) podría reenviar el HES de
+  // cualquier cliente (montos, tarifas, RUT) a una casilla externa propia.
+  let destino = cliente.emails.filter(Boolean)
+  if (destinatarios?.length) {
+    if (callerProfile?.role !== "super_admin")
+      return NextResponse.json({ error: "No tienes permiso para especificar destinatarios personalizados." }, { status: 403 })
+    destino = destinatarios.filter(Boolean)
+  }
   if (destino.length === 0)
     return NextResponse.json({ error: "El cliente no tiene un email de contacto registrado." }, { status: 400 })
 
@@ -77,7 +98,7 @@ async function handleSendEmail(req: NextRequest) {
   const attachments: { filename: string; content: Buffer }[] = []
 
   if (adjuntos.detalle) {
-    const wb = buildWorkbook(cliente, mes, anio, period, ufSafe, built, servicioSeleccion)
+    const wb = buildWorkbook(cliente, mes, anio, period, ufSafe, built, servicioSeleccion, folioNumero)
     attachments.push({ filename: excelFilename(cliente.nombre, mes, anio), content: await excelBuffer(wb) })
   }
 
@@ -98,13 +119,13 @@ async function handleSendEmail(req: NextRequest) {
       }
       const totalUF  = built.results.reduce((s, r) => s + r.billing.finalUF, 0) + built.srvBilling.finalUF
       const totalCLP = built.results.reduce((s, r) => s + r.billing.finalCLP, 0) + built.srvBilling.finalCLP
-      pdfBuffer = await renderResumenUnificadoPdfBuffer({ cliente: clienteData, filas, totalUF, totalCLP, mes, anio, ufValue, ufDate })
+      pdfBuffer = await renderResumenUnificadoPdfBuffer({ cliente: clienteData, filas, totalUF, totalCLP, mes, anio, ufValue, ufDate, folioNumero })
     } else {
       const r = built.results[0]
       pdfBuffer = await renderResumenPdfBuffer({
         cliente: clienteData,
         tarifa: { cotizacion_numero: r.tarifa.cotizacion_numero, clase_imo: r.tarifa.clase_imo },
-        billing: r.billing, mes, anio, ufValue, ufDate,
+        billing: r.billing, mes, anio, ufValue, ufDate, folioNumero,
       })
     }
     attachments.push({ filename: `HES_${cliente.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[mes]}_${anio}_Resumen.pdf`, content: pdfBuffer })
@@ -127,6 +148,21 @@ async function handleSendEmail(req: NextRequest) {
   })
   if (sendError)
     return NextResponse.json({ error: `No se pudo enviar el correo: ${sendError.message}` }, { status: 502 })
+
+  if (folioId) {
+    await supabase.from("hes_folios")
+      .update({ enviado_a: destino, enviado_at: new Date().toISOString() })
+      .eq("id", folioId)
+  }
+
+  await logAuditServer({
+    tabla:          "hes_folios",
+    registro_id:    folioId ?? clienteId,
+    accion:         "hes.enviar",
+    descripcion:    `HES${folioNumero != null ? ` N° HES-${String(folioNumero).padStart(6, "0")}` : ""} enviado por correo a ${destino.join(", ")} — ${cliente.nombre} — ${periodoLabel}`,
+    usuario_id:     user.id,
+    usuario_nombre: callerProfile?.nombre ?? user.email,
+  })
 
   return NextResponse.json({ success: true, enviadoA: destino })
 }

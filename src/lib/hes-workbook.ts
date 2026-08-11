@@ -178,21 +178,22 @@ export async function buildHesData(
 // por tarifa) a partir de un HesBuildResult ya cargado ──────────────────────
 export function buildWorkbook(
   cliente: ClienteExport, mes: number, anio: number, period: { start: string; end: string }, uf: number,
-  built: Extract<HesBuildResult, { ok: true }>, servicioSeleccion: ServicioSeleccion
+  built: Extract<HesBuildResult, { ok: true }>, servicioSeleccion: ServicioSeleccion,
+  folioNumero?: number | null
 ): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook()
   wb.creator = "ADP Gestión"
   wb.created = new Date()
 
   if (built.isUnificado) {
-    addResumenGeneralSheet(wb, cliente, mes, anio, built.results, built.srvBilling)
+    addResumenGeneralSheet(wb, cliente, mes, anio, built.results, built.srvBilling, folioNumero)
     for (const r of built.results) {
-      addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, [], mes, anio, period, uf)
+      addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, [], mes, anio, period, uf, folioNumero)
     }
   } else {
     const srvs = toServicioExport(built.serviciosCliente, servicioSeleccion)
     const r = built.results[0]
-    addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, srvs, mes, anio, period, uf)
+    addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, srvs, mes, anio, period, uf, folioNumero)
   }
 
   return wb
@@ -209,7 +210,7 @@ export function excelFilename(clienteNombre: string, mes: number, anio: number) 
 // ── Hoja "Resumen general" — modo unificado: una fila por CI + servicios + total ──
 function addResumenGeneralSheet(
   wb: ExcelJS.Workbook, cliente: ClienteExport, mes: number, anio: number,
-  results: TarifaResultado[], srvBilling: BillingResult
+  results: TarifaResultado[], srvBilling: BillingResult, folioNumero?: number | null
 ) {
   const mesTit = `${MESES[mes]} ${anio}`
   const ws = wb.addWorksheet("Resumen general", {
@@ -230,7 +231,7 @@ function addResumenGeneralSheet(
   }
   {
     const r = ws.addRow([]); r.height = 18; spacerA(r)
-    r.getCell("B").value = mesTit.toUpperCase()
+    r.getCell("B").value = folioNumero != null ? `${mesTit.toUpperCase()} — N° HES-${String(folioNumero).padStart(6, "0")}` : mesTit.toUpperCase()
     st(r.getCell("B"), { size: 10, noBorder: true }); row++
   }
   { const r = ws.addRow([]); r.height = 10; spacerA(r); row++ }
@@ -286,7 +287,8 @@ function addResumenGeneralSheet(
 // ── Hoja de detalle de una tarifa (tabla de cobro + log diario) ─────────────
 function addTarifaSheet(
   wb: ExcelJS.Workbook, cliente: ClienteExport, tarifa: TarifaCliente, hes: HesResult, billing: BillingResult,
-  srvs: ServicioExport[], mes: number, anio: number, period: { start: string; end: string }, uf: number
+  srvs: ServicioExport[], mes: number, anio: number, period: { start: string; end: string }, uf: number,
+  folioNumero?: number | null
 ) {
   const [, periodEndM, periodEndD] = period.end.split("-").map(Number)
   const mesNom  = MESES[mes].toUpperCase()
@@ -399,7 +401,8 @@ function addTarifaSheet(
     spacerA(r)
     r.getCell("B").value = "REF :"
     st(r.getCell("B"), { bold: true, size: 9, noBorder: true })
-    r.getCell("C").value = `${tarifa.cotizacion_numero} al ${hoyStr}`
+    const folioSuffix = folioNumero != null ? ` · N° HES-${String(folioNumero).padStart(6, "0")}` : ""
+    r.getCell("C").value = `${tarifa.cotizacion_numero} al ${hoyStr}${folioSuffix}`
     st(r.getCell("C"), { size: 9, noBorder: true })
     ws.mergeCells(`C${row}:D${row}`)
     r.getCell("E").value = "Id. Producto"

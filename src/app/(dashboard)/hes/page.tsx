@@ -16,7 +16,7 @@ import {
   AlertCircle, Loader2, ChevronRight, ChevronLeft, ChevronDown, FileText, RefreshCw, Download, Wrench,
   Calendar as CalendarIcon, Trash2, Pencil, Mail,
 } from "lucide-react"
-import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente, ServicioClienteInsert } from "@/types/database"
+import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente, ServicioClienteInsert, HesFolio } from "@/types/database"
 import { computeHES, computeBilling, getPeriodRange, type MovRaw, type HesResult, type BillingResult } from "@/lib/hes-calc"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -253,8 +253,8 @@ function TarifaDialog({
   const labelCls = "text-[11px] text-muted-foreground"
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[520px] max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[520px] max-w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
           <div>
             <h2 className="text-[14px] font-semibold">{existing ? "Editar tarifa" : "Nueva tarifa"}</h2>
@@ -264,7 +264,7 @@ function TarifaDialog({
         </div>
 
         <div className="p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className={labelCls}>Cotización N° <span className="text-muted-foreground/60">(auto si se deja vacío)</span></Label>
               <Input className={fieldCls} value={form.cotizacion_numero ?? ""} onChange={e => setField("cotizacion_numero", e.target.value)} placeholder="COT-2026-001" />
@@ -301,7 +301,7 @@ function TarifaDialog({
             </div>
 
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tarifas</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {isClp ? (
                 <>
                   <div className="space-y-1">
@@ -452,9 +452,9 @@ function ServicioDialog({
   const UNIDAD_OPTS = ["contenedor", "contenedor 20ft", "contenedor 40ft", "pallet", "operación", "mes", "unidad", "hora"]
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[460px]">
+      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[460px] max-w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
           <div>
             <h2 className="text-[14px] font-semibold">{existing ? "Editar servicio" : "Nuevo servicio"}</h2>
@@ -476,7 +476,7 @@ function ServicioDialog({
               onChange={e => setField("descripcion", e.target.value)}
               placeholder="Detalle del servicio para la HES" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className={labelCls}>Tarifa (UF / unidad)</Label>
               <Input className={fieldCls} type="number" step="0.0001"
@@ -533,7 +533,7 @@ function PreviewDialog({
   clienteNombre, activeTab, onTabChange,
   resumenLoading, resumenError, resumenUrl,
   loading, error, sheet,
-  onClose, onDownload, downloading, onOpenSend,
+  onClose, onDownload, downloading, onOpenSend, folioNumero, folioIsFinal,
   isUnificado, unifiedResults, unifiedServiciosBilling, unifiedTotalCLP, unifiedLoading, unifiedError,
   previewSheets, activeSheetIdx, onActiveSheetChange,
 }: {
@@ -559,6 +559,8 @@ function PreviewDialog({
   onDownload: () => void
   onOpenSend: () => void
   downloading: boolean
+  folioNumero: number | null
+  folioIsFinal: boolean
 }) {
   const activeSheet = previewSheets[activeSheetIdx]?.sheet ?? sheet
   const ready = activeTab === "resumen"
@@ -572,6 +574,11 @@ function PreviewDialog({
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
             <h2 className="text-[14px] font-semibold">Vista previa — HES {clienteNombre}</h2>
+            {folioNumero != null && (
+              <span className="text-[11px] font-mono text-muted-foreground bg-muted/60 rounded px-1.5 py-0.5">
+                N° HES-{String(folioNumero).padStart(6, "0")}{!folioIsFinal && " (provisorio)"}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-0.5 bg-muted rounded-lg p-0.5">
@@ -700,11 +707,12 @@ function PreviewDialog({
 }
 
 // ── Popup para enviar el HES por correo al email de contacto del cliente ────
-function EnviarHesDialog({ clienteNombre, emails, onClose, onSend }: {
+function EnviarHesDialog({ clienteNombre, emails, onClose, onSend, onSent }: {
   clienteNombre: string
   emails: string[]
   onClose: () => void
   onSend: (adjuntos: { resumen: boolean; detalle: boolean }) => Promise<{ success: boolean; error?: string; enviadoA?: string[] }>
+  onSent: (enviadoA: string[]) => void
 }) {
   const [resumen, setResumen] = useState(true)
   const [detalle, setDetalle] = useState(true)
@@ -716,14 +724,18 @@ function EnviarHesDialog({ clienteNombre, emails, onClose, onSend }: {
     setSending(true); setError(null)
     const res = await onSend({ resumen, detalle })
     setSending(false)
-    if (res.success) setSentTo(res.enviadoA ?? emails)
-    else setError(res.error ?? "No se pudo enviar el correo.")
+    if (res.success) {
+      setSentTo(res.enviadoA ?? emails)
+      onSent(res.enviadoA ?? emails)
+    } else {
+      setError(res.error ?? "No se pudo enviar el correo.")
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[420px]">
+      <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[420px] max-w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
           <div>
             <h2 className="text-[14px] font-semibold">Enviar HES por correo</h2>
@@ -894,6 +906,19 @@ export default function HesPage() {
   const [exporting,        setExporting]        = useState(false)
   const [showPreview,      setShowPreview]      = useState(false)
   const [showSendDialog,   setShowSendDialog]   = useState(false)
+  const [toast,            setToast]            = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3500)
+    return () => clearTimeout(t)
+  }, [toast])
+  const [folioNumero,      setFolioNumero]      = useState<number | null>(null)
+  const [folioId,          setFolioId]          = useState<string | null>(null)
+  const [existingFolios,   setExistingFolios]   = useState<HesFolio[]>([])
+  const [rangoPersonalizado, setRangoPersonalizado] = useState(false)
+  const [customStart,       setCustomStart]       = useState("")
+  const [customEnd,         setCustomEnd]         = useState("")
   const [previewTab,       setPreviewTab]       = useState<"resumen" | "detalle">("resumen")
   const [previewLoading,   setPreviewLoading]   = useState(false)
   const [previewError,     setPreviewError]     = useState<string | null>(null)
@@ -925,11 +950,16 @@ export default function HesPage() {
 
   // Ciclo de facturación del cliente (por defecto mes calendario). Clientes
   // como PROQUIMIN facturan en ciclos rodantes (ej. 26 de un mes a 25 del
-  // siguiente) — ver dia_corte_facturacion en la tabla clientes.
-  const periodo = useMemo(
-    () => getPeriodRange(selectedYear, selectedMonth, selectedCliente?.dia_corte_facturacion ?? 1),
-    [selectedYear, selectedMonth, selectedCliente]
-  )
+  // siguiente) — ver dia_corte_facturacion en la tabla clientes. Un rango
+  // personalizado (ej. el cliente solo usó bodegaje una parte del mes) pisa
+  // el período calculado — el resto del flujo (cálculo, preview, export,
+  // envío) sigue igual, solo cambia la ventana de fechas que se usa.
+  const periodo = useMemo(() => {
+    if (rangoPersonalizado && customStart && customEnd && customStart <= customEnd) {
+      return { start: customStart, end: customEnd }
+    }
+    return getPeriodRange(selectedYear, selectedMonth, selectedCliente?.dia_corte_facturacion ?? 1)
+  }, [rangoPersonalizado, customStart, customEnd, selectedYear, selectedMonth, selectedCliente])
 
   // ── Fetch UF de la fecha seleccionada ───────────────────────────────────────
   // 1) caché en Supabase (uf_valores) — la UF de un día pasado nunca cambia,
@@ -1165,6 +1195,23 @@ export default function HesPage() {
 
   useEffect(() => { loadUnificado() }, [loadUnificado])
 
+  // ── HES ya generados este mes para este cliente (indicador, evita
+  // generar/enviar dos veces sin darse cuenta) ────────────────────────────
+  const loadExistingFolios = useCallback(async () => {
+    if (!selectedId) { setExistingFolios([]); return }
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("hes_folios")
+      .select("*")
+      .eq("cliente_id", selectedId)
+      .eq("mes", selectedMonth)
+      .eq("anio", selectedYear)
+      .order("numero", { ascending: false })
+    if (!error) setExistingFolios((data ?? []) as HesFolio[])
+  }, [selectedId, selectedMonth, selectedYear])
+
+  useEffect(() => { loadExistingFolios() }, [loadExistingFolios])
+
   // ── Compute HES ────────────────────────────────────────────────────────────
   const hes = useMemo<HesResult | null>(() => {
     if (!selectedId || movs.length === 0) return null
@@ -1213,7 +1260,16 @@ export default function HesPage() {
 
 
   // ── Export Excel ───────────────────────────────────────────────────────────
-  async function fetchHesExcel(): Promise<Blob> {
+  // Cuando hay un rango personalizado activo, se manda también al servidor
+  // — de lo contrario el servidor recalcularía el período completo del mes
+  // (o del ciclo de facturación del cliente) e ignoraría la selección.
+  function periodOverride() {
+    return rangoPersonalizado && customStart && customEnd && customStart <= customEnd
+      ? { periodStart: customStart, periodEnd: customEnd }
+      : {}
+  }
+
+  async function fetchHesExcel(folioOverride?: number | null): Promise<Blob> {
     // El servidor relee cliente/tarifa/servicios/movimientos de la base y
     // recalcula todo — solo se manda la selección (qué servicios opcionales
     // incluir y en qué cantidad), que es una decisión real del usuario, no
@@ -1222,6 +1278,7 @@ export default function HesPage() {
     for (const s of servicios) {
       servicioSeleccion[s.id] = { cantidad: srvCantidades[s.id] ?? 0, checked: srvChecked[s.id] ?? true }
     }
+    const folioNum = folioOverride ?? folioNumero
     const res = await fetch("/api/hes/export", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
@@ -1232,6 +1289,8 @@ export default function HesPage() {
         anio:      selectedYear,
         ufValue,
         servicioSeleccion,
+        folioNumero: folioNum,
+        ...periodOverride(),
       } : {
         clienteId: selectedCliente!.id,
         tarifaId:  tarifa!.id,
@@ -1239,6 +1298,8 @@ export default function HesPage() {
         anio:      selectedYear,
         ufValue,
         servicioSeleccion,
+        folioNumero: folioNum,
+        ...periodOverride(),
       }),
     })
     if (!res.ok) throw new Error("Error al generar Excel")
@@ -1246,8 +1307,12 @@ export default function HesPage() {
   }
 
   // ── Enviar HES por correo al email de contacto del cliente ─────────────────
+  // El folio se asigna recién acá (si no se asignó ya por una descarga previa
+  // en esta misma vista previa) — solo abrir la vista previa no debe consumir
+  // un número de folio, solo descargar o enviar de verdad.
   async function handleSendEmail(adjuntos: { resumen: boolean; detalle: boolean }) {
     if (!selectedCliente) return { success: false, error: "Sin cliente seleccionado." }
+    const folio = await ensureFolio()
     const servicioSeleccion: Record<string, { cantidad: number; checked: boolean }> = {}
     for (const s of servicios) {
       servicioSeleccion[s.id] = { cantidad: srvCantidades[s.id] ?? 0, checked: srvChecked[s.id] ?? true }
@@ -1260,16 +1325,19 @@ export default function HesPage() {
           clienteId: selectedCliente.id,
           tarifaIds: tarifas.map(t => t.id),
           mes: selectedMonth, anio: selectedYear, ufValue, ufDate,
-          servicioSeleccion, adjuntos,
+          servicioSeleccion, adjuntos, folioNumero: folio?.numero ?? null, folioId: folio?.id ?? null,
+          ...periodOverride(),
         } : {
           clienteId: selectedCliente.id,
           tarifaId:  tarifa!.id,
           mes: selectedMonth, anio: selectedYear, ufValue, ufDate,
-          servicioSeleccion, adjuntos,
+          servicioSeleccion, adjuntos, folioNumero: folio?.numero ?? null, folioId: folio?.id ?? null,
+          ...periodOverride(),
         }),
       })
       const json = await res.json()
       if (!res.ok) return { success: false, error: json.error ?? "No se pudo enviar el correo." }
+      loadExistingFolios() // refresca para reflejar el enviado_a/enviado_at
       return { success: true, enviadoA: json.enviadoA as string[] }
     } catch {
       return { success: false, error: "No se pudo enviar el correo." }
@@ -1289,9 +1357,10 @@ export default function HesPage() {
   // genera 100% en el cliente, no requiere ida y vuelta al servidor.
   // En modo "Ver todas" el PDF trae una fila por CI + servicios + total general,
   // con el mismo formato que el resumen de una sola tarifa.
-  async function generateResumen() {
-    if (!selectedCliente) return
-    if (isUnificado ? tarifas.length === 0 : (!tarifa || !billing)) return
+  async function generateResumen(folioOverride?: number | null): Promise<Blob | null> {
+    if (!selectedCliente) return null
+    if (isUnificado ? tarifas.length === 0 : (!tarifa || !billing)) return null
+    const folioNum = folioOverride ?? folioNumero
     setResumenLoading(true)
     setResumenError(null)
     try {
@@ -1330,6 +1399,7 @@ export default function HesPage() {
             ufValue,
             ufDate,
             logoSrc: `${window.location.origin}/adp_logo_hd.png`,
+            folioNumero: folioNum,
           }} />
         ).toBlob()
       } else {
@@ -1344,13 +1414,16 @@ export default function HesPage() {
             ufValue,
             ufDate,
             logoSrc: `${window.location.origin}/adp_logo_hd.png`,
+            folioNumero: folioNum,
           }} />
         ).toBlob()
       }
       setResumenBlob(blob)
       setResumenUrl(URL.createObjectURL(blob))
+      return blob
     } catch {
       setResumenError("No se pudo generar el resumen.")
+      return null
     } finally {
       setResumenLoading(false)
     }
@@ -1359,41 +1432,101 @@ export default function HesPage() {
   // Detalle (Excel): genera el .xlsx real y lo parsea en el cliente para
   // renderizarlo tal cual quedará el archivo descargado (mismas fusiones, colores y formatos).
   // En modo "Ver todas" el archivo trae varias hojas (resumen general + una por CI).
-  async function generateDetalle() {
-    if (isUnificado ? (tarifas.length === 0) : (!selectedCliente || !tarifa || !billing || !hes)) return
+  async function generateDetalle(folioOverride?: number | null): Promise<Blob | null> {
+    if (isUnificado ? (tarifas.length === 0) : (!selectedCliente || !tarifa || !billing || !hes)) return null
     setPreviewLoading(true)
     setPreviewError(null)
     try {
-      const blob = await fetchHesExcel()
+      const blob = await fetchHesExcel(folioOverride)
       setPreviewBlob(blob)
       const sheets = await buildAllPreviewSheets(await blob.arrayBuffer())
       setPreviewSheets(sheets)
       setActiveSheetIdx(0)
       setPreviewSheet(sheets[0]?.sheet ?? null)
+      return blob
     } catch {
       setPreviewError("No se pudo generar la vista previa del Excel.")
+      return null
     } finally {
       setPreviewLoading(false)
     }
   }
 
-  // Abre la vista previa con la pestaña Resumen por defecto.
+  // Asigna un folio correlativo nuevo para este HES — solo la primera vez que
+  // se descarga o se envía de verdad (no solo abrir la vista previa). Si ya
+  // se asignó uno en esta misma sesión de vista previa, se reutiliza (bajar
+  // el Excel y después mandarlo por correo es el mismo documento, no dos).
+  // Si falla la asignación, no bloquea: el documento sale sin número.
+  async function ensureFolio(): Promise<{ numero: number; id: string } | null> {
+    if (folioNumero != null && folioId != null) return { numero: folioNumero, id: folioId }
+    if (!selectedCliente) return null
+    try {
+      const res = await fetch("/api/hes/folio", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(isUnificado ? {
+          clienteId: selectedCliente.id,
+          tarifaIds: tarifas.map(t => t.id),
+          mes: selectedMonth, anio: selectedYear,
+          periodStart: periodo.start, periodEnd: periodo.end,
+          totalUF: unifiedTotalUF, totalCLP: unifiedTotalCLP,
+        } : {
+          clienteId: selectedCliente.id,
+          tarifaId:  tarifa!.id,
+          mes: selectedMonth, anio: selectedYear,
+          periodStart: periodo.start, periodEnd: periodo.end,
+          totalUF: billing?.finalUF ?? null, totalCLP: billing?.finalCLP ?? null,
+        }),
+      })
+      if (!res.ok) return null
+      const json = await res.json()
+      setFolioNumero(json.numero)
+      setFolioId(json.id)
+      loadExistingFolios() // refresca el indicador de "ya generado este mes"
+      return { numero: json.numero, id: json.id }
+    } catch {
+      return null
+    }
+  }
+
+  // Adelanta cuál sería el próximo folio (sin gastarlo — no inserta nada,
+  // solo mira el último número asignado) para mostrarlo en la vista previa.
+  // Es solo referencial: el número real se asigna recién al descargar o
+  // enviar, y si otra persona genera un HES justo en el medio, puede diferir.
+  async function peekFolio(): Promise<number | null> {
+    try {
+      const supabase = createClient()
+      const { data } = await supabase.from("hes_folios").select("numero").order("numero", { ascending: false }).limit(1)
+      const next = (data?.[0]?.numero ?? 0) + 1
+      setFolioNumero(next)
+      return next
+    } catch {
+      return null
+    }
+  }
+
+  // Abre la vista previa con la pestaña Resumen por defecto — el folio que
+  // se ve es solo provisorio hasta descargar o enviar de verdad. Se pasa
+  // explícito a generateResumen/generateDetalle porque el estado recién
+  // seteado (setFolioNumero) no está disponible todavía en este closure.
   async function openPreview() {
     if (isUnificado ? (tarifas.length === 0 || unifiedResults.length === 0) : (!selectedCliente || !tarifa || !billing || !hes)) return
     setShowPreview(true)
     setPreviewTab("resumen")
     setPreviewError(null); setPreviewSheet(null); setPreviewBlob(null); setPreviewSheets([]); setActiveSheetIdx(0)
     setResumenError(null); setResumenUrl(null); setResumenBlob(null)
-    await generateResumen()
+    setFolioNumero(null); setFolioId(null)
+    const provisional = await peekFolio()
+    await generateResumen(provisional)
     // En modo unificado no hay PDF de resumen — el único archivo descargable
     // es el Excel, así que se pre-genera de una vez (sin esperar a que abran
     // la pestaña Detalle) para que "Descargar" funcione desde cualquier pestaña.
-    if (isUnificado) await generateDetalle()
+    if (isUnificado) await generateDetalle(provisional)
   }
 
   function selectPreviewTab(tab: "resumen" | "detalle") {
     setPreviewTab(tab)
-    if (tab === "detalle" && !previewBlob && !previewLoading) generateDetalle()
+    if (tab === "detalle" && !previewBlob && !previewLoading) generateDetalle(folioNumero)
   }
 
   function closePreview() {
@@ -1403,25 +1536,30 @@ export default function HesPage() {
     setResumenBlob(null)
   }
 
-  function handleDownloadFromPreview() {
-    const suffix = isUnificado ? "_UNIFICADO" : ""
-    const filenameBase = `HES_${selectedCliente!.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[selectedMonth].toUpperCase()}_${selectedYear}${suffix}`
-    if (previewTab === "resumen") {
-      if (!resumenBlob) return
-      setExporting(true)
-      try {
-        triggerBlobDownload(resumenBlob, `${filenameBase}_Resumen.pdf`)
-        closePreview()
-      } finally {
-        setExporting(false)
-      }
-      return
-    }
-    if (!previewBlob) return
+  // El folio recién se asigna acá — abrir la vista previa no debe gastar un
+  // número, solo descargar (o enviar) de verdad. Como el PDF/Excel ya
+  // generados durante la vista previa no lo tienen estampado, se regeneran
+  // una vez conocido el folio antes de disparar la descarga.
+  async function handleDownloadFromPreview() {
+    if (!selectedCliente) return
     setExporting(true)
     try {
-      triggerBlobDownload(previewBlob, `${filenameBase}.xlsx`)
+      const folio = await ensureFolio()
+      const suffix = isUnificado ? "_UNIFICADO" : ""
+      const filenameBase = `HES_${selectedCliente.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[selectedMonth].toUpperCase()}_${selectedYear}${suffix}`
+      if (previewTab === "resumen") {
+        const blob = await generateResumen(folio?.numero ?? null)
+        if (!blob) return
+        triggerBlobDownload(blob, `${filenameBase}_Resumen.pdf`)
+        closePreview()
+        setToast("PDF descargado correctamente.")
+        return
+      }
+      const blob = await generateDetalle(folio?.numero ?? null)
+      if (!blob) return
+      triggerBlobDownload(blob, `${filenameBase}.xlsx`)
       closePreview()
+      setToast("Excel descargado correctamente.")
     } finally {
       setExporting(false)
     }
@@ -1486,6 +1624,8 @@ export default function HesPage() {
           onDownload={handleDownloadFromPreview}
           onOpenSend={() => setShowSendDialog(true)}
           downloading={exporting}
+          folioNumero={folioNumero}
+          folioIsFinal={folioId != null}
           isUnificado={isUnificado}
           unifiedResults={unifiedResults}
           unifiedServiciosBilling={unifiedServiciosBilling}
@@ -1504,7 +1644,18 @@ export default function HesPage() {
           emails={selectedCliente.emails}
           onClose={() => setShowSendDialog(false)}
           onSend={handleSendEmail}
+          onSent={enviadoA => {
+            closePreview()
+            setToast(`Correo enviado a ${enviadoA.join(", ")}.`)
+          }}
         />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-emerald-600 text-white text-[12px] px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+          {toast}
+        </div>
       )}
 
       <div className="flex flex-1 min-h-0 overflow-hidden print:overflow-visible">
@@ -1578,7 +1729,7 @@ export default function HesPage() {
                         <option value={TODAS}>Ver todas ({tarifas.length})</option>
                         {tarifas.map(t => (
                           <option key={t.id} value={t.id}>
-                            {t.cotizacion_numero}{t.clase_imo ? ` · Cl.${t.clase_imo}` : ""}
+                            {t.clase_imo ? `Cl.${t.clase_imo}` : t.cotizacion_numero}
                           </option>
                         ))}
                       </select>
@@ -1594,7 +1745,33 @@ export default function HesPage() {
                     <Button variant="ghost" size="sm" onClick={loadMovimientos} disabled={loading} className="h-7 w-7 p-0 flex-shrink-0">
                       <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
                     </Button>
+                    <button
+                      onClick={() => setRangoPersonalizado(v => !v)}
+                      className={cn(
+                        "h-7 flex items-center gap-1 rounded-md border px-2 text-[11px] transition-colors",
+                        rangoPersonalizado
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border/50 text-muted-foreground hover:text-foreground"
+                      )}
+                      title="Cobrar solo un rango de fechas específico dentro del período"
+                    >
+                      <CalendarIcon className="h-3 w-3" /> Rango personalizado
+                    </button>
                   </div>
+
+                  {rangoPersonalizado && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[11px] text-muted-foreground">Desde</span>
+                      <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
+                        className="h-7 w-[136px] text-[12px] px-2" />
+                      <span className="text-[11px] text-muted-foreground">hasta</span>
+                      <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
+                        className="h-7 w-[136px] text-[12px] px-2" />
+                      {customStart && customEnd && customStart > customEnd && (
+                        <span className="text-[11px] text-destructive">"Desde" no puede ser después de "hasta"</span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Acciones: tarifa + generar HES */}
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -1629,6 +1806,20 @@ export default function HesPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Indicador: ¿ya se generó un HES para este cliente/mes? */}
+              {existingFolios.length > 0 && (
+                <div className="flex items-center gap-2 px-3 sm:px-5 py-2 border-b border-border/40 bg-emerald-50 dark:bg-emerald-900/10 text-emerald-700 dark:text-emerald-400 text-[11px] flex-shrink-0 print:hidden flex-wrap">
+                  <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>
+                    Ya se generó HES para {MESES[selectedMonth]} {selectedYear}
+                    {existingFolios.length > 1 ? ` (${existingFolios.length} veces, última` : " —"}
+                    {" "}N° HES-{String(existingFolios[0].numero).padStart(6, "0")}
+                    {existingFolios.length > 1 ? ")" : ""}
+                    {" "}el {fmtDateDisplay(existingFolios[0].generado_at.slice(0, 10))}
+                  </span>
+                </div>
+              )}
 
               {/* HES Document */}
               <div className="flex-1 overflow-y-auto p-5 bg-muted/10">

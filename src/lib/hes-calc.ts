@@ -72,6 +72,17 @@ export function getPeriodRange(year: number, month: number, diaCorte: number): {
   return { start: toISODate(new Date(year, month - 1, corte)), end: toISODate(new Date(year, month, corte - 1)) }
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+// Rango de fechas elegido a mano por el usuario (ej. el cliente solo usó
+// bodegaje una parte del mes) — pisa el período calculado por getPeriodRange.
+export function isValidPeriodOverride(v: unknown): v is { start: string; end: string } {
+  if (!v || typeof v !== "object") return false
+  const { start, end } = v as { start?: unknown; end?: unknown }
+  return typeof start === "string" && typeof end === "string" &&
+    ISO_DATE_RE.test(start) && ISO_DATE_RE.test(end) && start <= end
+}
+
 export function computeHES(movs: MovRaw[], periodStart: string, periodEnd: string, tarifaAlmacenaje: number): HesResult {
   // Starting stock = net ingresos - despachos before the period
   let stock = 0

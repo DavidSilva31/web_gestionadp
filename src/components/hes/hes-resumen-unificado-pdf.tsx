@@ -14,6 +14,7 @@ export interface HesResumenUnificadoPDFData {
   ufDate: string
   // Ver nota en hes-resumen-pdf.tsx — necesario para poder renderizar server-side.
   logoSrc: string
+  folioNumero?: number | null
 }
 
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -26,6 +27,7 @@ const s = StyleSheet.create({
   logo: { width: 96, height: 40, objectFit: "contain" },
   headerRight: { alignItems: "flex-end" },
   title: { fontSize: 13, fontFamily: "Helvetica-Bold", color: BLUE },
+  folio: { fontSize: 9, fontFamily: "Helvetica-Bold", color: GREY, marginTop: 2 },
   subtitle: { fontSize: 8.5, color: GREY, marginTop: 2 },
   genDate: { fontSize: 7, color: "#A0AEC0", marginTop: 3 },
 
@@ -61,7 +63,7 @@ function fmtUF(v: number) { return v.toFixed(4) }
 function fmtCLP(v: number) { return `$${Math.round(v).toLocaleString("es-CL")}` }
 
 export function HesResumenUnificadoPDF({ data }: { data: HesResumenUnificadoPDFData }) {
-  const { cliente, filas, totalUF, totalCLP, mes, anio, ufValue, ufDate, logoSrc } = data
+  const { cliente, filas, totalUF, totalCLP, mes, anio, ufValue, ufDate, logoSrc, folioNumero } = data
   const periodoLabel = `${MESES[mes]} ${anio}`
   const uf = parseFloat(ufValue) || 0
 
@@ -72,6 +74,9 @@ export function HesResumenUnificadoPDF({ data }: { data: HesResumenUnificadoPDFD
           <Image style={s.logo} src={logoSrc} />
           <View style={s.headerRight}>
             <Text style={s.title}>Hoja de Estado de Servicio — Resumen general</Text>
+            {folioNumero != null && (
+              <Text style={s.folio}>N° HES-{String(folioNumero).padStart(6, "0")}</Text>
+            )}
             <Text style={s.subtitle}>Altos del Puerto · {periodoLabel}</Text>
             <Text style={s.genDate}>
               Generado el {new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" })}

@@ -257,8 +257,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_usuario        ON audit_logs(usuario_id);
 
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Autenticados leen audit_logs"
-  ON audit_logs FOR SELECT TO authenticated USING (true);
+-- Se usa como feed de notificaciones compartido (movimientos, reports, etc.
+-- visibles para todos), pero las acciones admin.* (crear/eliminar/actualizar
+-- usuario) incluyen emails y roles de otros empleados — solo super_admin.
+CREATE POLICY "Lectura de audit_logs según rol"
+  ON audit_logs FOR SELECT TO authenticated
+  USING (current_user_role() = 'super_admin' OR accion NOT LIKE 'admin.%');
 
 -- No se puede insertar un log "a nombre de otro" — usuario_id debe ser el
 -- del propio caller (o NULL, para acciones sin actor identificable).
@@ -716,3 +720,43 @@ CREATE POLICY "Operador+ acceso completo uf_valores"
   ON uf_valores FOR ALL TO authenticated
   USING (current_user_role() IN ('operador', 'super_admin'))
   WITH CHECK (current_user_role() IN ('operador', 'super_admin'));
+
+-- ── Folio correlativo por HES generado ──────────────────────────
+-- Cada vez que se genera un HES (botón "Generar HES") queda un folio único,
+-- con quién y cuándo lo generó, y a quién se le envió (si se envió).
+CREATE SEQUENCE IF NOT EXISTS hes_folio_seq START 1;
+
+CREATE TABLE IF NOT EXISTS hes_folios (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  numero               INTEGER NOT NULL DEFAULT nextval('hes_folio_seq') UNIQUE,
+  cliente_id           UUID NOT NULL REFERENCES clientes(id),
+  tarifa_ids           UUID[] NOT NULL,
+  mes                  SMALLINT NOT NULL,
+  anio                 SMALLINT NOT NULL,
+  periodo_start        DATE NOT NULL,
+  periodo_end          DATE NOT NULL,
+  total_uf             NUMERIC(14,4),
+  total_clp            NUMERIC(14,2),
+  generado_por         UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  generado_por_nombre  TEXT,
+  generado_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  enviado_a            TEXT[],
+  enviado_at           TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_hes_folios_cliente ON hes_folios(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_hes_folios_generado_at ON hes_folios(generado_at DESC);
+
+ALTER TABLE hes_folios ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Operadores leen hes_folios"
+  ON hes_folios FOR SELECT TO authenticated
+  USING (current_user_role() IN ('operador', 'super_admin'));
+
+CREATE POLICY "Operadores crean hes_folios"
+  ON hes_folios FOR INSERT TO authenticated
+  WITH CHECK (current_user_role() IN ('operador', 'super_admin'));
+
+CREATE POLICY "Operadores actualizan hes_folios"
+  ON hes_folios FOR UPDATE TO authenticated
+  USING (current_user_role() IN ('operador', 'super_admin'));
