@@ -466,7 +466,7 @@ export function Topbar() {
                           <button
                             onClick={() => dismiss(item.id)}
                             title="Descartar"
-                            className="flex-shrink-0 h-5 w-5 rounded-md flex items-center justify-center text-muted-foreground/50 opacity-0 group-hover/notif:opacity-100 hover:!text-foreground hover:bg-muted transition-all"
+                            className="flex-shrink-0 h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground/50 opacity-100 sm:opacity-0 sm:group-hover/notif:opacity-100 hover:!text-foreground hover:bg-muted transition-all"
                           >
                             <X className="h-3 w-3" />
                           </button>
