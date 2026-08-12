@@ -75,7 +75,7 @@ function NavItem({ item, allItems }: { item: NavItemDef; allItems: NavItemDef[] 
         render={<Link href={item.href} />}
         onClick={() => { if (!isActive) startPending() }}
         className={cn(
-          "h-10 w-full rounded-lg font-medium transition-all flex items-center gap-3 px-3",
+          "h-9 w-full rounded-lg font-medium transition-all flex items-center gap-3 px-3",
           isActive
             ? "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90"
             : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
@@ -126,7 +126,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="offcanvas">
-      <SidebarHeader className="pt-5 px-5 pb-1 flex items-center justify-center">
+      <SidebarHeader className="pt-3 px-5 pb-1 flex items-center justify-center">
         <Image
           src="/adp_logo.png"
           alt="Altos del Puerto"
@@ -140,7 +140,11 @@ export function AppSidebar() {
 
       <SidebarSeparator />
 
-      <SidebarContent className="px-2 py-2">
+      {/* relative + fade: en pantallas bajas (notebook 1366x768) el listado de
+          navegación puede seguir necesitando scroll — el degradé avisa que hay
+          más ítems abajo en vez de cortarse sin aviso. */}
+      <div className="relative flex-1 min-h-0">
+      <SidebarContent className="h-full px-2 py-1">
         {/* Inicio — suelto, sin label, como acceso fijo de inicio */}
         {inicioItems.length > 0 && (
           <SidebarMenu>
@@ -150,9 +154,9 @@ export function AppSidebar() {
 
         {inventarioItems.length > 0 && (
           <>
-            <SidebarSeparator className="my-1" />
-            <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-2 mb-1">
+            <SidebarSeparator className="my-0.5" />
+            <SidebarGroup className="py-0.5">
+              <SidebarGroupLabel className="h-5 text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-2 mb-0.5">
                 Inventario
               </SidebarGroupLabel>
               <SidebarMenu>
@@ -164,9 +168,9 @@ export function AppSidebar() {
 
         {clientesItems.length > 0 && (
           <>
-            <SidebarSeparator className="my-1" />
-            <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-2 mb-1">
+            <SidebarSeparator className="my-0.5" />
+            <SidebarGroup className="py-0.5">
+              <SidebarGroupLabel className="h-5 text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-2 mb-0.5">
                 Clientes y facturación
               </SidebarGroupLabel>
               <SidebarMenu>
@@ -179,7 +183,7 @@ export function AppSidebar() {
         {/* Analítica — suelta, sin label, cierra la sección principal */}
         {analiticaItems.length > 0 && (
           <>
-            <SidebarSeparator className="my-1" />
+            <SidebarSeparator className="my-0.5" />
             <SidebarMenu>
               {analiticaItems.map(item => <NavItem key={item.href} item={item} allItems={navItems} />)}
             </SidebarMenu>
@@ -188,9 +192,9 @@ export function AppSidebar() {
 
         {reportsItems.length > 0 && (
           <>
-            <SidebarSeparator className="my-1" />
-            <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-2 mb-1">
+            <SidebarSeparator className="my-0.5" />
+            <SidebarGroup className="py-0.5">
+              <SidebarGroupLabel className="h-5 text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-2 mb-0.5">
                 Servicio almacenamiento
               </SidebarGroupLabel>
               <SidebarMenu>
@@ -202,9 +206,9 @@ export function AppSidebar() {
 
         {adminItems.length > 0 && (
           <>
-            <SidebarSeparator className="my-1" />
-            <SidebarGroup>
-              <SidebarGroupLabel className="text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-2 mb-1">
+            <SidebarSeparator className="my-0.5" />
+            <SidebarGroup className="py-0.5">
+              <SidebarGroupLabel className="h-5 text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-2 mb-0.5">
                 Administración
               </SidebarGroupLabel>
               <SidebarMenu>
@@ -214,17 +218,19 @@ export function AppSidebar() {
           </>
         )}
       </SidebarContent>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-sidebar to-transparent" />
+      </div>
 
       <SidebarSeparator />
 
-      <SidebarFooter className="p-2">
+      <SidebarFooter className="py-1.5 px-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               render={<Link href="/configuracion" />}
               onClick={() => { if (pathname !== "/configuracion") startPending() }}
               className={cn(
-                "h-10 w-full rounded-lg font-medium transition-all flex items-center gap-3 px-3",
+                "h-9 w-full rounded-lg font-medium transition-all flex items-center gap-3 px-3",
                 pathname === "/configuracion"
                   ? "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90"
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
@@ -239,7 +245,7 @@ export function AppSidebar() {
             <SidebarMenuButton
               onClick={handleSignOut}
               disabled={signingOut}
-              className="h-10 w-full rounded-lg text-sidebar-foreground/70 hover:bg-red-500/10 hover:text-red-300 flex items-center gap-3 px-3 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="h-9 w-full rounded-lg text-sidebar-foreground/70 hover:bg-red-500/10 hover:text-red-300 flex items-center gap-3 px-3 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {signingOut
                 ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
@@ -250,7 +256,7 @@ export function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
 
-        <SidebarSeparator className="my-2" />
+        <SidebarSeparator className="my-1" />
 
         <div className="flex items-center gap-3 px-2 py-1">
           <Avatar className="h-8 w-8 flex-shrink-0">

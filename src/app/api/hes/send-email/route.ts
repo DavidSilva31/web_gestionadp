@@ -45,6 +45,9 @@ async function handleSendEmail(req: NextRequest) {
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   if (userError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
 
+  const { data: callerProfile } = await supabase.from("profiles").select("role, nombre, activo").eq("id", user.id).single()
+  if (!callerProfile?.activo) return NextResponse.json({ error: "Cuenta desactivada" }, { status: 403 })
+
   if (!process.env.RESEND_API_KEY)
     return NextResponse.json({ error: "Servicio de email no configurado (falta RESEND_API_KEY)." }, { status: 503 })
 
@@ -71,8 +74,6 @@ async function handleSendEmail(req: NextRequest) {
   const { cliente, diaCorte } = clienteInfo
   const override = { start: periodStart, end: periodEnd }
   const period = isValidPeriodOverride(override) ? override : getPeriodRange(anio, mes, diaCorte)
-
-  const { data: callerProfile } = await supabase.from("profiles").select("role, nombre").eq("id", user.id).single()
 
   // Los destinatarios personalizados (fuera de los emails de contacto del
   // cliente) solo los puede pedir un super_admin — de lo contrario cualquier

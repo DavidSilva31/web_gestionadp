@@ -9,12 +9,13 @@ export async function GET() {
     if (userError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
 
     const { data: profile, error: profileError } = await supabase
-      .from("profiles").select("role").eq("id", user.id).single()
+      .from("profiles").select("role, activo").eq("id", user.id).single()
     if (profileError) {
       console.error("[admin/users] error obteniendo perfil:", profileError)
       return NextResponse.json({ error: "No se pudo verificar el perfil." }, { status: 500 })
     }
-    if (profile?.role !== "super_admin")
+    if (!profile?.activo) return NextResponse.json({ error: "Cuenta desactivada" }, { status: 403 })
+    if (profile.role !== "super_admin")
       return NextResponse.json({ error: "Sin permisos" }, { status: 403 })
 
     const { data, error } = await supabaseAdmin

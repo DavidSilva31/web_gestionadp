@@ -13,12 +13,13 @@ export async function PATCH(req: NextRequest) {
     if (userError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
 
     const { data: adminProfile, error: adminError } = await supabase
-      .from("profiles").select("role, nombre").eq("id", user.id).single()
+      .from("profiles").select("role, nombre, activo").eq("id", user.id).single()
     if (adminError) {
       console.error("[admin/update-user] error obteniendo perfil admin:", adminError)
       return NextResponse.json({ error: "No se pudo verificar el perfil." }, { status: 500 })
     }
-    if (adminProfile?.role !== "super_admin")
+    if (!adminProfile?.activo) return NextResponse.json({ error: "Cuenta desactivada" }, { status: 403 })
+    if (adminProfile.role !== "super_admin")
       return NextResponse.json({ error: "Sin permisos" }, { status: 403 })
 
     let body: { id?: string; role?: string; activo?: boolean; permisos?: string[] | null }
@@ -49,6 +50,16 @@ export async function PATCH(req: NextRequest) {
     if (error) {
       console.error("[admin/update-user] error actualizando perfil:", error)
       return NextResponse.json({ error: "No se pudo actualizar el usuario." }, { status: 500 })
+    }
+
+    // Al desactivar: banear en Auth para que no pueda volver a autenticarse ni
+    // refrescar su sesión ya abierta (además del corte inmediato en proxy.ts
+    // en su próxima navegación). Al reactivar, se remueve el ban.
+    if (activo !== undefined) {
+      const { error: banErr } = await supabaseAdmin.auth.admin.updateUserById(id, {
+        ban_duration: activo ? "none" : "876000h",
+      })
+      if (banErr) console.error("[admin/update-user] error actualizando ban de Auth:", banErr)
     }
 
     const cambios = Object.entries(updates)
