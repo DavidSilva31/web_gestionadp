@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { exportToExcel } from "@/lib/excel"
+import { syncPesoTon } from "@/lib/inventario"
 import { cn } from "@/lib/utils"
 import type {
   Movimiento, MovimientoInsert, MovimientoTipo, MovimientoServicio,
@@ -272,22 +273,15 @@ export default function MovimientosPage() {
     try {
       const supabase = createClient()
       if (dialog === "ingreso" || dialog === "despacho") {
-        const { data: inserted, error: err } = await supabase
-          .from("movimientos").insert(payload).select("id").single()
+        const { error: err } = await supabase.from("movimientos").insert(payload)
         if (err) { setError(err.message); setSaving(false); return }
 
+        // stock_actual ya lo actualiza un trigger de BD al insertar el movimiento
+        // (sync_inventario_from_movimiento) — llamar update_stock acá también
+        // duplicaba el descuento/incremento. Solo falta sincronizar peso_ton,
+        // que el trigger no toca.
         if (payload.inventario_item_id && payload.unidades && payload.unidades > 0) {
-          const signedDelta = payload.tipo === "ingreso" ? payload.unidades : -payload.unidades
-          const { error: rpcErr } = await supabase.rpc("update_stock", {
-            item_id: payload.inventario_item_id,
-            delta:   signedDelta,
-          })
-          if (rpcErr) {
-            await supabase.from("movimientos").delete().eq("id", inserted!.id)
-            setError("Error al actualizar stock. El movimiento no fue registrado.")
-            setSaving(false)
-            return
-          }
+          await syncPesoTon(supabase, payload.inventario_item_id)
         }
       } else if (dialog && typeof dialog === "object") {
         const { error: err } = await supabase.from("movimientos").update(payload).eq("id", dialog.id)

@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Save, Send, Loader2, Paperclip, FileText, X } from "lucide-react"
+import { ArrowLeft, Save, Send, Loader2, Paperclip, FileText, X, Wrench, Plus } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
+import { syncPesoTon } from "@/lib/inventario"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
 
@@ -121,9 +123,11 @@ function TarifaSelect({ clienteId, value, onChange, onCountChange }: {
   onCountChange?: (count: number) => void
 }) {
   const [tarifas, setTarifas] = useState<TarifaOption[]>([])
+  const [fetchError, setFetchError] = useState(false)
 
   useEffect(() => {
     setTarifas([])
+    setFetchError(false)
     if (!clienteId) { onCountChange?.(0); return }
     createClient()
       .from("tarifas_cliente")
@@ -131,7 +135,12 @@ function TarifaSelect({ clienteId, value, onChange, onCountChange }: {
       .eq("cliente_id", clienteId)
       .eq("activo", true)
       .order("clase_imo")
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("[reports/nuevo] error obteniendo tarifas del cliente:", error)
+          setFetchError(true)
+          return // no llamar onCountChange — mejor dejar el conteo previo que asumir 0
+        }
         const list = (data as TarifaOption[]) ?? []
         setTarifas(list)
         onCountChange?.(list.length)
@@ -141,6 +150,16 @@ function TarifaSelect({ clienteId, value, onChange, onCountChange }: {
   useEffect(() => {
     if (tarifas.length === 1) onChange(tarifas[0].id)
   }, [tarifas]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (fetchError) {
+    return (
+      <Field label="Tarifa / Clase" className="col-span-1 sm:col-span-3">
+        <p className="text-[11px] text-destructive">
+          No se pudieron cargar las tarifas del cliente — verifica antes de enviar a despacho si tiene más de un contrato.
+        </p>
+      </Field>
+    )
+  }
 
   if (tarifas.length <= 1) return null
 
@@ -246,11 +265,126 @@ function ProductoCombobox({ clienteId, value, onChange, onSelect }: {
   )
 }
 
+interface ServicioOption { id: string; nombre: string; unidad: string; tarifa_uf: number | null; tarifa_clp: number | null }
+
+// Precarga los servicios del catálogo del cliente (servicios_cliente) — para
+// clientes sin catálogo aún, solo queda la opción de agregar manualmente.
+// La selección de esta sección se guarda en el report (servicios_ids /
+// servicios_manual) para usarse cuando se genere el HES.
+function ServiciosSection({
+  clienteId, selectedIds, onToggle, manual, onAddManual, onRemoveManual,
+}: {
+  clienteId: string
+  selectedIds: string[]
+  onToggle: (id: string) => void
+  manual: string[]
+  onAddManual: (nombre: string) => void
+  onRemoveManual: (index: number) => void
+}) {
+  const [servicios, setServicios] = useState<ServicioOption[]>([])
+  const [loading,   setLoading]   = useState(false)
+  const [fetchError, setFetchError] = useState(false)
+  const [manualInput, setManualInput] = useState("")
+
+  useEffect(() => {
+    setServicios([])
+    setFetchError(false)
+    if (!clienteId) return
+    setLoading(true)
+    createClient()
+      .from("servicios_cliente")
+      .select("id, nombre, unidad, tarifa_uf, tarifa_clp")
+      .eq("cliente_id", clienteId)
+      .eq("activo", true)
+      .order("orden")
+      .then(({ data, error }) => {
+        if (error) console.error("[reports/nuevo] error obteniendo servicios del cliente:", error)
+        setServicios((data as ServicioOption[]) ?? [])
+        setFetchError(!!error)
+        setLoading(false)
+      })
+  }, [clienteId])
+
+  function addManual() {
+    const v = manualInput.trim()
+    if (!v) return
+    onAddManual(v.toUpperCase())
+    setManualInput("")
+  }
+
+  return (
+    <div>
+      <h2 className="text-[13px] font-bold text-foreground mb-1.5 flex items-center gap-1.5">
+        <Wrench className="h-3.5 w-3.5 text-muted-foreground" /> Servicios asociados
+      </h2>
+      <div className="rounded-lg border bg-muted/20 p-2.5 space-y-2">
+        {!clienteId ? (
+          <p className="text-[11px] text-muted-foreground">Selecciona un cliente para ver sus servicios.</p>
+        ) : loading ? (
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Cargando servicios del cliente...
+          </div>
+        ) : fetchError ? (
+          <p className="text-[11px] text-destructive">No se pudo cargar el catálogo de servicios del cliente — intenta de nuevo antes de agregar manualmente.</p>
+        ) : servicios.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">Este cliente aún no tiene servicios en catálogo — agrégalos manualmente abajo.</p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {servicios.map(s => (
+              <label key={s.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                <Checkbox
+                  checked={selectedIds.includes(s.id)}
+                  onCheckedChange={() => onToggle(s.id)}
+                  className="h-3.5 w-3.5"
+                />
+                <span className="text-foreground/90">{s.nombre}</span>
+                {(s.tarifa_uf || s.tarifa_clp) && (
+                  <span className="text-[10px] text-muted-foreground">
+                    ({s.tarifa_uf ? `${s.tarifa_uf} UF` : `$${s.tarifa_clp}`} / {s.unidad})
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+        )}
+
+        {manual.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {manual.map((m, i) => (
+              <Badge key={i} variant="outline" className="text-[10px] font-normal gap-1 pr-1">
+                {m}
+                <button type="button" onClick={() => onRemoveManual(i)} className="text-muted-foreground hover:text-destructive">
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-1.5 pt-0.5">
+          <Input
+            value={manualInput}
+            onChange={e => setManualInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addManual() } }}
+            placeholder="Agregar servicio manual (no está en el catálogo)"
+            className="h-7 text-[11px]"
+          />
+          <Button type="button" variant="outline" size="sm" onClick={addManual} className="h-7 px-2 gap-1 text-[11px] flex-shrink-0">
+            <Plus className="h-3 w-3" /> Agregar
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function NuevoReportPage() {
   const router = useRouter()
   const { user, profile } = useAuth()
   const [form,    setForm]    = useState<FormData>(INITIAL)
   const [tarifasCount, setTarifasCount] = useState(0)
+  const [servicioIds,      setServicioIds]      = useState<string[]>([])
+  const [serviciosManual,  setServiciosManual]  = useState<string[]>([])
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
   const [hdsFiles,    setHdsFiles]    = useState<File[]>([])
@@ -365,6 +499,8 @@ export default function NuevoReportPage() {
       sec3_observaciones:  form.sec3_observaciones || null,
       nombre_operador:     form.nombre_operador    || null,
       created_by:          user?.id ?? null,
+      servicios_ids:       servicioIds,
+      servicios_manual:    serviciosManual,
     }
   }
 
@@ -434,13 +570,13 @@ export default function NuevoReportPage() {
       return
     }
 
-    // Actualizar stock solo al enviar a despacho, con ítem y tipo definidos
-    // (si ambos están presentes, Sección 3 quedó activa igual en buildPayload)
-    if (
-      estado === "pendiente_despacho" &&
-      form.sec3_inventario_item_id &&
-      form.sec3_tipo
-    ) {
+    // stock_actual ya lo actualiza el trigger de BD reports_sync_inventario en
+    // CUALQUIER insert con sec3 activa (no solo al despachar) — llamar
+    // update_stock acá también duplicaba el descuento/incremento. Por eso
+    // syncPesoTon corre siempre que haya ítem vinculado, sin importar el
+    // estado; la validación de pallets y el log de auditoría de stock quedan
+    // solo para el envío a despacho.
+    if (estado === "pendiente_despacho" && form.sec3_inventario_item_id && form.sec3_tipo) {
       const delta = Number(form.sec3_numero_pallets)
       if (!delta || delta <= 0) {
         await supabase.from("reports").delete().eq("id", inserted.id)
@@ -448,19 +584,14 @@ export default function NuevoReportPage() {
         setSaving(false)
         return
       }
-      const signedDelta = form.sec3_tipo === "ingreso" ? delta : -delta
+    }
 
-      const { error: rpcErr } = await supabase.rpc("update_stock", {
-        item_id: form.sec3_inventario_item_id,
-        delta:   signedDelta,
-      })
-      if (rpcErr) {
-        await supabase.from("reports").delete().eq("id", inserted.id)
-        setError("Error al actualizar stock. El report no fue guardado.")
-        setSaving(false)
-        return
-      }
+    if (form.sec3_inventario_item_id) {
+      await syncPesoTon(supabase, form.sec3_inventario_item_id)
+    }
 
+    if (estado === "pendiente_despacho" && form.sec3_inventario_item_id && form.sec3_tipo) {
+      const delta = Number(form.sec3_numero_pallets)
       const invAccion = form.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
       const invDesc   = `Stock ${form.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${form.sec3_producto}`
 
@@ -540,15 +671,18 @@ export default function NuevoReportPage() {
                   <ClienteCombobox
                     value={form.cliente}
                     onChange={v => set("cliente", v)}
-                    onChangeId={id => setForm(prev => ({
-                      ...prev,
-                      cliente_id: id,
-                      tarifa_cliente_id: "",
-                      sec3_inventario_item_id: "",
-                      sec3_producto: "",
-                      sec3_clase_imo: "",
-                      sec3_nu: "",
-                    }))}
+                    onChangeId={id => {
+                      setForm(prev => ({
+                        ...prev,
+                        cliente_id: id,
+                        tarifa_cliente_id: "",
+                        sec3_inventario_item_id: "",
+                        sec3_producto: "",
+                        sec3_clase_imo: "",
+                        sec3_nu: "",
+                      }))
+                      setServicioIds([])
+                    }}
                   />
                 </Field>
                 <TarifaSelect
@@ -698,6 +832,18 @@ export default function NuevoReportPage() {
               />
             </div>
             </div>
+          </div>
+
+          {/* Servicios asociados al cliente */}
+          <div className="border-t mt-3 pt-3">
+            <ServiciosSection
+              clienteId={form.cliente_id}
+              selectedIds={servicioIds}
+              onToggle={id => setServicioIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
+              manual={serviciosManual}
+              onAddManual={nombre => setServiciosManual(prev => [...prev, nombre])}
+              onRemoveManual={index => setServiciosManual(prev => prev.filter((_, i) => i !== index))}
+            />
           </div>
 
           {/* Cierre del report — nombre del operador, centrado */}

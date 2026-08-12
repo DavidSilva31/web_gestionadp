@@ -31,16 +31,16 @@ import type {
 const CATEGORIAS: InventarioCategoria[] = [
   "Contenedor IMO", "Isotanque", "Residuo peligroso", "Carga general",
 ]
-const AREAS: InventarioArea[] = [
-  "Bodega IMO", "Zona Isotanques", "Zona RESPEL", "Bodega General",
-]
 const UNIDADES = ["unidad", "pallets", "contenedor", "isotanque", "kg", "ton"]
 
-const AREA_COLOR: Record<string, string> = {
-  "Bodega IMO":      "bg-[var(--color-status-info-bg)] text-[var(--color-status-info-text)]",
-  "Zona Isotanques": "bg-[var(--color-adp-celeste-light)] text-[var(--color-status-info-text)]",
-  "Zona RESPEL":     "bg-[var(--color-status-warning-bg)] text-[var(--color-status-warning-text)]",
-  "Bodega General":  "bg-[var(--color-status-neutral-bg)] text-[var(--color-status-neutral-text)]",
+// El enum Área quedó obsoleto frente al catálogo real de instalaciones — se
+// sigue completando (columna NOT NULL) pero se infiere desde la instalación
+// elegida en vez de pedírselo al usuario dos veces.
+function inferArea(inst: InstalacionAlmacenamiento | undefined): InventarioArea {
+  if (!inst) return "Bodega General"
+  if (inst.codigo.toUpperCase().includes("RESPEL")) return "Zona RESPEL"
+  if (inst.tipo === "Patio") return "Zona Isotanques"
+  return "Bodega IMO"
 }
 
 const ESTADO_BADGE: Record<string, string> = {
@@ -91,6 +91,7 @@ const EMPTY_FORM: InventarioItemInsert = {
   created_by:    null,
   instalacion_id: null,
   peso_ton:       null,
+  peso_unitario_ton: null,
 }
 
 // ── Inner component (requiere useSearchParams → envuelto en Suspense) ──────────
@@ -204,6 +205,7 @@ function InventarioContent() {
       created_by:    item.created_by,
       instalacion_id: item.instalacion_id,
       peso_ton:       item.peso_ton,
+      peso_unitario_ton: item.peso_unitario_ton,
     })
     setError(null)
     setDialog(item)
@@ -244,6 +246,12 @@ function InventarioContent() {
       clase_imo:     form.clase_imo?.trim()     || null,
       nu:            form.nu?.trim()            || null,
       observaciones: form.observaciones?.trim() || null,
+      area:          inferArea(instalaciones.find(i => i.id === form.instalacion_id)),
+      // Ancla fija para recalcular peso_ton automáticamente cuando stock_actual
+      // cambie por un movimiento/despacho (ver syncPesoTon en lib/inventario.ts).
+      peso_unitario_ton: form.peso_ton != null && form.stock_actual > 0
+        ? form.peso_ton / form.stock_actual
+        : null,
     }
 
     try {
@@ -289,7 +297,7 @@ function InventarioContent() {
       "Código":        codigo(item.numero),
       "Descripción":   item.descripcion,
       "Categoría":     item.categoria,
-      "Área":          item.area,
+      "Instalación":   instalaciones.find(i => i.id === item.instalacion_id)?.codigo ?? "Sin asignar",
       "Clase IMO":     item.clase_imo ?? "—",
       "N° ONU":        item.nu ?? "—",
       "Stock Actual":  item.stock_actual,
@@ -527,7 +535,7 @@ function InventarioContent() {
                           <tr>
                             <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Código</th>
                             <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Descripción</th>
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Área</th>
+                            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Instalación</th>
                             <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Categoría</th>
                             <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Stock</th>
                             <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Estado</th>
@@ -559,12 +567,21 @@ function InventarioContent() {
                                   )}
                                 </td>
                                 <td className="px-4 py-3">
-                                  <Badge className={cn(
-                                    "text-[10px] px-1.5 py-0 border-0 font-medium",
-                                    AREA_COLOR[item.area] ?? "bg-muted text-muted-foreground"
-                                  )}>
-                                    {item.area}
-                                  </Badge>
+                                  {(() => {
+                                    const inst = instalaciones.find(i => i.id === item.instalacion_id)
+                                    return inst ? (
+                                      <Badge className={cn(
+                                        "text-[10px] px-1.5 py-0 border-0 font-medium",
+                                        inst.tipo === "Patio"
+                                          ? "bg-[var(--color-adp-celeste-light)] text-[var(--color-status-info-text)]"
+                                          : "bg-[var(--color-status-info-bg)] text-[var(--color-status-info-text)]"
+                                      )}>
+                                        {inst.codigo}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-[11px] text-muted-foreground/60">Sin asignar</span>
+                                    )
+                                  })()}
                                 </td>
                                 <td className="px-4 py-3 text-xs text-muted-foreground truncate">
                                   {item.categoria}
@@ -647,19 +664,6 @@ function InventarioContent() {
 
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Área *
-              </Label>
-              <select
-                value={form.area}
-                onChange={e => setForm(p => ({ ...p, area: e.target.value as InventarioArea }))}
-                className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Instalación
               </Label>
               <select
@@ -670,6 +674,9 @@ function InventarioContent() {
                 <option value="">Sin asignar</option>
                 {instalaciones.map(i => <option key={i.id} value={i.id}>{i.codigo}</option>)}
               </select>
+              <p className="text-[10px] text-muted-foreground/70">
+                Define la zona/área del ítem automáticamente.
+              </p>
             </div>
 
             <div className="space-y-1.5">

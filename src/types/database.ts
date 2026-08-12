@@ -83,6 +83,11 @@ export interface Report {
   // A qué tarifa/clase del cliente pertenece (clientes con más de un
   // contrato en paralelo) — se propaga al movimiento auto-creado al despachar.
   tarifa_cliente_id: string | null
+
+  // Servicios asociados a este report — del catálogo del cliente o agregados
+  // a mano — quedan registrados para cuando se genere el HES.
+  servicios_ids:    string[]
+  servicios_manual: string[]
 }
 
 export type ReportInsert = Omit<Report, 'id' | 'numero' | 'created_at' | 'updated_at'>
@@ -128,6 +133,7 @@ export interface InventarioItem {
   created_by:    string | null
   instalacion_id: string | null
   peso_ton:       number | null
+  peso_unitario_ton: number | null
 }
 
 export type InventarioItemInsert = Omit<InventarioItem, 'id' | 'numero' | 'created_at' | 'updated_at'>

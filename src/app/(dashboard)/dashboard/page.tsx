@@ -91,7 +91,7 @@ function buildChartData(movs: { tipo: string; fecha: string }[], months = 6) {
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface StockRow {
   id: string; cliente_id: string; area: string | null; stock_actual: number; stock_minimo: number
-  descripcion: string; clientes: { nombre: string } | null
+  descripcion: string; clientes: { nombre: string } | null; peso_ton: number | null
 }
 interface MovRow   { numero: number; tipo: string; cliente_nombre: string | null; carga: string; unidades: number | null; fecha: string; estado: string }
 interface Alerta   { nivel: "critical" | "warning" | "info"; titulo: string; detalle: string; meta: string; href?: string }
@@ -170,7 +170,7 @@ export default function DashboardPage() {
   const movsRowRef       = useRef<HTMLTableRowElement>(null)
   const [allMovs,    setAllMovs]    = useState<MovRow[]>([])
   const [alertas,    setAlertas]    = useState<Alerta[]>([])
-  const [ocupacion,  setOcupacion]  = useState<{ zona: string; detalle: string; stock: number; pct: number }[]>([])
+  const [ocupacion,  setOcupacion]  = useState<{ zona: string; detalle: string; ton: number; items: number; sinPeso: number; pct: number }[]>([])
   const [chartData,  setChartData]  = useState<ChartPoint[]>([])
   const [chartMonths, setChartMonths] = useState(6)
 
@@ -191,7 +191,7 @@ export default function DashboardPage() {
       { count: clientTotal,  error: e3 },
       { count: clientNewCount },
     ] = await Promise.all([
-      supabase.from("inventario_items").select("id, cliente_id, area, stock_actual, stock_minimo, descripcion, clientes(nombre)").eq("activo", true),
+      supabase.from("inventario_items").select("id, cliente_id, area, stock_actual, stock_minimo, descripcion, clientes(nombre), peso_ton").eq("activo", true),
       supabase.from("movimientos").select("numero, tipo, cliente_nombre, carga, unidades, fecha, estado").gte("fecha", sixMonthsAgo).order("fecha", { ascending: false }),
       supabase.from("clientes").select("*", { count: "exact", head: true }).eq("activo", true),
       supabase.from("clientes").select("*", { count: "exact", head: true }).gte("created_at", curr),
@@ -204,14 +204,19 @@ export default function DashboardPage() {
     const movs  = (movsRaw  ?? []) as MovRow[]
 
     const totalStock = items.reduce((s, i) => s + i.stock_actual, 0)
-    const areaStocks = AREAS.map(area => ({
-      zona:    area,
-      detalle: AREA_DETAIL[area],
-      stock:   items.filter(i => i.area === area).reduce((s, i) => s + i.stock_actual, 0),
-      pct:     0,
-    }))
-    const maxAreaStock = Math.max(...areaStocks.map(a => a.stock), 1)
-    areaStocks.forEach(a => { a.pct = Math.round((a.stock / maxAreaStock) * 100) })
+    const areaStocks = AREAS.map(area => {
+      const areaItems = items.filter(i => i.area === area)
+      return {
+        zona:    area,
+        detalle: AREA_DETAIL[area],
+        ton:     areaItems.reduce((s, i) => s + (i.peso_ton ?? 0), 0),
+        items:   areaItems.length,
+        sinPeso: areaItems.filter(i => i.peso_ton == null).length,
+        pct:     0,
+      }
+    })
+    const maxAreaTon = Math.max(...areaStocks.map(a => a.ton), 1)
+    areaStocks.forEach(a => { a.pct = Math.round((a.ton / maxAreaTon) * 100) })
 
     const currMovs = movs.filter(m => m.fecha >= curr)
     const prevMovs = movs.filter(m => m.fecha >= prev && m.fecha < curr)
@@ -560,9 +565,14 @@ export default function DashboardPage() {
 
           {/* Ocupación por área — oculto en lg (no cabe bien a 1024-1279px), 4/12 desde xl */}
           <Card className="lg:hidden xl:flex xl:col-span-4 xl:row-start-1 border-border bg-card flex-col lg:min-h-0">
-            <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border">
-              <CardTitle className="text-sm font-medium">Ocupación por área</CardTitle>
-              <CardDescription className="text-xs">Stock relativo por zona</CardDescription>
+            <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border flex-row items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-sm font-medium">Ocupación por área</CardTitle>
+                <CardDescription className="text-xs">Toneladas por zona (según peso registrado)</CardDescription>
+              </div>
+              <Link href="/instalaciones" className="text-[11px] text-primary hover:underline flex-shrink-0">
+                Ver instalaciones
+              </Link>
             </CardHeader>
             <CardContent className="px-4 py-3 flex-1 min-h-0 flex flex-col overflow-hidden">
               {loading
@@ -592,16 +602,19 @@ export default function DashboardPage() {
                             <div className="flex justify-between items-baseline gap-2">
                               <div className="min-w-0">
                                 <p className="text-xs font-medium truncate">{z.zona}</p>
-                                <p className="text-[10px] text-muted-foreground">{z.detalle}</p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  {z.items > 0 ? `${z.items} ítem${z.items > 1 ? "s" : ""}` : z.detalle}
+                                  {z.sinPeso > 0 && ` · ${z.sinPeso} sin peso`}
+                                </p>
                               </div>
                               <span className={cn("text-xs font-semibold tabular-nums flex-shrink-0", valColor)}>
-                                {z.stock > 0 ? `${z.stock} ud.` : "—"}
+                                {z.ton > 0 ? `${z.ton.toFixed(1)} ton` : "—"}
                               </span>
                             </div>
                             <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden">
                               <div
                                 className={cn("h-full rounded-full transition-all duration-500", barColor)}
-                                style={{ width: `${Math.max(z.pct, z.stock > 0 ? 4 : 0)}%` }}
+                                style={{ width: `${Math.max(z.pct, z.ton > 0 ? 4 : 0)}%` }}
                               />
                             </div>
                           </div>
@@ -609,9 +622,9 @@ export default function DashboardPage() {
                       })}
                     </div>
                     <div className="pt-3 mt-3 border-t border-border flex justify-between items-center flex-shrink-0">
-                      <span className="text-[11px] text-muted-foreground">Total en bodega</span>
+                      <span className="text-[11px] text-muted-foreground">Total con peso registrado</span>
                       <span className="text-sm font-semibold text-foreground tabular-nums">
-                        {ocupacion.reduce((s, z) => s + z.stock, 0)} ud.
+                        {ocupacion.reduce((s, z) => s + z.ton, 0).toFixed(1)} ton
                       </span>
                     </div>
                   </div>

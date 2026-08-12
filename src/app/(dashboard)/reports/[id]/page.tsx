@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit, accionLabel } from "@/lib/audit"
+import { syncPesoTon } from "@/lib/inventario"
 import type { AuditLog } from "@/lib/audit"
 import type { ReportEstado } from "@/types/database"
 import { dbToForm } from "@/components/reports/report-form-types"
@@ -193,6 +194,11 @@ export default function ReportDetailPage() {
       setDeleting(false)
       return
     }
+    // El trigger reports_sync_inventario revierte el stock del ítem de sec3 al
+    // borrar el report — sincronizar peso_ton para que no quede desactualizado.
+    if (form?.sec3_activa && sec3ItemId) {
+      await syncPesoTon(supabase, sec3ItemId)
+    }
     logAudit({
       tabla:          "reports",
       registro_id:    id,
@@ -221,7 +227,7 @@ export default function ReportDetailPage() {
       return
     }
 
-    // update_stock cuando borrador → pendiente_despacho con ítem vinculado
+    // Validación de pallets solo aplica al enviar a despacho.
     if (newEstado === "pendiente_despacho" && estado === "borrador" &&
         form.sec3_activa && sec3ItemId && form.sec3_tipo) {
       const delta = Number(form.sec3_numero_pallets)
@@ -232,15 +238,15 @@ export default function ReportDetailPage() {
         setSaving(false)
         return
       }
-      const signedDelta = form.sec3_tipo === "ingreso" ? delta : -delta
-      const { error: rpcErr } = await supabase.rpc("update_stock", { item_id: sec3ItemId, delta: signedDelta })
-      if (rpcErr) {
-        await supabase.from("reports").update({ estado: "borrador" }).eq("id", id)
-        setEstado("borrador")
-        setError("Error al actualizar stock. No se envió a despacho.")
-        setSaving(false)
-        return
-      }
+    }
+
+    // stock_actual ya lo actualiza el trigger de BD reports_sync_inventario en
+    // CUALQUIER update con sec3 activa (no solo al pasar a pendiente_despacho)
+    // — llamar update_stock acá también duplicaba el descuento/incremento.
+    // syncPesoTon corre siempre que haya ítem vinculado para no dejar el peso
+    // desactualizado en ediciones que no cambian de estado.
+    if (form.sec3_activa && sec3ItemId) {
+      await syncPesoTon(supabase, sec3ItemId)
     }
 
     logAudit({
@@ -299,8 +305,9 @@ export default function ReportDetailPage() {
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
           <AlertDialogAction
+            disabled={deleting}
             className="gap-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
             onClick={handleDelete}
           >

@@ -81,7 +81,7 @@ export async function proxy(request: NextRequest) {
   // Obtener rol, permisos y flag de cambio de contraseña del perfil
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('role, permisos, must_change_password')
+    .select('role, permisos, must_change_password, activo')
     .eq('id', user.id)
     .single()
 
@@ -92,6 +92,13 @@ export async function proxy(request: NextRequest) {
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('redirect', pathname)
     return NextResponse.redirect(loginUrl)
+  }
+
+  // Cuenta desactivada — cerrar la sesión acá mismo (no solo redirigir) para
+  // que la cookie deje de ser válida y /login no rebote de vuelta al dashboard.
+  if (profile?.activo === false) {
+    await supabase.auth.signOut()
+    return NextResponse.redirect(new URL('/login?error=cuenta_desactivada', request.url))
   }
 
   const role               = (profile?.role ?? 'operador') as UserRole

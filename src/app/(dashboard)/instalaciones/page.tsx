@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   Warehouse, MapPin, Plus, Pencil, Trash2, Loader2, AlertCircle,
-  FileText, X,
+  FileText, X, FileDown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,6 +18,10 @@ import { useAuth } from "@/contexts/auth-context"
 import type { InstalacionAlmacenamiento, InstalacionAlmacenamientoInsert, InstalacionSustancia } from "@/types/database"
 
 interface SustanciaRow { id?: string; sustancia: string; clase_imo: string }
+interface ItemResumen {
+  descripcion: string; clase_imo: string | null; unidad: string; stock_actual: number
+  cliente_nombre: string | null
+}
 
 const EMPTY_FORM: InstalacionAlmacenamientoInsert = {
   codigo: "", tipo: "Bodega", capacidad: "", capacidad_ton: null,
@@ -37,6 +41,7 @@ export default function InstalacionesPage() {
   const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
   const [sustancias,    setSustancias]    = useState<Record<string, InstalacionSustancia[]>>({})
   const [ocupacion,     setOcupacion]     = useState<Record<string, { peso: number; items: number }>>({})
+  const [itemsPorInstalacion, setItemsPorInstalacion] = useState<Record<string, ItemResumen[]>>({})
   const [loading,       setLoading]       = useState(true)
   const [fetchError,    setFetchError]    = useState<string | null>(null)
 
@@ -48,6 +53,12 @@ export default function InstalacionesPage() {
 
   const [deleting, setDeleting] = useState<InstalacionAlmacenamiento | null>(null)
   const [deletingBusy, setDeletingBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const [viewDetail, setViewDetail] = useState<InstalacionAlmacenamiento | null>(null)
+
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -56,7 +67,9 @@ export default function InstalacionesPage() {
     const [{ data: inst, error: e1 }, { data: sust, error: e2 }, { data: items, error: e3 }] = await Promise.all([
       supabase.from("instalaciones_almacenamiento").select("*").eq("activo", true).order("orden").order("codigo"),
       supabase.from("instalacion_sustancias").select("*").order("orden"),
-      supabase.from("inventario_items").select("instalacion_id, peso_ton").eq("activo", true).not("instalacion_id", "is", null),
+      supabase.from("inventario_items")
+        .select("instalacion_id, peso_ton, descripcion, clase_imo, unidad, stock_actual, clientes(nombre)")
+        .eq("activo", true).not("instalacion_id", "is", null),
     ])
     if (e1 ?? e2 ?? e3) { setFetchError((e1 ?? e2 ?? e3)!.message); setLoading(false); return }
     setInstalaciones((inst ?? []) as InstalacionAlmacenamiento[])
@@ -66,14 +79,28 @@ export default function InstalacionesPage() {
       grouped[s.instalacion_id].push(s)
     }
     setSustancias(grouped)
+
+    type ItemRow = {
+      instalacion_id: string; peso_ton: number | null; descripcion: string
+      clase_imo: string | null; unidad: string; stock_actual: number
+      clientes: { nombre: string } | null
+    }
     const ocup: Record<string, { peso: number; items: number }> = {}
-    for (const it of (items ?? []) as { instalacion_id: string; peso_ton: number | null }[]) {
+    const itemsGrouped: Record<string, ItemResumen[]> = {}
+    for (const it of (items ?? []) as unknown as ItemRow[]) {
       const cur = ocup[it.instalacion_id] ?? { peso: 0, items: 0 }
       cur.peso  += it.peso_ton ?? 0
       cur.items += 1
       ocup[it.instalacion_id] = cur
+
+      itemsGrouped[it.instalacion_id] = itemsGrouped[it.instalacion_id] ?? []
+      itemsGrouped[it.instalacion_id].push({
+        descripcion: it.descripcion, clase_imo: it.clase_imo, unidad: it.unidad,
+        stock_actual: it.stock_actual, cliente_nombre: it.clientes?.nombre ?? null,
+      })
     }
     setOcupacion(ocup)
+    setItemsPorInstalacion(itemsGrouped)
     setLoading(false)
   }, [])
 
@@ -133,7 +160,8 @@ export default function InstalacionesPage() {
 
     // Reemplaza todas las sustancias/clases — volumen bajo, más simple que diffear.
     if (existing) {
-      await supabase.from("instalacion_sustancias").delete().eq("instalacion_id", instalacionId)
+      const { error } = await supabase.from("instalacion_sustancias").delete().eq("instalacion_id", instalacionId)
+      if (error) { setSaveError(error.message); setSaving(false); return }
     }
     const validRows = rows.filter(r => r.sustancia.trim())
     if (validRows.length > 0) {
@@ -156,12 +184,36 @@ export default function InstalacionesPage() {
   async function handleDelete() {
     if (!deleting) return
     setDeletingBusy(true)
+    setDeleteError(null)
     const supabase = createClient()
     const { error } = await supabase.from("instalaciones_almacenamiento").update({ activo: false }).eq("id", deleting.id)
     setDeletingBusy(false)
-    if (error) return
+    if (error) { setDeleteError(error.message); return }
     setDeleting(null)
     fetchAll()
+  }
+
+  async function handleExport() {
+    setExporting(true); setExportError(null)
+    try {
+      const res = await fetch("/api/instalaciones/export")
+      if (!res.ok) {
+        const json = await res.json().catch(() => null)
+        setExportError(json?.error ?? "No se pudo generar el archivo Excel.")
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `Instalaciones_ADP_${new Date().toISOString().slice(0, 10)}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setExportError("No se pudo generar el archivo Excel.")
+    } finally {
+      setExporting(false)
+    }
   }
 
   const fieldCls = "h-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1"
@@ -173,12 +225,25 @@ export default function InstalacionesPage() {
         title="Instalaciones"
         subtitle={`${instalaciones.length} instalaciones registradas · catálogo de referencia para inventarios`}
       >
-        {canEdit && (
-          <Button size="sm" onClick={openNew} className="h-9 gap-1.5 text-[12px]">
-            <Plus className="h-3.5 w-3.5" /> Nueva instalación
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting || loading}
+            className="h-9 gap-1.5 text-[12px]">
+            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+            Exportar Excel
           </Button>
-        )}
+          {canEdit && (
+            <Button size="sm" onClick={openNew} className="h-9 gap-1.5 text-[12px]">
+              <Plus className="h-3.5 w-3.5" /> Nueva instalación
+            </Button>
+          )}
+        </div>
       </PageHeader>
+
+      {exportError && (
+        <div className="mx-4 sm:mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-1.5">
+          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" /> {exportError}
+        </div>
+      )}
 
       {fetchError && (
         <div className="mx-4 sm:mx-6 mt-3 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
@@ -199,10 +264,12 @@ export default function InstalacionesPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {instalaciones.map(inst => (
-              <div key={inst.id} className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden flex flex-col">
+              <div key={inst.id}
+                className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden flex flex-col">
                 <div className="px-4 py-3 border-b border-border/30 bg-muted/20 flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
+                    <div onClick={() => setViewDetail(inst)}
+                      className="flex items-center gap-1.5 flex-wrap cursor-pointer hover:underline underline-offset-2 w-fit">
                       {inst.tipo === "Patio"
                         ? <MapPin className="h-3.5 w-3.5 text-teal-600 flex-shrink-0" />
                         : <Warehouse className="h-3.5 w-3.5 text-teal-600 flex-shrink-0" />}
@@ -213,10 +280,10 @@ export default function InstalacionesPage() {
                   </div>
                   {canEdit && (
                     <div className="flex gap-1 flex-shrink-0">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(inst)}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={e => { e.stopPropagation(); openEdit(inst) }}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-destructive" onClick={() => setDeleting(inst)}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-destructive" onClick={e => { e.stopPropagation(); setDeleting(inst) }}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -246,19 +313,48 @@ export default function InstalacionesPage() {
                   })()}
                 </div>
 
-                <div className="px-4 py-3 flex-1 space-y-2">
-                  {(sustancias[inst.id] ?? []).map(s => (
-                    <div key={s.id} className="flex items-center justify-between gap-2 text-[12px]">
-                      <span className="text-foreground/80 truncate">{s.sustancia}</span>
-                      {s.clase_imo && (
-                        <Badge variant="outline" className="text-[10px] h-4 px-1.5 flex-shrink-0">Clase {s.clase_imo}</Badge>
+                {(itemsPorInstalacion[inst.id] ?? []).length > 0 && (() => {
+                  const allItems = itemsPorInstalacion[inst.id]
+                  const VISIBLE = 5
+                  const visible = allItems.slice(0, VISIBLE)
+                  const resto = allItems.length - visible.length
+                  return (
+                    <div className="px-4 py-3 flex-1 overflow-x-auto">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                        Inventario actual ({allItems.length})
+                      </p>
+                      <table className="w-full text-[11px]">
+                        <thead>
+                          <tr className="text-left text-muted-foreground">
+                            <th className="pb-1 pr-2 font-medium">Producto</th>
+                            <th className="pb-1 pr-2 font-medium">Cliente</th>
+                            <th className="pb-1 pr-2 font-medium text-right">Cantidad</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visible.map((it, i) => (
+                            <tr key={i} className="border-t border-border/20">
+                              <td className="py-1 pr-2">
+                                <span className="text-foreground/90">{it.descripcion}</span>
+                                {it.clase_imo && <span className="text-muted-foreground"> · Cl.{it.clase_imo}</span>}
+                              </td>
+                              <td className="py-1 pr-2 text-muted-foreground truncate max-w-[120px]">{it.cliente_nombre ?? "—"}</td>
+                              <td className="py-1 pr-2 text-right tabular-nums whitespace-nowrap">{it.stock_actual.toLocaleString("es-CL")} {it.unidad}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {resto > 0 && (
+                        <button
+                          onClick={() => setViewDetail(inst)}
+                          className="mt-1.5 text-[10px] text-primary hover:underline underline-offset-2"
+                        >
+                          +{resto} más — ver detalle
+                        </button>
                       )}
                     </div>
-                  ))}
-                  {(sustancias[inst.id] ?? []).length === 0 && (
-                    <p className="text-[11px] text-muted-foreground/60">Sin sustancias registradas</p>
-                  )}
-                </div>
+                  )
+                })()}
 
                 {inst.resolucion_sanitaria_numero && (
                   <div className="px-4 py-2 border-t border-border/30 bg-muted/10 flex items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -362,8 +458,130 @@ export default function InstalacionesPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Vista de detalle */}
+      <Dialog open={viewDetail !== null} onOpenChange={open => { if (!open) setViewDetail(null) }}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+          {viewDetail && (() => {
+            const inst = viewDetail
+            const o = ocupacion[inst.id] ?? { peso: 0, items: 0 }
+            const pct = inst.capacidad_ton ? Math.min(100, Math.round((o.peso / inst.capacidad_ton) * 100)) : null
+            const subs = sustancias[inst.id] ?? []
+            const items = itemsPorInstalacion[inst.id] ?? []
+            return (
+              <>
+                <DialogHeader className="px-6 pt-5 pb-4 border-b border-border/30 bg-muted/20">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {inst.tipo === "Patio"
+                      ? <MapPin className="h-4 w-4 text-teal-600 flex-shrink-0" />
+                      : <Warehouse className="h-4 w-4 text-teal-600 flex-shrink-0" />}
+                    <DialogTitle className="text-base">{inst.codigo}</DialogTitle>
+                    <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{inst.tipo}</Badge>
+                  </div>
+                  <p className="text-[12px] text-muted-foreground">{inst.capacidad}</p>
+                </DialogHeader>
+
+                <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+                  <div className={cn("rounded-lg border px-4 py-3",
+                    inst.capacidad_ton
+                      ? (pct ?? 0) >= 90 ? "bg-destructive/5 border-destructive/20" : (pct ?? 0) >= 70 ? "bg-amber-500/5 border-amber-500/20" : "bg-emerald-500/5 border-emerald-500/20"
+                      : "bg-muted/30 border-border/40")}>
+                    {inst.capacidad_ton ? (
+                      <>
+                        <div className="flex items-center justify-between text-[12px] mb-1.5">
+                          <span className="text-muted-foreground font-medium">Ocupación</span>
+                          <span className="font-semibold">{o.peso.toFixed(2)} / {inst.capacidad_ton} ton <span className="text-muted-foreground font-normal">({pct}%)</span></span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                          <div className={cn("h-full rounded-full", (pct ?? 0) >= 90 ? "bg-destructive" : (pct ?? 0) >= 70 ? "bg-amber-500" : "bg-emerald-500")}
+                            style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/70 mt-1.5">{o.items} ítem(s) asignado(s)</p>
+                      </>
+                    ) : (
+                      <p className="text-[12px] text-muted-foreground">{o.items} ítem(s) asignado(s) · sin capacidad en toneladas para medir %</p>
+                    )}
+                  </div>
+
+                  {(inst.resolucion_sanitaria_numero || subs.length > 0) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {inst.resolucion_sanitaria_numero && (
+                        <div className="rounded-lg border border-border/40 px-4 py-3">
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                            Resolución sanitaria
+                          </p>
+                          <div className="flex items-center gap-1.5 text-[12px]">
+                            <FileText className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                            N° {inst.resolucion_sanitaria_numero}
+                            {inst.resolucion_sanitaria_fecha && ` del ${fmtFecha(inst.resolucion_sanitaria_fecha)}`}
+                          </div>
+                        </div>
+                      )}
+                      {subs.length > 0 && (
+                        <div className="rounded-lg border border-border/40 px-4 py-3">
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                            Sustancias / clases autorizadas
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {subs.map(s => (
+                              <Badge key={s.id} variant="outline" className="text-[11px] font-normal">
+                                {s.sustancia}{s.clase_imo && <span className="text-muted-foreground"> · Cl.{s.clase_imo}</span>}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                      Inventario actual ({items.length})
+                    </p>
+                    {items.length > 0 ? (
+                      <div className="overflow-x-auto rounded-lg border border-border/40">
+                        <table className="w-full text-[12px]">
+                          <thead>
+                            <tr className="text-left text-muted-foreground bg-muted/40">
+                              <th className="py-2 pl-3 pr-2 font-medium">Producto</th>
+                              <th className="py-2 pr-2 font-medium">Clase IMO</th>
+                              <th className="py-2 pr-2 font-medium">Cliente</th>
+                              <th className="py-2 pr-3 font-medium text-right">Cantidad</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {items.map((it, i) => (
+                              <tr key={i} className={cn("border-t border-border/20", i % 2 !== 0 && "bg-muted/15")}>
+                                <td className="py-1.5 pl-3 pr-2 text-foreground/90">{it.descripcion}</td>
+                                <td className="py-1.5 pr-2 text-muted-foreground">{it.clase_imo ?? "—"}</td>
+                                <td className="py-1.5 pr-2 text-muted-foreground">{it.cliente_nombre ?? "—"}</td>
+                                <td className="py-1.5 pr-3 text-right tabular-nums whitespace-nowrap">{it.stock_actual.toLocaleString("es-CL")} {it.unidad}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-[12px] text-muted-foreground">Sin ítems asignados.</p>
+                    )}
+                  </div>
+                </div>
+
+                <DialogFooter className="mx-0 mb-0 rounded-b-xl px-6 py-3">
+                  {canEdit && (
+                    <Button variant="outline" size="sm" onClick={() => { setViewDetail(null); openEdit(inst) }} className="gap-1.5">
+                      <Pencil className="h-3.5 w-3.5" /> Editar
+                    </Button>
+                  )}
+                  <Button size="sm" onClick={() => setViewDetail(null)}>Cerrar</Button>
+                </DialogFooter>
+              </>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
+
       {/* Eliminar */}
-      <AlertDialog open={deleting !== null} onOpenChange={open => { if (!open) setDeleting(null) }}>
+      <AlertDialog open={deleting !== null} onOpenChange={open => { if (!open) { setDeleting(null); setDeleteError(null) } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2.5">
@@ -377,6 +595,9 @@ export default function InstalacionesPage() {
               Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteError && (
+            <p className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg border border-destructive/20">{deleteError}</p>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deletingBusy}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
