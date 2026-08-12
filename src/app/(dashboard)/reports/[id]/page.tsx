@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
-import { ArrowLeft, Save, Send, ChevronRight, Loader2, Eye, Clock, CheckCircle2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ScanLine, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Save, Send, Loader2, Eye, Clock, CheckCircle2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ScanLine, ChevronDown, ChevronUp } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,20 +21,16 @@ import type { AuditLog } from "@/lib/audit"
 import type { ReportEstado } from "@/types/database"
 import { dbToForm } from "@/components/reports/report-form-types"
 import type { ReportFormData } from "@/components/reports/report-form-types"
-import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content } from "@/components/reports/report-form-sections"
+import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
+import { ClienteCombobox, TarifaSelect, ProductoCombobox, ServiciosSection, type InventarioItemOption, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 
-type FormData = ReportFormData
-type Tab = "antecedentes" | "sec1" | "sec2" | "sec3" | "historial"
-
-const TABS: { key: Tab; label: string; subtitle: string }[] = [
-  { key: "antecedentes", label: "Antecedentes", subtitle: "Datos del vehículo y conductor"       },
-  { key: "sec1",         label: "Sección 1",   subtitle: "Depósito de contenedores"             },
-  { key: "sec2",         label: "Sección 2",   subtitle: "Consolidado / Desconsolidado / Otros" },
-  { key: "sec3",         label: "Sección 3",   subtitle: "Bodegaje"                             },
-  { key: "historial",    label: "Historial",   subtitle: "Registro de actividad"                },
-]
+interface FormData extends ReportFormData {
+  cliente_id:              string
+  sec3_inventario_item_id: string
+  tarifa_cliente_id:       string
+}
 
 const ACCION_ICON: Record<string, React.ReactNode> = {
   "report.crear_borrador":     <FileText   className="h-4 w-4 text-gray-500"    />,
@@ -57,10 +53,11 @@ export default function ReportDetailPage() {
   const { user, profile } = useAuth()
   const id = params.id as string
 
-  const [tab,       setTab]      = useState<Tab>("antecedentes")
   const [form,      setForm]     = useState<FormData | null>(null)
   const [estado,    setEstado]   = useState<ReportEstado>("borrador")
-  const [sec3ItemId, setSec3ItemId] = useState<string | null>(null)
+  const [tarifasCount, setTarifasCount] = useState(0)
+  const [servicioSeleccion, setServicioSeleccion] = useState<ServicioSeleccionado[]>([])
+  const [serviciosManual, setServiciosManual] = useState<string[]>([])
   const [numero,  setNumero]  = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving,        setSaving]        = useState(false)
@@ -68,8 +65,10 @@ export default function ReportDetailPage() {
   const [deleting,      setDeleting]      = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [notFound,      setNotFound]      = useState(false)
+  const [historialOpen, setHistorialOpen] = useState(false)
   const [auditLogs,    setAuditLogs]    = useState<AuditLog[]>([])
   const [loadingLogs,  setLoadingLogs]  = useState(false)
+  const [logsLoaded,   setLogsLoaded]   = useState(false)
   const [docPath,      setDocPath]      = useState<string | null>(null)
   const [signedDocUrl, setSignedDocUrl] = useState<string | null>(null)
   const [docExpanded,  setDocExpanded]  = useState(false)
@@ -80,7 +79,7 @@ export default function ReportDetailPage() {
   const readOnly = estado !== "borrador"
 
   useEffect(() => {
-    if (tab !== "historial") return
+    if (!historialOpen || logsLoaded) return
     async function fetchLogs() {
       setLoadingLogs(true)
       const supabase = createClient()
@@ -93,6 +92,7 @@ export default function ReportDetailPage() {
       if (error) console.error("[report] error obteniendo historial de auditoría:", error)
       if (data) setAuditLogs(data as AuditLog[])
       setLoadingLogs(false)
+      setLogsLoaded(true)
 
       // Generar URL firmada si hay documento
       if (docPath && !signedDocUrl) {
@@ -104,7 +104,7 @@ export default function ReportDetailPage() {
       }
     }
     fetchLogs()
-  }, [tab, id, docPath, signedDocUrl])
+  }, [historialOpen, logsLoaded, id, docPath, signedDocUrl])
 
   useEffect(() => {
     async function fetchReport() {
@@ -113,10 +113,29 @@ export default function ReportDetailPage() {
       if (error || !data) { setNotFound(true); setLoading(false); return }
       setEstado(data.estado as ReportEstado)
       setNumero(data.numero)
-      setForm(dbToForm(data as Record<string, unknown>))
-      setSec3ItemId((data.sec3_inventario_item_id as string | null) ?? null)
+      const base = dbToForm(data as Record<string, unknown>)
+      setForm({
+        ...base,
+        cliente_id:              "",
+        tarifa_cliente_id:       (data.tarifa_cliente_id as string | null) ?? "",
+        sec3_inventario_item_id: (data.sec3_inventario_item_id as string | null) ?? "",
+      })
+      // servicios_ids es un uuid[] plano — un servicio usado 2 veces quedó
+      // repetido 2 veces; se reconstruye la cantidad contando ocurrencias.
+      const counts = new Map<string, number>()
+      for (const sid of (data.servicios_ids as string[] | null) ?? []) counts.set(sid, (counts.get(sid) ?? 0) + 1)
+      setServicioSeleccion([...counts.entries()].map(([sid, cantidad]) => ({ id: sid, cantidad })))
+      setServiciosManual((data.servicios_manual as string[] | null) ?? [])
       if (data.documento_firmado_url) setDocPath(data.documento_firmado_url as string)
       setLoading(false)
+
+      // El report solo guarda el nombre del cliente — resolver su id para que
+      // TarifaSelect/ProductoCombobox/ServiciosSection (que filtran por
+      // cliente_id) funcionen igual que en reports/nuevo.
+      if (data.cliente) {
+        const { data: cli } = await supabase.from("clientes").select("id").eq("nombre", data.cliente as string).maybeSingle()
+        if (cli) setForm(prev => prev ? { ...prev, cliente_id: cli.id } : prev)
+      }
     }
     fetchReport()
   }, [id])
@@ -125,17 +144,31 @@ export default function ReportDetailPage() {
     setForm(prev => prev ? { ...prev, [key]: value } : prev)
   }
 
-  const tabIndex = TABS.findIndex(t => t.key === tab)
-
-  function nextTab() {
-    if (tabIndex < TABS.length - 1) setTab(TABS[tabIndex + 1].key)
-  }
-
+  // Sin el checkbox "Activar Sección", se infiere sola: activa si algún campo
+  // propio de esa sección quedó con contenido — misma lógica que reports/nuevo.
   function buildPayload(newEstado: ReportEstado) {
     if (!form) return {}
+    const sec1Activa = !!(
+      form.sec1_tipo_movimiento || form.sec1_tipo_contenedor || form.sec1_carga_normal ||
+      form.sec1_carga_imo || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
+      form.sec1_hora_termino || form.sec1_sigla || form.sec1_guia_numero || form.sec1_interchange ||
+      form.sec1_hds
+    )
+    const sec2Activa = !!(
+      form.sec2_consolidado || form.sec2_desconsolidado || form.sec2_picking ||
+      form.sec2_paletizado || form.sec2_etiquetado || form.sec2_otro ||
+      form.sec2_hora_inicio || form.sec2_hora_termino || form.sec2_sigla_numero || form.sec2_observaciones
+    )
+    const sec3Activa = !!(
+      form.sec3_producto || form.sec3_clase_imo || form.sec3_nu || form.sec3_hora_inicio ||
+      form.sec3_hora_termino || form.sec3_numero_bodega || form.sec3_numero_guia || form.sec3_tipo ||
+      form.sec3_numero_pallets || form.sec3_solicitado_por || form.sec3_cuyd_detalle || form.sec3_observaciones
+    )
+
     return {
       estado:             newEstado,
       cliente:            form.cliente,
+      tarifa_cliente_id:  form.tarifa_cliente_id || null,
       fecha:              form.fecha,
       patente:            form.patente,
       conductor:          form.conductor,
@@ -143,7 +176,7 @@ export default function ReportDetailPage() {
       empresa_transporte: form.transporte_tipo === "propio" ? null : (form.empresa_transporte || null),
       transporte_tipo:    form.transporte_tipo,
       hds_header:         form.hds_header,
-      sec1_activa:          form.sec1_activa,
+      sec1_activa:          sec1Activa,
       sec1_tipo_movimiento: form.sec1_tipo_movimiento || null,
       sec1_tipo_contenedor: form.sec1_tipo_contenedor || null,
       sec1_carga_normal:    form.sec1_carga_normal,
@@ -156,7 +189,7 @@ export default function ReportDetailPage() {
       sec1_guia_numero:     form.sec1_guia_numero   || null,
       sec1_interchange:     form.sec1_interchange   || null,
       sec1_hds:             form.sec1_hds,
-      sec2_activa:         form.sec2_activa,
+      sec2_activa:         sec2Activa,
       sec2_consolidado:    form.sec2_consolidado,
       sec2_desconsolidado: form.sec2_desconsolidado,
       sec2_picking:        form.sec2_picking,
@@ -167,7 +200,8 @@ export default function ReportDetailPage() {
       sec2_hora_termino:   form.sec2_hora_termino   || null,
       sec2_sigla_numero:   form.sec2_sigla_numero   || null,
       sec2_observaciones:  form.sec2_observaciones  || null,
-      sec3_activa:         form.sec3_activa,
+      sec3_activa:              sec3Activa,
+      sec3_inventario_item_id:  form.sec3_inventario_item_id || null,
       sec3_producto:       form.sec3_producto       || null,
       sec3_clase_imo:      form.sec3_clase_imo      || null,
       sec3_hora_inicio:    form.sec3_hora_inicio    || null,
@@ -181,6 +215,8 @@ export default function ReportDetailPage() {
       sec3_cuyd_detalle:   form.sec3_cuyd_detalle   || null,
       sec3_observaciones:  form.sec3_observaciones  || null,
       nombre_operador:     form.nombre_operador     || null,
+      servicios_ids:       servicioSeleccion.flatMap(s => Array(s.cantidad).fill(s.id)),
+      servicios_manual:    serviciosManual,
       updated_at:          new Date().toISOString(),
     }
   }
@@ -196,8 +232,8 @@ export default function ReportDetailPage() {
     }
     // El trigger reports_sync_inventario revierte el stock del ítem de sec3 al
     // borrar el report — sincronizar peso_ton para que no quede desactualizado.
-    if (form?.sec3_activa && sec3ItemId) {
-      await syncPesoTon(supabase, sec3ItemId)
+    if (form?.sec3_activa && form.sec3_inventario_item_id) {
+      await syncPesoTon(supabase, form.sec3_inventario_item_id)
     }
     logAudit({
       tabla:          "reports",
@@ -214,7 +250,10 @@ export default function ReportDetailPage() {
     if (!form) return
     if (!form.cliente || !form.patente || !form.conductor) {
       setError("Cliente, patente y conductor son obligatorios.")
-      setTab("antecedentes")
+      return
+    }
+    if (tarifasCount > 1 && !form.tarifa_cliente_id) {
+      setError("Este cliente tiene varios contratos — selecciona a cuál tarifa pertenece este report.")
       return
     }
     setError(null)
@@ -229,7 +268,7 @@ export default function ReportDetailPage() {
 
     // Validación de pallets solo aplica al enviar a despacho.
     if (newEstado === "pendiente_despacho" && estado === "borrador" &&
-        form.sec3_activa && sec3ItemId && form.sec3_tipo) {
+        form.sec3_activa && form.sec3_inventario_item_id && form.sec3_tipo) {
       const delta = Number(form.sec3_numero_pallets)
       if (!delta || delta <= 0) {
         await supabase.from("reports").update({ estado: "borrador" }).eq("id", id)
@@ -245,8 +284,8 @@ export default function ReportDetailPage() {
     // — llamar update_stock acá también duplicaba el descuento/incremento.
     // syncPesoTon corre siempre que haya ítem vinculado para no dejar el peso
     // desactualizado en ediciones que no cambian de estado.
-    if (form.sec3_activa && sec3ItemId) {
-      await syncPesoTon(supabase, sec3ItemId)
+    if (form.sec3_activa && form.sec3_inventario_item_id) {
+      await syncPesoTon(supabase, form.sec3_inventario_item_id)
     }
 
     logAudit({
@@ -277,8 +316,6 @@ export default function ReportDetailPage() {
       </div>
     )
   }
-
-  const currentTabInfo = TABS[tabIndex]
 
   return (
     <>
@@ -318,7 +355,7 @@ export default function ReportDetailPage() {
       </AlertDialogContent>
     </AlertDialog>
 
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-background flex-shrink-0 flex-wrap gap-2">
         <div className="flex items-center gap-3">
@@ -384,7 +421,7 @@ export default function ReportDetailPage() {
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 Guardar borrador
               </Button>
-              <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving} onClick={() => handleSave("pendiente_despacho")}>
+              <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => handleSave("pendiente_despacho")}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                 Enviar a despacho
               </Button>
@@ -416,44 +453,42 @@ export default function ReportDetailPage() {
         </div>
       )}
 
-      {/* Tab bar */}
-      <div className="flex items-end gap-0 px-6 pt-3 border-b bg-muted/30 flex-shrink-0 overflow-x-hidden">
-        {TABS.map((t, i) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all -mb-px",
-              tab === t.key
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-            )}
-          >
-            <span className={cn(
-              "h-4 w-4 rounded-full text-[9px] font-bold flex items-center justify-center flex-shrink-0",
-              tab === t.key ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-            )}>
-              {i + 1}
-            </span>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* Form area — misma vista de una sola página que reports/nuevo */}
+      <div className="flex-1 min-h-0 overflow-hidden bg-muted/30 p-3">
+        <div className="bg-card rounded-xl border h-full p-4 overflow-y-auto">
+          <div className="flex flex-col lg:flex-row gap-x-6 gap-y-3">
+            {/* Columna izquierda: Antecedentes + Sección 1 */}
+            <div className="flex-1 min-w-0 flex flex-col gap-y-3">
 
-      {/* Form area */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-muted/30">
-        <div className={cn("mx-auto px-6 py-5", tab === "historial" ? "max-w-5xl" : "max-w-3xl")}>
-          <div className="bg-card rounded-xl border p-5">
-            <div className="mb-4 pb-3 border-b">
-              <h2 className="text-sm font-bold text-foreground">{currentTabInfo.label}</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">{currentTabInfo.subtitle}</p>
-            </div>
-
-            {tab === "antecedentes" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Cliente" required className="col-span-2">
-                  <Input value={form.cliente} onChange={e => set("cliente", e.target.value)} placeholder="Nombre del cliente" className="h-8 text-xs" readOnly={readOnly} />
+            <div>
+              <h2 className="text-[13px] font-bold text-foreground mb-1.5">Antecedentes</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Field label="Cliente" required className="col-span-1 sm:col-span-3">
+                  <ClienteCombobox
+                    value={form.cliente}
+                    onChange={v => set("cliente", v)}
+                    onChangeId={cid => {
+                      setForm(prev => prev ? {
+                        ...prev,
+                        cliente_id: cid,
+                        tarifa_cliente_id: "",
+                        sec3_inventario_item_id: "",
+                        sec3_producto: "",
+                        sec3_clase_imo: "",
+                        sec3_nu: "",
+                      } : prev)
+                      setServicioSeleccion([])
+                    }}
+                    readOnly={readOnly}
+                  />
                 </Field>
+                <TarifaSelect
+                  clienteId={form.cliente_id}
+                  value={form.tarifa_cliente_id}
+                  onChange={cid => set("tarifa_cliente_id", cid)}
+                  onCountChange={setTarifasCount}
+                  readOnly={readOnly}
+                />
                 <Field label="Fecha">
                   <Input type="date" value={form.fecha} onChange={e => set("fecha", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
                 </Field>
@@ -461,12 +496,12 @@ export default function ReportDetailPage() {
                   <Input value={form.patente} onChange={e => set("patente", e.target.value.toUpperCase())} placeholder="XXXX-00" className="h-8 text-xs font-mono" readOnly={readOnly} />
                 </Field>
                 <Field label="Conductor" required>
-                  <Input value={form.conductor} onChange={e => set("conductor", e.target.value)} placeholder="Nombre completo" className="h-8 text-xs" readOnly={readOnly} />
+                  <Input value={form.conductor} onChange={e => set("conductor", e.target.value.toUpperCase())} placeholder="Nombre completo" className="h-8 text-xs" readOnly={readOnly} />
                 </Field>
                 <Field label="RUT conductor">
-                  <Input value={form.rut_conductor} onChange={e => set("rut_conductor", e.target.value)} placeholder="12.345.678-9" className="h-8 text-xs" readOnly={readOnly} />
+                  <Input value={form.rut_conductor} onChange={e => set("rut_conductor", e.target.value)} placeholder="12.345.678-9" className="h-8 text-xs font-mono" readOnly={readOnly} />
                 </Field>
-                <Field label="Transporte" className="col-span-2">
+                <Field label="Transporte" className="col-span-1 sm:col-span-2">
                   <div className="h-8 flex items-center">
                     <RadioGroup
                       value={form.transporte_tipo}
@@ -481,165 +516,202 @@ export default function ReportDetailPage() {
                   </div>
                 </Field>
                 {form.transporte_tipo === "externo" && (
-                  <Field label="Empresa de transporte" className="col-span-2">
-                    <Input value={form.empresa_transporte} onChange={e => set("empresa_transporte", e.target.value)} placeholder="Razón social" className="h-8 text-xs" readOnly={readOnly} />
+                  <Field label="Empresa de transporte" className="col-span-1 sm:col-span-2">
+                    <Input value={form.empresa_transporte} onChange={e => set("empresa_transporte", e.target.value.toUpperCase())} placeholder="Razón social" className="h-8 text-xs" readOnly={readOnly} />
                   </Field>
                 )}
-                <div className="col-span-2 flex items-center gap-2 pt-1">
+                <div className="col-span-1 sm:col-span-3 flex items-center gap-2">
                   <Checkbox id="hds_header" checked={form.hds_header} onCheckedChange={v => !readOnly && set("hds_header", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
                   <label htmlFor="hds_header" className="text-xs text-foreground/80 cursor-pointer">HDS (Hoja de datos de seguridad presente)</label>
                 </div>
               </div>
-            )}
+            </div>
 
-            {tab === "sec1" && <Sec1Content form={form} set={set} readOnly={readOnly} />}
+            <div>
+              <h2 className="text-[13px] font-bold text-foreground mb-1.5">1. Depósito de Contenedores</h2>
+              <Sec1Content form={form} set={set as unknown as FormSetter} readOnly={readOnly} toUpperCase hideActivation />
+            </div>
+            </div>
 
-            {tab === "sec2" && <Sec2Content form={form} set={set} readOnly={readOnly} />}
+            {/* Columna derecha: Sección 2 + Sección 3 */}
+            <div className="flex-1 min-w-0 flex flex-col gap-y-3">
 
-            {tab === "sec3" && (
+            <div>
+              <h2 className="text-[13px] font-bold text-foreground mb-1.5">2. Consolidado / Desconsolidado / Otros</h2>
+              <Sec2Content form={form} set={set as unknown as FormSetter} readOnly={readOnly} toUpperCase hideActivation />
+            </div>
+
+            <div>
+              <h2 className="text-[13px] font-bold text-foreground mb-1.5">3. Bodegaje</h2>
               <Sec3Content
                 form={form}
-                set={set}
+                set={set as unknown as FormSetter}
                 readOnly={readOnly}
+                toUpperCase
+                hideActivation
                 productoNode={
-                  <Input value={form.sec3_producto} onChange={e => set("sec3_producto", e.target.value)}
-                    placeholder="Nombre del producto" className="h-8 text-xs" readOnly={readOnly} />
-                }
-                operadorNode={
-                  <Input value={form.nombre_operador} onChange={e => set("nombre_operador", e.target.value)}
-                    placeholder="Nombre completo del operador" className="h-8 text-xs" readOnly={readOnly} />
+                  <ProductoCombobox
+                    clienteId={form.cliente_id}
+                    value={form.sec3_producto}
+                    onChange={v => set("sec3_producto", v)}
+                    onSelect={(item: InventarioItemOption) => setForm(prev => prev ? ({
+                      ...prev,
+                      sec3_inventario_item_id: item.id,
+                      sec3_producto:           item.descripcion,
+                      sec3_clase_imo:          item.clase_imo ?? "",
+                      sec3_nu:                 item.nu        ?? "",
+                    }) : prev)}
+                    readOnly={readOnly}
+                  />
                 }
               />
-            )}
+            </div>
+            </div>
           </div>
 
-          {/* ── Tab Historial ── */}
-          {tab === "historial" && (
-            <div className="space-y-4 mt-4">
-
-              {/* Documento firmado — si existe */}
-              {docPath && (
-                <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setDocExpanded(v => !v)}
-                    className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <ScanLine className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                      <div className="text-left">
-                        <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Documento firmado por el conductor</p>
-                        <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 font-mono">{docPath}</p>
-                      </div>
-                    </div>
-                    {docExpanded
-                      ? <ChevronUp className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
-                      : <ChevronDown className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
-                    }
-                  </button>
-
-                  {docExpanded && (
-                    <div className="border-t border-emerald-200 dark:border-emerald-800 bg-muted/40">
-                      {!signedDocUrl ? (
-                        <div className="flex items-center justify-center py-10">
-                          <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                        </div>
-                      ) : /\.(pdf)$/i.test(docPath) ? (
-                        <iframe
-                          src={signedDocUrl}
-                          className="w-full"
-                          style={{ height: "600px", border: "none" }}
-                          title="Documento firmado"
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center p-4">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={signedDocUrl}
-                            alt="Documento firmado"
-                            className="max-w-full max-h-[600px] object-contain rounded-lg shadow"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+          {/* Servicios asociados al cliente */}
+          <div className="border-t mt-3 pt-3">
+            <ServiciosSection
+              clienteId={form.cliente_id}
+              selected={servicioSeleccion}
+              onToggle={sid => setServicioSeleccion(prev =>
+                prev.some(s => s.id === sid) ? prev.filter(s => s.id !== sid) : [...prev, { id: sid, cantidad: 1 }]
               )}
+              onCantidadChange={(sid, cantidad) => setServicioSeleccion(prev => prev.map(s => s.id === sid ? { ...s, cantidad } : s))}
+              manual={serviciosManual}
+              onAddManual={nombre => setServiciosManual(prev => [...prev, nombre])}
+              onRemoveManual={index => setServiciosManual(prev => prev.filter((_, i) => i !== index))}
+              readOnly={readOnly}
+            />
+          </div>
 
-              {/* Timeline de auditoría */}
-              {loadingLogs ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                </div>
-              ) : auditLogs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
-                  <History className="h-8 w-8 opacity-30" />
-                  <p className="text-sm">Sin actividad registrada aún</p>
-                </div>
-              ) : (
-                <div className="relative">
-                  <div className="absolute left-[19px] top-0 bottom-0 w-px bg-border" />
-                  <div className="space-y-3">
-                    {auditLogs.map((log, i) => (
-                      <div key={log.id} className="relative flex gap-4 pl-1">
-                        <div className="relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-background border-2 border-border shadow-sm">
-                          {ACCION_ICON[log.accion] ?? <History className="h-4 w-4 text-muted-foreground" />}
+          {/* Nombre del operador, centrado */}
+          <div className="border-t mt-3 pt-3 flex justify-center">
+            <div className="w-full max-w-xs">
+              <Field label="Nombre operador de carga" required className="text-center">
+                <Input
+                  value={form.nombre_operador}
+                  onChange={e => set("nombre_operador", e.target.value.toUpperCase())}
+                  className="h-8 text-xs text-center"
+                  readOnly={readOnly}
+                />
+              </Field>
+            </div>
+          </div>
+
+          {/* Historial — colapsado, se carga al abrirlo */}
+          <div className="border-t mt-3 pt-3">
+            <button
+              type="button"
+              onClick={() => setHistorialOpen(v => !v)}
+              className="w-full flex items-center justify-between gap-2 text-[13px] font-bold text-foreground"
+            >
+              <span className="flex items-center gap-1.5">
+                <History className="h-3.5 w-3.5 text-muted-foreground" /> Historial
+              </span>
+              {historialOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+            </button>
+
+            {historialOpen && (
+              <div className="space-y-4 mt-3">
+                {/* Documento firmado — si existe */}
+                {docPath && (
+                  <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setDocExpanded(v => !v)}
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <ScanLine className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                        <div className="text-left">
+                          <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Documento firmado por el conductor</p>
+                          <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70 font-mono">{docPath}</p>
                         </div>
-                        <div className={cn(
-                          "flex-1 rounded-xl border bg-card px-4 py-3.5 space-y-1",
-                          i === 0 && "border-primary/30 bg-primary/5"
-                        )}>
-                          <div className="flex items-start justify-between gap-3">
-                            <p className="text-xs font-semibold text-foreground leading-tight">
-                              {accionLabel(log.accion)}
-                            </p>
-                            <time className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0 mt-0.5">
-                              {new Date(log.created_at).toLocaleString("es-CL", {
-                                day: "2-digit", month: "2-digit", year: "numeric",
-                                hour: "2-digit", minute: "2-digit"
-                              })}
-                            </time>
+                      </div>
+                      {docExpanded
+                        ? <ChevronUp className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                        : <ChevronDown className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                      }
+                    </button>
+
+                    {docExpanded && (
+                      <div className="border-t border-emerald-200 dark:border-emerald-800 bg-muted/40">
+                        {!signedDocUrl ? (
+                          <div className="flex items-center justify-center py-10">
+                            <Loader2 className="h-5 w-5 animate-spin text-primary" />
                           </div>
-                          {log.descripcion && !/doc:/.test(log.descripcion) && (
-                            <p className="text-[11px] text-muted-foreground leading-relaxed">{log.descripcion}</p>
-                          )}
-                          {log.usuario_nombre && (
-                            <p className="text-[10px] text-muted-foreground/60">por {log.usuario_nombre}</p>
-                          )}
-                        </div>
+                        ) : /\.(pdf)$/i.test(docPath) ? (
+                          <iframe
+                            src={signedDocUrl}
+                            className="w-full"
+                            style={{ height: "600px", border: "none" }}
+                            title="Documento firmado"
+                          />
+                        ) : (
+                          <div className="flex items-center justify-center p-4">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={signedDocUrl}
+                              alt="Documento firmado"
+                              className="max-w-full max-h-[600px] object-contain rounded-lg shadow"
+                            />
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                )}
 
-          {/* Navigation footer — solo en tabs de formulario */}
-          {tab !== "historial" && (
-          <div className="flex items-center justify-between mt-4">
-            {tabIndex > 0 ? (
-              <button onClick={() => setTab(TABS[tabIndex - 1].key)}
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
-                ← Anterior
-              </button>
-            ) : (
-              <div className="w-16" />
-            )}
-            <div className="flex gap-1.5">
-              {TABS.filter(t => t.key !== "historial").map(t => (
-                <div key={t.key} className={cn("h-1.5 rounded-full transition-all", tab === t.key ? "w-6 bg-primary" : "w-1.5 bg-muted-foreground/30")} />
-              ))}
-            </div>
-            {tabIndex < TABS.length - 2 ? (
-              <button onClick={nextTab} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 font-medium">
-                Siguiente <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-            ) : (
-              <div className="w-16" />
+                {/* Timeline de auditoría */}
+                {loadingLogs ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  </div>
+                ) : auditLogs.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+                    <History className="h-8 w-8 opacity-30" />
+                    <p className="text-sm">Sin actividad registrada aún</p>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <div className="absolute left-[19px] top-0 bottom-0 w-px bg-border" />
+                    <div className="space-y-3">
+                      {auditLogs.map((log, i) => (
+                        <div key={log.id} className="relative flex gap-4 pl-1">
+                          <div className="relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-background border-2 border-border shadow-sm">
+                            {ACCION_ICON[log.accion] ?? <History className="h-4 w-4 text-muted-foreground" />}
+                          </div>
+                          <div className={cn(
+                            "flex-1 rounded-xl border bg-card px-4 py-3.5 space-y-1",
+                            i === 0 && "border-primary/30 bg-primary/5"
+                          )}>
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="text-xs font-semibold text-foreground leading-tight">
+                                {accionLabel(log.accion)}
+                              </p>
+                              <time className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0 mt-0.5">
+                                {new Date(log.created_at).toLocaleString("es-CL", {
+                                  day: "2-digit", month: "2-digit", year: "numeric",
+                                  hour: "2-digit", minute: "2-digit"
+                                })}
+                              </time>
+                            </div>
+                            {log.descripcion && !/doc:/.test(log.descripcion) && (
+                              <p className="text-[11px] text-muted-foreground leading-relaxed">{log.descripcion}</p>
+                            )}
+                            {log.usuario_nombre && (
+                              <p className="text-[10px] text-muted-foreground/60">por {log.usuario_nombre}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
-          )}
         </div>
       </div>
     </div>
