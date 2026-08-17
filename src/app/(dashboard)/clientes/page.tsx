@@ -5,7 +5,6 @@ import { Plus, Search, Warehouse, Loader2, RefreshCw, Pencil, CheckCircle2, XCir
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { PageHeader } from "@/components/layout/page-header"
@@ -17,15 +16,6 @@ import { logAudit } from "@/lib/audit"
 import type { Cliente, ClienteInsert } from "@/types/database"
 
 const SECTORES = ["Marítimo", "Importación", "Industrial", "Minería", "Industria química", "Logística", "Otro"]
-
-const SECTOR_COLOR: Record<string, string> = {
-  "Marítimo":          "bg-blue-50   text-blue-700   dark:bg-blue-900/20   dark:text-blue-400",
-  "Importación":       "bg-cyan-50   text-cyan-700   dark:bg-cyan-900/20   dark:text-cyan-400",
-  "Industrial":        "bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400",
-  "Minería":           "bg-amber-50  text-amber-700  dark:bg-amber-900/20  dark:text-amber-400",
-  "Industria química": "bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400",
-  "Logística":         "bg-teal-50   text-teal-700   dark:bg-teal-900/20   dark:text-teal-400",
-}
 
 const AVATAR_COLORS = [
   "bg-blue-100 text-blue-700",    "bg-violet-100 text-violet-700",
@@ -223,7 +213,6 @@ export default function ClientesPage() {
                     <th className="hidden sm:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">RUT</th>
                     <th className="hidden md:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contacto</th>
                     <th className="hidden xl:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email</th>
-                    <th className="hidden sm:table-cell text-left px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sector</th>
                     <th className="text-center px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bodega</th>
                     <th className="text-center px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Estado</th>
                   </tr>
@@ -254,13 +243,6 @@ export default function ClientesPage() {
                         <span className="truncate block" title={c.emails.join(", ")}>
                           {c.emails.length > 0 ? c.emails.join(", ") : "—"}
                         </span>
-                      </td>
-                      <td className="hidden sm:table-cell px-4 py-3.5">
-                        {c.sector ? (
-                          <Badge className={cn("text-[10px] px-2 py-0 border-0 font-medium", SECTOR_COLOR[c.sector] ?? "bg-muted text-muted-foreground")}>
-                            {c.sector}
-                          </Badge>
-                        ) : <span className="text-xs text-muted-foreground">—</span>}
                       </td>
                       <td className="px-4 py-3.5 text-center">
                         <Link href={`/inventario?cliente=${c.id}`}>
