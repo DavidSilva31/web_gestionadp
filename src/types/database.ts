@@ -99,11 +99,18 @@ export interface Cliente {
   rut:        string | null
   contacto:   string | null
   contacto_cargo:      string | null
+  contacto_email:      string | null
   contacto_telefono:   string | null
+  contacto_telefono2:  string | null
   contacto2_nombre:    string | null
   contacto2_cargo:     string | null
   contacto2_email:     string | null
   contacto2_telefono:  string | null
+  contacto2_telefono2: string | null
+  contacto3_nombre:    string | null
+  contacto3_cargo:     string | null
+  contacto3_email:     string | null
+  contacto3_telefono:  string | null
   emails:     string[]
   sector:     string | null
   activo:     boolean

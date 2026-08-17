@@ -152,10 +152,12 @@ export async function buildHesData(
   if (isUnificado) {
     // Los servicios adicionales son un cargo a nivel cliente, no de una tarifa/CI
     // específica — van solo en el resumen general, no se duplican en cada hoja.
-    for (const tarifaId of tarifaSel.tarifaIds!) {
-      const result = await loadTarifaData(supabase, clienteId, tarifaId, period, ufSafe, [], {}, tarifasCount ?? 0)
-      if (result) results.push(result)
-    }
+    const loaded = await Promise.all(
+      tarifaSel.tarifaIds!.map(tarifaId =>
+        loadTarifaData(supabase, clienteId, tarifaId, period, ufSafe, [], {}, tarifasCount ?? 0)
+      )
+    )
+    results.push(...loaded.filter((r): r is TarifaResultado => r !== null))
     if (results.length === 0)
       return { ok: false, error: "Ninguna tarifa encontrada o sin permiso para verlas.", status: 404 }
   } else {
