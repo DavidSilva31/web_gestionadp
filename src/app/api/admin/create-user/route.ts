@@ -47,9 +47,20 @@ export async function POST(req: NextRequest) {
       redirectTo: `${siteUrl}/reset-password`,
     })
     if (authError) {
-      const msg = /already.*registered/i.test(authError.message)
-        ? "Ya existe un usuario con ese correo electrónico."
-        : "No se pudo crear el usuario. Intenta de nuevo."
+      // El error real se perdía siempre en un mensaje genérico y nunca se
+      // logueaba — así se pasó semanas sin poder saber si era rate limit,
+      // email inválido, etc. (ver memoria adp_gestion_invite_email_debug).
+      console.error("[admin/create-user] error de Supabase Auth al invitar:", {
+        code: authError.code, status: authError.status, message: authError.message,
+      })
+      let msg = "No se pudo crear el usuario. Intenta de nuevo."
+      if (/already.*registered/i.test(authError.message)) {
+        msg = "Ya existe un usuario con ese correo electrónico."
+      } else if (authError.code === "email_address_invalid" || authError.status === 400) {
+        msg = "El correo electrónico no es válido."
+      } else if (authError.code === "over_email_send_rate_limit" || authError.status === 429) {
+        msg = "Se alcanzó el límite de envío de correos de invitación. Espera unos minutos e intenta de nuevo."
+      }
       return NextResponse.json({ error: msg }, { status: 400 })
     }
 

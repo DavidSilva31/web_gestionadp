@@ -39,8 +39,10 @@ const initials = (nombre: string) =>
   nombre.split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase()
 
 const EMPTY: ClienteInsert = {
-  nombre: "", rut: "", contacto: "", contacto_cargo: "", contacto_telefono: "",
-  contacto2_nombre: "", contacto2_cargo: "", contacto2_email: "", contacto2_telefono: "",
+  nombre: "", rut: "", contacto: "", contacto_cargo: "", contacto_email: "",
+  contacto_telefono: "", contacto_telefono2: "",
+  contacto2_nombre: "", contacto2_cargo: "", contacto2_email: "", contacto2_telefono: "", contacto2_telefono2: "",
+  contacto3_nombre: "", contacto3_cargo: "", contacto3_email: "", contacto3_telefono: "",
   emails: [], sector: "", activo: true, dia_corte_facturacion: 1,
 }
 
@@ -81,9 +83,13 @@ export default function ClientesPage() {
   function openEdit(c: Cliente) {
     setForm({
       nombre: c.nombre, rut: c.rut ?? "", contacto: c.contacto ?? "",
-      contacto_cargo: c.contacto_cargo ?? "", contacto_telefono: c.contacto_telefono ?? "",
+      contacto_cargo: c.contacto_cargo ?? "", contacto_email: c.contacto_email ?? "",
+      contacto_telefono: c.contacto_telefono ?? "", contacto_telefono2: c.contacto_telefono2 ?? "",
       contacto2_nombre: c.contacto2_nombre ?? "", contacto2_cargo: c.contacto2_cargo ?? "",
       contacto2_email: c.contacto2_email ?? "", contacto2_telefono: c.contacto2_telefono ?? "",
+      contacto2_telefono2: c.contacto2_telefono2 ?? "",
+      contacto3_nombre: c.contacto3_nombre ?? "", contacto3_cargo: c.contacto3_cargo ?? "",
+      contacto3_email: c.contacto3_email ?? "", contacto3_telefono: c.contacto3_telefono ?? "",
       emails: c.emails ?? [], sector: c.sector ?? "", activo: c.activo,
       dia_corte_facturacion: c.dia_corte_facturacion,
     })
@@ -108,13 +114,20 @@ export default function ClientesPage() {
     const payload = {
       nombre:             form.nombre.trim(),
       rut:                form.rut?.trim() || null,
-      contacto:           form.contacto?.trim() || null,
-      contacto_cargo:     form.contacto_cargo?.trim() || null,
-      contacto_telefono:  form.contacto_telefono?.trim() || null,
-      contacto2_nombre:   form.contacto2_nombre?.trim() || null,
-      contacto2_cargo:    form.contacto2_cargo?.trim() || null,
-      contacto2_email:    form.contacto2_email?.trim() || null,
-      contacto2_telefono: form.contacto2_telefono?.trim() || null,
+      contacto:            form.contacto?.trim() || null,
+      contacto_cargo:      form.contacto_cargo?.trim() || null,
+      contacto_email:      form.contacto_email?.trim() || null,
+      contacto_telefono:   form.contacto_telefono?.trim() || null,
+      contacto_telefono2:  form.contacto_telefono2?.trim() || null,
+      contacto2_nombre:    form.contacto2_nombre?.trim() || null,
+      contacto2_cargo:     form.contacto2_cargo?.trim() || null,
+      contacto2_email:     form.contacto2_email?.trim() || null,
+      contacto2_telefono:  form.contacto2_telefono?.trim() || null,
+      contacto2_telefono2: form.contacto2_telefono2?.trim() || null,
+      contacto3_nombre:    form.contacto3_nombre?.trim() || null,
+      contacto3_cargo:     form.contacto3_cargo?.trim() || null,
+      contacto3_email:     form.contacto3_email?.trim() || null,
+      contacto3_telefono:  form.contacto3_telefono?.trim() || null,
       emails:   form.emails.map(e => e.trim()).filter(Boolean),
       sector:   form.sector           || null,
       activo:   form.activo,
@@ -294,7 +307,7 @@ export default function ClientesPage() {
 
     {/* Dialog nuevo / editar */}
     <Dialog open={dialog !== null} onOpenChange={open => { if (!open) setDialog(null) }}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{dialog === "new" ? "Nuevo cliente" : "Editar cliente"}</DialogTitle>
         </DialogHeader>
@@ -325,8 +338,16 @@ export default function ClientesPage() {
             <Input value={form.contacto_cargo ?? ""} onChange={e => setForm(p => ({ ...p, contacto_cargo: e.target.value }))} placeholder="Cargo del contacto" className="h-9" />
           </div>
           <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Email</Label>
+            <Input type="email" value={form.contacto_email ?? ""} onChange={e => setForm(p => ({ ...p, contacto_email: e.target.value }))} placeholder="correo@empresa.cl" className="h-9" />
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Teléfono</Label>
             <Input value={form.contacto_telefono ?? ""} onChange={e => setForm(p => ({ ...p, contacto_telefono: e.target.value }))} placeholder="+56 9 1234 5678" className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Teléfono 2</Label>
+            <Input value={form.contacto_telefono2 ?? ""} onChange={e => setForm(p => ({ ...p, contacto_telefono2: e.target.value }))} placeholder="+56 9 1234 5678" className="h-9" />
           </div>
 
           <div className="col-span-2 pt-2 border-t">
@@ -347,6 +368,30 @@ export default function ClientesPage() {
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Teléfono</Label>
             <Input value={form.contacto2_telefono ?? ""} onChange={e => setForm(p => ({ ...p, contacto2_telefono: e.target.value }))} placeholder="+56 9 1234 5678" className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Teléfono 2</Label>
+            <Input value={form.contacto2_telefono2 ?? ""} onChange={e => setForm(p => ({ ...p, contacto2_telefono2: e.target.value }))} placeholder="+56 9 1234 5678" className="h-9" />
+          </div>
+
+          <div className="col-span-2 pt-2 border-t">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tercer contacto <span className="text-muted-foreground/60 font-normal normal-case">(opcional)</span></p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Nombre</Label>
+            <Input value={form.contacto3_nombre ?? ""} onChange={e => setForm(p => ({ ...p, contacto3_nombre: e.target.value }))} placeholder="Nombre contacto" className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cargo</Label>
+            <Input value={form.contacto3_cargo ?? ""} onChange={e => setForm(p => ({ ...p, contacto3_cargo: e.target.value }))} placeholder="Cargo del contacto" className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Email</Label>
+            <Input type="email" value={form.contacto3_email ?? ""} onChange={e => setForm(p => ({ ...p, contacto3_email: e.target.value }))} placeholder="correo@empresa.cl" className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Teléfono</Label>
+            <Input value={form.contacto3_telefono ?? ""} onChange={e => setForm(p => ({ ...p, contacto3_telefono: e.target.value }))} placeholder="+56 9 1234 5678" className="h-9" />
           </div>
 
           <div className="col-span-2 space-y-1.5">
