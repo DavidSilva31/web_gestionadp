@@ -183,7 +183,7 @@ export default function DashboardPage() {
     const mo   = now.getMonth()
     const curr         = new Date(yr, mo, 1).toISOString()
     const prev         = new Date(yr, mo - 1, 1).toISOString()
-    const sixMonthsAgo = new Date(yr, mo - 11, 1).toISOString()
+    const twelveMonthsAgo = new Date(yr, mo - 11, 1).toISOString()
 
     const [
       { data: itemsRaw,      error: e1 },
@@ -192,7 +192,7 @@ export default function DashboardPage() {
       { count: clientNewCount },
     ] = await Promise.all([
       supabase.from("inventario_items").select("id, cliente_id, area, stock_actual, stock_minimo, descripcion, clientes(nombre), peso_ton").eq("activo", true),
-      supabase.from("movimientos").select("numero, tipo, cliente_nombre, carga, unidades, fecha, estado").gte("fecha", sixMonthsAgo).order("fecha", { ascending: false }),
+      supabase.from("movimientos").select("numero, tipo, cliente_nombre, carga, unidades, fecha, estado").gte("fecha", twelveMonthsAgo).order("fecha", { ascending: false }),
       supabase.from("clientes").select("*", { count: "exact", head: true }).eq("activo", true),
       supabase.from("clientes").select("*", { count: "exact", head: true }).gte("created_at", curr),
     ])

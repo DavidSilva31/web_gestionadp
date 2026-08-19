@@ -83,6 +83,7 @@ export default function ReportsPage() {
       .from("reports")
       .select("id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa")
       .order("numero", { ascending: false })
+      .limit(500)
 
     if (err) { setFetchError(err.message); setLoading(false); return }
     if (data) setReports(data as ReportRow[])

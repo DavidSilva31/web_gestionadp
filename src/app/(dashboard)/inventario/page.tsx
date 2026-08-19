@@ -271,6 +271,10 @@ function InventarioContent() {
         // Exclude stock_actual from edit — stock must change only through movimientos
         const { stock_actual, ...editPayload } = payload
         void stock_actual
+        // Con stock 0 no hay forma real de recalcular el ancla — no pisarla
+        // con null o se pierde para siempre y peso_ton deja de sincronizar
+        // cuando el stock vuelva a subir (ver syncPesoTon en lib/inventario.ts).
+        if (form.stock_actual === 0) delete (editPayload as { peso_unitario_ton?: number | null }).peso_unitario_ton
         const { error: err } = await supabase.from("inventario_items").update(editPayload).eq("id", dialog.id)
         if (err) { setError(err.message); setSaving(false); return }
         logAudit({

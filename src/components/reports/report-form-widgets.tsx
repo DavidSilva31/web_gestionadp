@@ -130,7 +130,11 @@ export function TarifaSelect({ clienteId, value, onChange, onCountChange, readOn
   }, [clienteId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!readOnly && tarifas.length === 1) onChange(tarifas[0].id)
+    // Solo auto-asignar si el report todavía no tiene tarifa elegida — si
+    // ya tenía una (ej. al abrir un report existente para editar) nunca
+    // reasignarla sola aunque el cliente haya quedado con una sola tarifa
+    // activa distinta, o se cambiaría en silencio a qué contrato factura.
+    if (!readOnly && !value && tarifas.length === 1) onChange(tarifas[0].id)
   }, [tarifas]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (fetchError) {
@@ -164,11 +168,12 @@ export function TarifaSelect({ clienteId, value, onChange, onCountChange, readOn
 
 export interface InventarioItemOption { id: string; descripcion: string; clase_imo: string | null; nu: string | null }
 
-export function ProductoCombobox({ clienteId, value, onChange, onSelect, readOnly }: {
+export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear, readOnly }: {
   clienteId: string
   value: string
   onChange: (v: string) => void
   onSelect: (item: InventarioItemOption) => void
+  onClear: () => void
   readOnly?: boolean
 }) {
   const [items,  setItems]  = useState<InventarioItemOption[]>([])
@@ -214,7 +219,7 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, readOnl
     <div ref={ref} className="relative">
       <Input
         value={query}
-        onChange={e => { setQuery(e.target.value.toUpperCase()); onChange(e.target.value.toUpperCase()); setOpen(true) }}
+        onChange={e => { const v = e.target.value.toUpperCase(); setQuery(v); onChange(v); onClear(); setOpen(true) }}
         onFocus={() => !readOnly && setOpen(true)}
         placeholder={clienteId ? "Buscar producto en inventario..." : "Selecciona un cliente primero"}
         className="h-8 text-xs"
