@@ -131,10 +131,17 @@ export default function ReportDetailPage() {
 
       // El report solo guarda el nombre del cliente — resolver su id para que
       // TarifaSelect/ProductoCombobox/ServiciosSection (que filtran por
-      // cliente_id) funcionen igual que en reports/nuevo.
+      // cliente_id) funcionen igual que en reports/nuevo. Si el cliente fue
+      // renombrado después de crear este report, el lookup por nombre no
+      // encuentra nada y esos selectores quedarían vacíos en silencio —
+      // avisar en vez de dejarlo pasar sin explicación.
       if (data.cliente) {
         const { data: cli } = await supabase.from("clientes").select("id").eq("nombre", data.cliente as string).maybeSingle()
-        if (cli) setForm(prev => prev ? { ...prev, cliente_id: cli.id } : prev)
+        if (cli) {
+          setForm(prev => prev ? { ...prev, cliente_id: cli.id } : prev)
+        } else {
+          setError(`No se encontró el cliente "${data.cliente}" — puede que haya sido renombrado. Tarifa, producto y servicios no cargarán hasta corregirlo.`)
+        }
       }
     }
     fetchReport()
@@ -560,6 +567,12 @@ export default function ReportDetailPage() {
                       sec3_producto:           item.descripcion,
                       sec3_clase_imo:          item.clase_imo ?? "",
                       sec3_nu:                 item.nu        ?? "",
+                    }) : prev)}
+                    onClear={() => setForm(prev => prev ? ({
+                      ...prev,
+                      sec3_inventario_item_id: "",
+                      sec3_clase_imo:          "",
+                      sec3_nu:                 "",
                     }) : prev)}
                     readOnly={readOnly}
                   />

@@ -489,6 +489,12 @@ export default function NuevoReportPage() {
                       sec3_clase_imo:          item.clase_imo ?? "",
                       sec3_nu:                 item.nu        ?? "",
                     }))}
+                    onClear={() => setForm(prev => ({
+                      ...prev,
+                      sec3_inventario_item_id: "",
+                      sec3_clase_imo:          "",
+                      sec3_nu:                 "",
+                    }))}
                   />
                 }
               />

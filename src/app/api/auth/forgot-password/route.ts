@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { createClient } from "@supabase/supabase-js"
+import { resolveSiteUrl } from "@/lib/site-url"
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,11 +32,7 @@ export async function POST(req: NextRequest) {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       )
 
-      // Ver nota en admin/create-user/route.ts sobre por qué no confiar solo en el env var.
-      const requestOrigin = new URL(req.url).origin
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.includes("localhost")
-        ? requestOrigin
-        : (process.env.NEXT_PUBLIC_SITE_URL ?? requestOrigin)
+      const siteUrl = resolveSiteUrl(req)
       const { error } = await supabase.auth.resetPasswordForEmail(normalized, {
         redirectTo: `${siteUrl}/reset-password`,
       })

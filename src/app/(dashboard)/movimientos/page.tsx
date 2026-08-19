@@ -286,6 +286,14 @@ export default function MovimientosPage() {
       } else if (dialog && typeof dialog === "object") {
         const { error: err } = await supabase.from("movimientos").update(payload).eq("id", dialog.id)
         if (err) { setError(err.message); setSaving(false); return }
+
+        // El trigger también reacciona a un update de movimiento (mismo
+        // sync_inventario_from_movimiento) — sincronizar peso_ton del ítem
+        // actual y, si se cambió de ítem, también del original.
+        if (payload.inventario_item_id) await syncPesoTon(supabase, payload.inventario_item_id)
+        if (dialog.inventario_item_id && dialog.inventario_item_id !== payload.inventario_item_id) {
+          await syncPesoTon(supabase, dialog.inventario_item_id)
+        }
       }
       setSaving(false)
       setDialog(null)
