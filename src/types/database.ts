@@ -180,6 +180,32 @@ export interface Movimiento {
 
 export type MovimientoInsert = Omit<Movimiento, 'id' | 'numero' | 'created_at' | 'updated_at'>
 
+export interface TransporteIncomex {
+  id:                     string
+  numero:                 number
+  cliente_id:             string | null
+  empresa_texto:          string
+  fecha:                  string
+  guia_numero:            string | null
+  tipo_movimiento:        string | null
+  origen_destino:         string | null
+  detalle_carga:          string | null
+  sigla_contenedor:       string | null
+  transportista:          string | null
+  conductor:              string | null
+  tarifa_tte_clp:         number | null
+  costo_uf:               number | null
+  factura_cliente_uf:     number | null
+  factura_adp_incomex_uf: number | null
+  observaciones:          string | null
+  activo:                 boolean
+  created_at:             string
+  updated_at:             string
+  created_by:             string | null
+}
+
+export type TransporteIncomexInsert = Omit<TransporteIncomex, 'id' | 'numero' | 'created_at' | 'updated_at'>
+
 export interface TarifaCliente {
   id:                      string
   cliente_id:              string

@@ -5,7 +5,7 @@ import ExcelJS from "exceljs"
 import path from "path"
 import type { createServerSupabaseClient } from "@/lib/supabase-server"
 import { computeHES, computeBilling, type MovRaw, type BillingRow, type DayEntry, type HesResult, type BillingResult } from "@/lib/hes-calc"
-import type { TarifaCliente, ServicioCliente } from "@/types/database"
+import type { TarifaCliente, ServicioCliente, TransporteIncomex } from "@/types/database"
 
 export type SupabaseSrv = Awaited<ReturnType<typeof createServerSupabaseClient>>
 
@@ -112,6 +112,23 @@ export async function loadTarifaData(
   return { tarifa, hes, billing }
 }
 
+// ── Viajes de transporte subcontratado (Incomex) del cliente en el período —
+// se muestran en el HES solo por su monto facturado al cliente, nunca el
+// costo pagado al transportista ni el margen de ADP.
+export async function loadTransporteOperaciones(
+  supabase: SupabaseSrv, clienteId: string, period: { start: string; end: string }
+): Promise<TransporteIncomex[]> {
+  const { data } = await supabase
+    .from("transporte_incomex")
+    .select("*")
+    .eq("cliente_id", clienteId)
+    .eq("activo", true)
+    .gte("fecha", period.start)
+    .lte("fecha", period.end)
+    .order("fecha")
+  return (data ?? []) as TransporteIncomex[]
+}
+
 export function toServicioExport(serviciosCliente: ServicioCliente[], servicioSeleccion: ServicioSeleccion): ServicioExport[] {
   return serviciosCliente.map(s => ({
     id:         s.id,
@@ -131,6 +148,7 @@ export type HesBuildResult =
       results: TarifaResultado[]
       serviciosCliente: ServicioCliente[]
       srvBilling: BillingResult
+      transporteOps: TransporteIncomex[]
     }
   | { ok: false; error: string; status: number }
 
@@ -140,9 +158,10 @@ export async function buildHesData(
   supabase: SupabaseSrv, clienteId: string, tarifaSel: { tarifaId?: string; tarifaIds?: string[] },
   period: { start: string; end: string }, ufSafe: number, servicioSeleccion: ServicioSeleccion
 ): Promise<HesBuildResult> {
-  const [{ data: serviciosRows }, { count: tarifasCount }] = await Promise.all([
+  const [{ data: serviciosRows }, { count: tarifasCount }, transporteOps] = await Promise.all([
     supabase.from("servicios_cliente").select("*").eq("cliente_id", clienteId).eq("activo", true),
     supabase.from("tarifas_cliente").select("id", { count: "exact", head: true }).eq("cliente_id", clienteId).eq("activo", true),
+    loadTransporteOperaciones(supabase, clienteId, period),
   ])
   const serviciosCliente = (serviciosRows ?? []) as ServicioCliente[]
 
@@ -173,7 +192,7 @@ export async function buildHesData(
     ufSafe, isUnificado ? serviciosCliente : [], isUnificado ? servicioSeleccion : {}
   )
 
-  return { ok: true, isUnificado, results, serviciosCliente, srvBilling }
+  return { ok: true, isUnificado, results, serviciosCliente, srvBilling, transporteOps }
 }
 
 // ── Construye el workbook completo (resumen general si aplica + una hoja
@@ -188,7 +207,7 @@ export function buildWorkbook(
   wb.created = new Date()
 
   if (built.isUnificado) {
-    addResumenGeneralSheet(wb, cliente, mes, anio, built.results, built.srvBilling, folioNumero)
+    addResumenGeneralSheet(wb, cliente, mes, anio, built.results, built.srvBilling, folioNumero, built.transporteOps, uf)
     for (const r of built.results) {
       addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, [], mes, anio, period, uf, folioNumero)
     }
@@ -196,6 +215,10 @@ export function buildWorkbook(
     const srvs = toServicioExport(built.serviciosCliente, servicioSeleccion)
     const r = built.results[0]
     addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, srvs, mes, anio, period, uf, folioNumero)
+  }
+
+  if (built.transporteOps.length > 0) {
+    addTransporteSheet(wb, cliente, built.transporteOps, mes, anio, uf, folioNumero)
   }
 
   return wb
@@ -212,7 +235,8 @@ export function excelFilename(clienteNombre: string, mes: number, anio: number) 
 // ── Hoja "Resumen general" — modo unificado: una fila por CI + servicios + total ──
 function addResumenGeneralSheet(
   wb: ExcelJS.Workbook, cliente: ClienteExport, mes: number, anio: number,
-  results: TarifaResultado[], srvBilling: BillingResult, folioNumero?: number | null
+  results: TarifaResultado[], srvBilling: BillingResult, folioNumero?: number | null,
+  transporteOps: TransporteIncomex[] = [], uf = 0
 ) {
   const mesTit = `${MESES[mes]} ${anio}`
   const ws = wb.addWorksheet("Resumen general", {
@@ -273,6 +297,19 @@ function addResumenGeneralSheet(
       totalCLP += sr.totalCLP
       row++
     }
+  }
+
+  if (transporteOps.length > 0) {
+    const totalTransporteUF = transporteOps.reduce((sum, t) => sum + (t.factura_cliente_uf ?? 0), 0)
+    const totalTransporteCLP = totalTransporteUF * uf
+    const r = ws.addRow([]); r.height = 14; spacerA(r)
+    r.getCell("B").value = "Transporte"
+    r.getCell("C").value = totalTransporteUF
+    r.getCell("D").value = totalTransporteCLP
+    st(r.getCell("B"), { size: 9, italic: true })
+    st(r.getCell("C"), { size: 9, ha: "right", fmt: "0.0000" })
+    st(r.getCell("D"), { size: 9, ha: "right", fmt: '"$"#,##0' })
+    totalCLP += totalTransporteCLP
   }
 
   {
@@ -640,5 +677,100 @@ function addTarifaSheet(
     })
 
     if (totNeto > 0) { r.getCell(totalCol).value = totNeto; r.getCell(totalCol).numFmt = fmtTarifaNum }
+  }
+}
+
+// ── Hoja "Transporte" — viajes subcontratados facturados al cliente vía
+// Incomex en el período. Muestra solo lo facturado al cliente
+// (factura_cliente_uf) — costo pagado al transportista y margen de ADP
+// quedan en la base de datos, nunca en este documento.
+function addTransporteSheet(
+  wb: ExcelJS.Workbook, cliente: ClienteExport, ops: TransporteIncomex[],
+  mes: number, anio: number, uf: number, folioNumero?: number | null
+) {
+  const mesTit = `${MESES[mes]} ${anio}`
+  const ws = wb.addWorksheet("Transporte", {
+    pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+    views: [{ showGridLines: false }],
+  })
+  ws.columns = [
+    { width: 2  }, // A separador
+    { width: 12 }, // B Fecha
+    { width: 14 }, // C N° Guía
+    { width: 24 }, // D Movimiento
+    { width: 20 }, // E Origen-Destino
+    { width: 28 }, // F Detalle
+    { width: 18 }, // G Transportista
+    { width: 18 }, // H Conductor
+    { width: 14 }, // I Total Neto (UF)
+    { width: 16 }, // J Total Neto ($)
+  ]
+  function spacerA(r: ExcelJS.Row) { st(r.getCell("A"), { noBorder: true }) }
+  let row = 1
+
+  {
+    const r = ws.addRow([]); r.height = 22; spacerA(r)
+    r.getCell("B").value = `HES ${cliente.nombre.toUpperCase()} — TRANSPORTE`
+    st(r.getCell("B"), { bold: true, size: 13, noBorder: true })
+    ws.mergeCells(`B${row}:J${row}`); row++
+  }
+  {
+    const r = ws.addRow([]); r.height = 18; spacerA(r)
+    r.getCell("B").value = folioNumero != null ? `${mesTit.toUpperCase()} — N° HES-${String(folioNumero).padStart(6, "0")}` : mesTit.toUpperCase()
+    st(r.getCell("B"), { size: 10, noBorder: true }); row++
+  }
+  { const r = ws.addRow([]); r.height = 10; spacerA(r); row++ }
+
+  {
+    const r = ws.addRow([]); r.height = 26; spacerA(r)
+    const hdrs: [string, string][] = [
+      ["B", "Fecha"], ["C", "N° Guía"], ["D", "Movimiento"], ["E", "Origen - Destino"],
+      ["F", "Detalle"], ["G", "Transportista"], ["H", "Conductor"],
+      ["I", "Total Neto (UF)"], ["J", "Total Neto ($)"],
+    ]
+    hdrs.forEach(([col, val]) => {
+      r.getCell(col).value = val
+      st(r.getCell(col), { bg: C.HDR_BG, fc: C.HDR_TXT, bold: true, size: 9, ha: "center", wrap: true })
+    })
+    row++
+  }
+
+  let totalUF = 0
+  for (const op of ops) {
+    const opUF = op.factura_cliente_uf ?? 0
+    const opCLP = opUF * uf
+    totalUF += opUF
+
+    const r = ws.addRow([]); r.height = 14; spacerA(r)
+    r.getCell("B").value = op.fecha
+    r.getCell("C").value = op.guia_numero ?? ""
+    r.getCell("D").value = op.tipo_movimiento ?? ""
+    r.getCell("E").value = op.origen_destino ?? ""
+    r.getCell("F").value = op.detalle_carga ?? ""
+    r.getCell("G").value = op.transportista ?? ""
+    r.getCell("H").value = op.conductor ?? ""
+    r.getCell("I").value = opUF
+    r.getCell("J").value = opCLP
+    st(r.getCell("B"), { size: 8, ha: "center" })
+    st(r.getCell("C"), { size: 8, ha: "center" })
+    st(r.getCell("D"), { size: 8 })
+    st(r.getCell("E"), { size: 8 })
+    st(r.getCell("F"), { size: 8, wrap: true })
+    st(r.getCell("G"), { size: 8 })
+    st(r.getCell("H"), { size: 8 })
+    st(r.getCell("I"), { size: 8, ha: "right", fmt: "0.0000" })
+    st(r.getCell("J"), { size: 8, ha: "right", fmt: '"$"#,##0' })
+    row++
+  }
+
+  {
+    const r = ws.addRow([]); r.height = 16; spacerA(r)
+    r.getCell("B").value = "TOTAL TRANSPORTE"
+    st(r.getCell("B"), { bg: C.TOT_BG, fc: C.HDR_TXT, bold: true, size: 10, ha: "right" })
+    ws.mergeCells(`B${row}:H${row}`)
+    r.getCell("I").value = totalUF
+    st(r.getCell("I"), { bg: C.TOT_BG, fc: C.HDR_TXT, bold: true, size: 10, ha: "right", fmt: "0.0000" })
+    r.getCell("J").value = totalUF * uf
+    st(r.getCell("J"), { bg: C.TOT_BG, fc: C.HDR_TXT, bold: true, size: 10, ha: "right", fmt: '"$"#,##0' })
   }
 }

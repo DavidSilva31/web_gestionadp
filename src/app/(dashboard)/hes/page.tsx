@@ -16,7 +16,7 @@ import {
   AlertCircle, Loader2, ChevronRight, ChevronLeft, ChevronDown, FileText, RefreshCw, Download, Wrench,
   Calendar as CalendarIcon, Trash2, Pencil, Mail,
 } from "lucide-react"
-import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente, ServicioClienteInsert, HesFolio } from "@/types/database"
+import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente, ServicioClienteInsert, HesFolio, TransporteIncomex } from "@/types/database"
 import { computeHES, computeBilling, getPeriodRange, type MovRaw, type HesResult, type BillingResult } from "@/lib/hes-calc"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -792,9 +792,11 @@ function EnviarHesDialog({ clienteNombre, emails, onClose, onSend, onSent }: {
 // ── Vista apilada del modo "Ver todas" — una tarjeta de cobro por tarifa/CI
 // + servicios a nivel cliente + total general. Se usa en la pantalla
 // principal y dentro de la pestaña "Resumen" de la vista previa. ──────────────
-function UnifiedResumenCards({ results, serviciosBilling, totalCLP, loading, error }: {
+function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transporteTotalCLP, totalCLP, loading, error }: {
   results: { tarifa: TarifaCliente; hes: HesResult; billing: BillingResult }[]
   serviciosBilling: BillingResult | null
+  transporteOps: TransporteIncomex[]
+  transporteTotalCLP: number
   totalCLP: number
   loading: boolean
   error:   string | null
@@ -869,6 +871,32 @@ function UnifiedResumenCards({ results, serviciosBilling, totalCLP, loading, err
         </div>
       )}
 
+      {transporteOps.length > 0 && (
+        <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-border/30 bg-muted/20 flex items-center justify-between">
+            <span className="text-[12px] font-semibold">Transporte (Incomex)</span>
+            <span className="text-[11px] text-muted-foreground">{transporteOps.length} viajes</span>
+          </div>
+          <table className="w-full text-[12px]">
+            <tbody>
+              {transporteOps.map(op => (
+                <tr key={op.id} className="border-b border-border/20">
+                  <td className="px-4 py-1.5">{fmtDateDisplay(op.fecha)} — {op.tipo_movimiento ?? op.detalle_carga ?? "Viaje"}</td>
+                  <td className="text-right px-3 py-1.5 font-mono text-muted-foreground">{op.guia_numero ?? ""}</td>
+                  <td className="text-right px-4 py-1.5 font-mono">{fmtUF(op.factura_cliente_uf ?? 0)} UF</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-border/60 bg-primary/5 font-bold">
+                <td colSpan={2} className="px-4 py-2 text-[12px]">TOTAL TRANSPORTE</td>
+                <td className="text-right px-4 py-2 font-mono text-[12px] text-primary">{fmtCLP(transporteTotalCLP)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
       <div className="bg-primary/5 rounded-xl border-2 border-primary/30 px-6 py-4 flex items-center justify-between">
         <span className="text-sm font-bold">TOTAL GENERAL</span>
         <span className="text-lg font-bold text-primary font-mono">{fmtCLP(totalCLP)}</span>
@@ -916,6 +944,7 @@ export default function HesPage() {
   const [folioNumero,      setFolioNumero]      = useState<number | null>(null)
   const [folioId,          setFolioId]          = useState<string | null>(null)
   const [existingFolios,   setExistingFolios]   = useState<HesFolio[]>([])
+  const [transporteOps,    setTransporteOps]    = useState<TransporteIncomex[]>([])
   const [rangoPersonalizado, setRangoPersonalizado] = useState(false)
   const [customStart,       setCustomStart]       = useState("")
   const [customEnd,         setCustomEnd]         = useState("")
@@ -1212,6 +1241,33 @@ export default function HesPage() {
 
   useEffect(() => { loadExistingFolios() }, [loadExistingFolios])
 
+  // ── Viajes de transporte subcontratado (Incomex) del cliente en el período —
+  // solo lectura acá: el servidor vuelve a consultarlos él solo al generar.
+  const loadTransporteOps = useCallback(async () => {
+    if (!selectedId) { setTransporteOps([]); return }
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("transporte_incomex")
+      .select("*")
+      .eq("cliente_id", selectedId)
+      .eq("activo", true)
+      .gte("fecha", periodo.start)
+      .lte("fecha", periodo.end)
+      .order("fecha")
+    if (!error) setTransporteOps((data ?? []) as TransporteIncomex[])
+  }, [selectedId, periodo])
+
+  useEffect(() => { loadTransporteOps() }, [loadTransporteOps])
+
+  const transporteTotalUF = useMemo(
+    () => transporteOps.reduce((sum, t) => sum + (t.factura_cliente_uf ?? 0), 0),
+    [transporteOps]
+  )
+  const transporteTotalCLP = useMemo(
+    () => transporteTotalUF * (parseFloat(ufValue) || 0),
+    [transporteTotalUF, ufValue]
+  )
+
   // ── Compute HES ────────────────────────────────────────────────────────────
   const hes = useMemo<HesResult | null>(() => {
     if (!selectedId || movs.length === 0) return null
@@ -1242,13 +1298,13 @@ export default function HesPage() {
   }, [isUnificado, servicios, srvCantidades, srvChecked, ufValue])
 
   const unifiedTotalCLP = useMemo(
-    () => unifiedResults.reduce((s, r) => s + r.billing.finalCLP, 0) + (unifiedServiciosBilling?.finalCLP ?? 0),
-    [unifiedResults, unifiedServiciosBilling]
+    () => unifiedResults.reduce((s, r) => s + r.billing.finalCLP, 0) + (unifiedServiciosBilling?.finalCLP ?? 0) + transporteTotalCLP,
+    [unifiedResults, unifiedServiciosBilling, transporteTotalCLP]
   )
 
   const unifiedTotalUF = useMemo(
-    () => unifiedResults.reduce((s, r) => s + r.billing.finalUF, 0) + (unifiedServiciosBilling?.finalUF ?? 0),
-    [unifiedResults, unifiedServiciosBilling]
+    () => unifiedResults.reduce((s, r) => s + r.billing.finalUF, 0) + (unifiedServiciosBilling?.finalUF ?? 0) + transporteTotalUF,
+    [unifiedResults, unifiedServiciosBilling, transporteTotalUF]
   )
 
   // ── Filtered clients ───────────────────────────────────────────────────────
@@ -1388,6 +1444,9 @@ export default function HesPage() {
             totalCLP:   sr.totalCLP,
           })
         }
+        if (transporteOps.length > 0) {
+          filas.push({ label: "Transporte", cotizacion: null, totalUF: transporteTotalUF, totalCLP: transporteTotalCLP })
+        }
         blob = await pdf(
           <HesResumenUnificadoPDF data={{
             cliente: clienteData,
@@ -1404,11 +1463,17 @@ export default function HesPage() {
         ).toBlob()
       } else {
         const { HesResumenPDF } = await import("@/components/hes/hes-resumen-pdf")
+        const billingConTransporte = transporteOps.length === 0 ? billing! : {
+          ...billing!,
+          rows: [...billing!.rows, { label: "Transporte", qty: transporteOps.length, unit: "viaje", moneda: "UF" as const, tarifa: 0, totalCLP: transporteTotalCLP }],
+          finalUF:  billing!.finalUF  + transporteTotalUF,
+          finalCLP: billing!.finalCLP + transporteTotalCLP,
+        }
         blob = await pdf(
           <HesResumenPDF data={{
             cliente: clienteData,
             tarifa: { cotizacion_numero: tarifa!.cotizacion_numero, clase_imo: tarifa!.clase_imo },
-            billing: billing!,
+            billing: billingConTransporte,
             mes: selectedMonth,
             anio: selectedYear,
             ufValue,
@@ -1475,7 +1540,8 @@ export default function HesPage() {
           tarifaId:  tarifa!.id,
           mes: selectedMonth, anio: selectedYear,
           periodStart: periodo.start, periodEnd: periodo.end,
-          totalUF: billing?.finalUF ?? null, totalCLP: billing?.finalCLP ?? null,
+          totalUF: billing ? billing.finalUF + transporteTotalUF : null,
+          totalCLP: billing ? billing.finalCLP + transporteTotalCLP : null,
         }),
       })
       if (!res.ok) return null
@@ -1837,6 +1903,8 @@ export default function HesPage() {
                     <UnifiedResumenCards
                       results={unifiedResults}
                       serviciosBilling={unifiedServiciosBilling}
+                      transporteOps={transporteOps}
+                      transporteTotalCLP={transporteTotalCLP}
                       totalCLP={unifiedTotalCLP}
                       loading={unifiedLoading}
                       error={unifiedError}
@@ -2061,6 +2129,15 @@ export default function HesPage() {
                                 <td className="text-right px-4 py-2 font-mono text-muted-foreground">{fmtCLP(r.totalCLP)}</td>
                               </tr>
                             ))}
+                            {transporteOps.length > 0 && (
+                              <tr className="border-b border-border/20 hover:bg-muted/20 italic">
+                                <td className="px-4 py-2">Transporte</td>
+                                <td className="text-right px-3 py-2 font-mono">{transporteOps.length} <span className="text-muted-foreground text-[10px]">viajes</span></td>
+                                <td className="text-right px-3 py-2 font-mono">—</td>
+                                <td className="text-right px-3 py-2 font-mono font-semibold">{fmtUF(transporteTotalUF)}</td>
+                                <td className="text-right px-4 py-2 font-mono text-muted-foreground">{fmtCLP(transporteTotalCLP)}</td>
+                              </tr>
+                            )}
                           </tbody>
                           <tfoot>
                             {billing.hasMin && (
@@ -2072,8 +2149,8 @@ export default function HesPage() {
                             )}
                             <tr className="border-t-2 border-border/60 bg-primary/5 font-bold">
                               <td colSpan={3} className="px-4 py-2.5 text-[13px]">TOTAL NETO</td>
-                              <td className="text-right px-3 py-2.5 font-mono text-[13px]">{fmtUF(billing.finalUF)} UF</td>
-                              <td className="text-right px-4 py-2.5 font-mono text-[13px] text-primary">{fmtCLP(billing.finalCLP)}</td>
+                              <td className="text-right px-3 py-2.5 font-mono text-[13px]">{fmtUF(billing.finalUF + transporteTotalUF)} UF</td>
+                              <td className="text-right px-4 py-2.5 font-mono text-[13px] text-primary">{fmtCLP(billing.finalCLP + transporteTotalCLP)}</td>
                             </tr>
                           </tfoot>
                         </table>
