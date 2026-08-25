@@ -1415,7 +1415,7 @@ export default function HesPage() {
   // con el mismo formato que el resumen de una sola tarifa.
   async function generateResumen(folioOverride?: number | null): Promise<Blob | null> {
     if (!selectedCliente) return null
-    if (isUnificado ? tarifas.length === 0 : (!tarifa || !billing)) return null
+    if (isUnificado ? tarifas.length === 0 : (!tarifa || (!billing && transporteOps.length === 0))) return null
     const folioNum = folioOverride ?? folioNumero
     setResumenLoading(true)
     setResumenError(null)
@@ -1463,11 +1463,12 @@ export default function HesPage() {
         ).toBlob()
       } else {
         const { HesResumenPDF } = await import("@/components/hes/hes-resumen-pdf")
-        const billingConTransporte = transporteOps.length === 0 ? billing! : {
-          ...billing!,
-          rows: [...billing!.rows, { label: "Transporte", qty: transporteOps.length, unit: "viaje", moneda: "UF" as const, tarifa: 0, totalCLP: transporteTotalCLP }],
-          finalUF:  billing!.finalUF  + transporteTotalUF,
-          finalCLP: billing!.finalCLP + transporteTotalCLP,
+        const baseBilling = billing ?? { rows: [], finalUF: 0, finalCLP: 0, hasMin: false }
+        const billingConTransporte = transporteOps.length === 0 ? baseBilling : {
+          ...baseBilling,
+          rows: [...baseBilling.rows, { label: "Transporte", qty: transporteOps.length, unit: "viaje", moneda: "UF" as const, tarifa: 0, totalCLP: transporteTotalCLP }],
+          finalUF:  baseBilling.finalUF  + transporteTotalUF,
+          finalCLP: baseBilling.finalCLP + transporteTotalCLP,
         }
         blob = await pdf(
           <HesResumenPDF data={{
@@ -1498,7 +1499,7 @@ export default function HesPage() {
   // renderizarlo tal cual quedará el archivo descargado (mismas fusiones, colores y formatos).
   // En modo "Ver todas" el archivo trae varias hojas (resumen general + una por CI).
   async function generateDetalle(folioOverride?: number | null): Promise<Blob | null> {
-    if (isUnificado ? (tarifas.length === 0) : (!selectedCliente || !tarifa || !billing || !hes)) return null
+    if (isUnificado ? (tarifas.length === 0) : (!selectedCliente || !tarifa || (!billing && transporteOps.length === 0))) return null
     setPreviewLoading(true)
     setPreviewError(null)
     try {
@@ -1540,8 +1541,8 @@ export default function HesPage() {
           tarifaId:  tarifa!.id,
           mes: selectedMonth, anio: selectedYear,
           periodStart: periodo.start, periodEnd: periodo.end,
-          totalUF: billing ? billing.finalUF + transporteTotalUF : null,
-          totalCLP: billing ? billing.finalCLP + transporteTotalCLP : null,
+          totalUF: (billing?.finalUF ?? 0) + transporteTotalUF || null,
+          totalCLP: (billing?.finalCLP ?? 0) + transporteTotalCLP || null,
         }),
       })
       if (!res.ok) return null
@@ -1576,7 +1577,7 @@ export default function HesPage() {
   // explícito a generateResumen/generateDetalle porque el estado recién
   // seteado (setFolioNumero) no está disponible todavía en este closure.
   async function openPreview() {
-    if (isUnificado ? (tarifas.length === 0 || unifiedResults.length === 0) : (!selectedCliente || !tarifa || !billing || !hes)) return
+    if (isUnificado ? (tarifas.length === 0 || unifiedResults.length === 0) : (!selectedCliente || !tarifa || (!billing && transporteOps.length === 0))) return
     setShowPreview(true)
     setPreviewTab("resumen")
     setPreviewError(null); setPreviewSheet(null); setPreviewBlob(null); setPreviewSheets([]); setActiveSheetIdx(0)
@@ -1859,7 +1860,7 @@ export default function HesPage() {
                       onClick={openPreview}
                       disabled={isUnificado
                         ? (unifiedLoading || unifiedResults.length === 0)
-                        : (exporting || resumenLoading || !tarifa || !billing || !hes)}
+                        : (exporting || resumenLoading || !tarifa || (!billing && transporteOps.length === 0))}
                       className="h-8 sm:h-7 gap-1.5 text-[12px] sm:text-[11px] flex-1 sm:flex-initial justify-center
                         bg-emerald-600 hover:bg-emerald-700 text-white border-0
                         dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:text-white dark:border-0
@@ -2178,6 +2179,35 @@ export default function HesPage() {
                             <p className="text-[13px] font-bold">{hes?.dailyLog.length}</p>
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {/* ── Transporte (Incomex) — bloque propio para que se vea
+                        incluso sin movimientos de bodega este período, ya que
+                        "Resumen de cobro" solo se renderiza si hay billing ── */}
+                    {!billing && transporteOps.length > 0 && (
+                      <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
+                        <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/20">
+                          <span className="text-[12px] font-semibold">Transporte (Incomex) — {MESES[selectedMonth]} {selectedYear}</span>
+                          <span className="text-[11px] text-muted-foreground">{transporteOps.length} viajes</span>
+                        </div>
+                        <table className="w-full text-[12px]">
+                          <tbody>
+                            {transporteOps.map(op => (
+                              <tr key={op.id} className="border-b border-border/20">
+                                <td className="px-4 py-1.5">{fmtDateDisplay(op.fecha)} — {op.tipo_movimiento ?? op.detalle_carga ?? "Viaje"}</td>
+                                <td className="text-right px-3 py-1.5 font-mono text-muted-foreground">{op.guia_numero ?? ""}</td>
+                                <td className="text-right px-4 py-1.5 font-mono">{fmtUF(op.factura_cliente_uf ?? 0)} UF</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t-2 border-border/60 bg-primary/5 font-bold">
+                              <td colSpan={2} className="px-4 py-2 text-[12px]">TOTAL TRANSPORTE</td>
+                              <td className="text-right px-4 py-2 font-mono text-[12px] text-primary">{fmtCLP(transporteTotalCLP)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
                       </div>
                     )}
 
