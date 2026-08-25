@@ -41,7 +41,7 @@ export default function TransporteIncomexPage() {
   const [loading,       setLoading]       = useState(true)
   const currentYear = new Date().getFullYear()
   const [yearFilter,    setYearFilter]    = useState(currentYear)
-  const [monthFilter,   setMonthFilter]   = useState<number | "todos">("todos")
+  const [monthFilter,   setMonthFilter]   = useState<number | "todos">(new Date().getMonth())
   const [search,        setSearch]        = useState("")
   const [saving,        setSaving]        = useState(false)
   const [error,         setError]         = useState<string | null>(null)
