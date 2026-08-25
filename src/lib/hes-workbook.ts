@@ -207,8 +207,12 @@ export function buildWorkbook(
   wb.created = new Date()
 
   if (built.isUnificado) {
-    addResumenGeneralSheet(wb, cliente, mes, anio, built.results, built.srvBilling, folioNumero, built.transporteOps, uf)
-    for (const r of built.results) {
+    // Tarifas sin actividad este período (0 UF/0 CLP, ej. clase IMO sin
+    // movimientos) no aportan nada al HES — se omiten del resumen y no
+    // generan hoja de detalle propia, para no mostrar cuadros vacíos.
+    const resultsConActividad = built.results.filter(r => r.billing.finalUF > 0 || r.billing.finalCLP > 0)
+    addResumenGeneralSheet(wb, cliente, mes, anio, resultsConActividad, built.srvBilling, folioNumero, built.transporteOps, uf)
+    for (const r of resultsConActividad) {
       addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, [], mes, anio, period, uf, folioNumero)
     }
   } else {

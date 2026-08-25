@@ -813,7 +813,7 @@ function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transpo
       {error && (
         <p className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg border border-destructive/20">{error}</p>
       )}
-      {results.map(({ tarifa: t, hes: h, billing: b }) => (
+      {results.filter(r => r.billing.finalUF > 0 || r.billing.finalCLP > 0).map(({ tarifa: t, hes: h, billing: b }) => (
         <div key={t.id} className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/20">
             <span className="text-[12px] font-semibold">{t.clase_imo ?? t.cotizacion_numero}</span>
@@ -1430,12 +1430,14 @@ export default function HesPage() {
       let blob: Blob
       if (isUnificado) {
         const { HesResumenUnificadoPDF } = await import("@/components/hes/hes-resumen-unificado-pdf")
-        const filas: { label: string; cotizacion: string | null; totalUF: number; totalCLP: number }[] = unifiedResults.map(r => ({
-          label:      r.tarifa.clase_imo ?? r.tarifa.cotizacion_numero,
-          cotizacion: r.tarifa.cotizacion_numero,
-          totalUF:    r.billing.finalUF,
-          totalCLP:   r.billing.finalCLP,
-        }))
+        const filas: { label: string; cotizacion: string | null; totalUF: number; totalCLP: number }[] = unifiedResults
+          .filter(r => r.billing.finalUF > 0 || r.billing.finalCLP > 0)
+          .map(r => ({
+            label:      r.tarifa.clase_imo ?? r.tarifa.cotizacion_numero,
+            cotizacion: r.tarifa.cotizacion_numero,
+            totalUF:    r.billing.finalUF,
+            totalCLP:   r.billing.finalCLP,
+          }))
         for (const sr of unifiedServiciosBilling?.rows ?? []) {
           filas.push({
             label:      `Servicio: ${sr.label}`,
