@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
+import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { cn } from "@/lib/utils"
 
 interface PendingReport {
@@ -76,10 +77,12 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
   async function handleConfirm() {
     if (!nombre.trim() || !file) return
     setUploadError(null)
+    const invalido = validateUploadFile(file)
+    if (invalido) { setUploadError(invalido); return }
     setDispatching(true)
     setUploading(true)
 
-    const ext  = file.name.split(".").pop() ?? "pdf"
+    const ext  = sanitizeExt(file.name)
     const path = `${report.numero}-${report.id}.${ext}`
     const supabase = createClient()
 

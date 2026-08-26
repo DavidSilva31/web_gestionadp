@@ -78,7 +78,7 @@ function fmtCLP(v: number) { return `$${Math.round(v).toLocaleString("es-CL")}` 
 export function HesResumenPDF({ data }: { data: HesResumenPDFData }) {
   const { cliente, tarifa, billing, mes, anio, ufValue, ufDate, logoSrc, folioNumero } = data
   const periodoLabel = `${MESES[mes]} ${anio}`
-  const uf = parseFloat(ufValue) || 0
+  const uf = parseFloat(ufValue) || 1
 
   return (
     <Document title={`HES Resumen — ${cliente.nombre} — ${periodoLabel}`}>

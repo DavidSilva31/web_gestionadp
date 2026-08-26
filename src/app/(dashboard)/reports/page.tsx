@@ -16,6 +16,7 @@ import { exportReportsToExcel } from "@/lib/export-reports-excel"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
+import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 
 type Tab = "todos" | ReportEstado
@@ -163,11 +164,13 @@ export default function ReportsPage() {
   async function handleDispatch() {
     if (!dispatchFor || !dispatchFile || !dispatchNombre.trim()) return
     setDispatchError(null)
+    const invalido = validateUploadFile(dispatchFile)
+    if (invalido) { setDispatchError(invalido); return }
     setDispatchLoading(true)
 
     try {
       const supabase = createClient()
-      const ext  = dispatchFile.name.split(".").pop() ?? "pdf"
+      const ext  = sanitizeExt(dispatchFile.name)
       const path = `${dispatchFor.numero}-${dispatchFor.id}.${ext}`
 
       const { error: uploadErr } = await supabase.storage
@@ -445,18 +448,18 @@ export default function ReportsPage() {
             <div className="overflow-auto flex-1">
               <table className="w-full text-sm table-fixed min-w-[720px]">
                 <colgroup>
-                  <col style={{ width: "5%" }}  />
+                  <col style={{ width: "12%" }} />
                   <col style={{ width: "17%" }} />
                   <col style={{ width: "12%" }} />
                   <col style={{ width: "12%" }} />
-                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "9%" }}  />
                   <col style={{ width: "10%" }} />
-                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "13%" }} />
                   <col style={{ width: "15%" }} />
                 </colgroup>
                 <thead className="sticky top-0 bg-muted/60 border-b z-10">
                   <tr>
-                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Report</th>
+                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs whitespace-nowrap">Report</th>
                     <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Cliente</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Patente</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Conductor</th>

@@ -156,52 +156,69 @@ export default function InstalacionesPage() {
   async function handleSave() {
     if (!form.codigo.trim() || !form.capacidad.trim()) return
     setSaving(true); setSaveError(null)
-    const supabase = createClient()
-    const existing = typeof dialog === "object" ? dialog : null
+    try {
+      const supabase = createClient()
+      const existing = typeof dialog === "object" ? dialog : null
 
-    let instalacionId = existing?.id
-    if (existing) {
-      const { error } = await supabase.from("instalaciones_almacenamiento").update(form).eq("id", existing.id)
-      if (error) { setSaveError(error.message); setSaving(false); return }
-    } else {
-      const { data, error } = await supabase.from("instalaciones_almacenamiento").insert(form).select("id").single()
-      if (error || !data) { setSaveError(error?.message ?? "No se pudo crear la instalación."); setSaving(false); return }
-      instalacionId = data.id
-    }
+      let instalacionId = existing?.id
+      if (existing) {
+        const { error } = await supabase.from("instalaciones_almacenamiento").update(form).eq("id", existing.id)
+        if (error) { setSaveError(error.message); return }
+      } else {
+        const { data, error } = await supabase.from("instalaciones_almacenamiento").insert(form).select("id").single()
+        if (error || !data) { setSaveError(error?.message ?? "No se pudo crear la instalación."); return }
+        instalacionId = data.id
+      }
 
-    // Reemplaza todas las sustancias/clases — volumen bajo, más simple que diffear.
-    if (existing) {
-      const { error } = await supabase.from("instalacion_sustancias").delete().eq("instalacion_id", instalacionId)
-      if (error) { setSaveError(error.message); setSaving(false); return }
-    }
-    const validRows = rows.filter(r => r.sustancia.trim())
-    if (validRows.length > 0) {
-      const { error } = await supabase.from("instalacion_sustancias").insert(
-        validRows.map((r, i) => ({
-          instalacion_id: instalacionId,
-          sustancia: r.sustancia.trim(),
-          clase_imo: r.clase_imo.trim() || null,
-          orden: i,
-        }))
-      )
-      if (error) { setSaveError(error.message); setSaving(false); return }
-    }
+      // Reemplaza todas las sustancias/clases — volumen bajo, más simple que
+      // diffear. Inserta las nuevas ANTES de borrar las viejas (por id
+      // específico, no por instalacion_id) para que un fallo a mitad de camino
+      // nunca deje la instalación sin su listado de sustancias/clases IMO
+      // autorizadas — en el peor caso quedan duplicadas, no perdidas.
+      const oldIds = existing ? (sustancias[existing.id] ?? []).map(s => s.id) : []
+      const validRows = rows.filter(r => r.sustancia.trim())
+      if (validRows.length > 0) {
+        const { error } = await supabase.from("instalacion_sustancias").insert(
+          validRows.map((r, i) => ({
+            instalacion_id: instalacionId,
+            sustancia: r.sustancia.trim(),
+            clase_imo: r.clase_imo.trim() || null,
+            orden: i,
+          }))
+        )
+        if (error) { setSaveError(error.message); return }
+      }
+      if (oldIds.length > 0) {
+        const { error } = await supabase.from("instalacion_sustancias").delete().in("id", oldIds)
+        if (error) { setSaveError("Se guardaron las sustancias nuevas, pero quedaron duplicadas las anteriores: " + error.message); return }
+      }
 
-    setSaving(false)
-    setDialog(null)
-    fetchAll()
+      setDialog(null)
+      fetchAll()
+    } catch (err) {
+      console.error("[instalaciones] error guardando:", err)
+      setSaveError("Ocurrió un error inesperado al guardar.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleDelete() {
     if (!deleting) return
     setDeletingBusy(true)
     setDeleteError(null)
-    const supabase = createClient()
-    const { error } = await supabase.from("instalaciones_almacenamiento").update({ activo: false }).eq("id", deleting.id)
-    setDeletingBusy(false)
-    if (error) { setDeleteError(error.message); return }
-    setDeleting(null)
-    fetchAll()
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.from("instalaciones_almacenamiento").update({ activo: false }).eq("id", deleting.id)
+      if (error) { setDeleteError(error.message); return }
+      setDeleting(null)
+      fetchAll()
+    } catch (err) {
+      console.error("[instalaciones] error eliminando:", err)
+      setDeleteError("Ocurrió un error inesperado al eliminar.")
+    } finally {
+      setDeletingBusy(false)
+    }
   }
 
   async function handleExport() {

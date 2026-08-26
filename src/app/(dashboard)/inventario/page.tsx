@@ -66,7 +66,7 @@ const initials = (nombre: string) =>
   nombre.split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase()
 
 function getEstado(item: InventarioItem): "Normal" | "Bajo" | "Crítico" {
-  if (item.stock_actual === 0) return "Crítico"
+  if (item.stock_actual <= 0) return "Crítico"
   if (item.stock_minimo > 0 && item.stock_actual <= item.stock_minimo) return "Bajo"
   return "Normal"
 }
@@ -121,6 +121,11 @@ function KardexCell({
   useEffect(() => { if (!editing) setDraft(value == null ? "" : String(value)) }, [value, editing])
 
   async function commit() {
+    // disabled={saving} en el input hace que el navegador lo blurree apenas se
+    // desactiva — sin este guard, Enter dispara commit() y el blur resultante
+    // dispara un segundo commit() con el mismo draft antes de que setEditing(false)
+    // desmonte el input.
+    if (saving) return
     const raw = draft.trim()
     const parsed: string | number | null = kind === "number" ? (raw === "" ? null : parseFloat(raw)) : (raw || null)
     if (parsed === (value ?? null)) { setEditing(false); return }
@@ -869,20 +874,20 @@ function InventarioContent() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="h-full overflow-y-auto">
-                      <table className="w-full text-sm table-fixed">
+                    <div className="h-full overflow-auto">
+                      <table className="w-full text-sm table-fixed min-w-[720px]">
                         <colgroup>
-                          <col style={{ width: "9%" }} />
-                          <col style={{ width: "32%" }} />
-                          <col style={{ width: "18%" }} />
-                          <col style={{ width: "17%" }} />
                           <col style={{ width: "11%" }} />
+                          <col style={{ width: "28%" }} />
+                          <col style={{ width: "16%" }} />
+                          <col style={{ width: "15%" }} />
+                          <col style={{ width: "11%" }} />
+                          <col style={{ width: "10%" }} />
                           <col style={{ width: "9%" }} />
-                          <col style={{ width: "8%" }} />
                         </colgroup>
                         <thead className="sticky top-0 bg-muted/60 border-b z-10">
                           <tr>
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Código</th>
+                            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Código</th>
                             <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Descripción</th>
                             <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Instalación</th>
                             <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Categoría</th>
@@ -1073,7 +1078,7 @@ function InventarioContent() {
                 type="number"
                 min={0}
                 value={form.stock_actual}
-                onChange={dialog === "new" ? e => setForm(p => ({ ...p, stock_actual: parseInt(e.target.value) || 0 })) : undefined}
+                onChange={dialog === "new" ? e => setForm(p => ({ ...p, stock_actual: Math.max(0, parseInt(e.target.value) || 0) })) : undefined}
                 readOnly={dialog !== "new"}
                 className={cn("h-9", dialog !== "new" && "opacity-60 cursor-not-allowed")}
               />

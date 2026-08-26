@@ -792,10 +792,12 @@ function EnviarHesDialog({ clienteNombre, emails, onClose, onSend, onSent }: {
 // ── Vista apilada del modo "Ver todas" — una tarjeta de cobro por tarifa/CI
 // + servicios a nivel cliente + total general. Se usa en la pantalla
 // principal y dentro de la pestaña "Resumen" de la vista previa. ──────────────
-function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transporteTotalCLP, totalCLP, hasMin, minimoCLP, loading, error }: {
+function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transporteError, onRetryTransporte, transporteTotalCLP, totalCLP, hasMin, minimoCLP, loading, error }: {
   results: { tarifa: TarifaCliente; hes: HesResult; billing: BillingResult }[]
   serviciosBilling: BillingResult | null
   transporteOps: TransporteIncomex[]
+  transporteError: string | null
+  onRetryTransporte: () => void
   transporteTotalCLP: number
   totalCLP: number
   hasMin: boolean
@@ -873,6 +875,13 @@ function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transpo
         </div>
       )}
 
+      {transporteError && (
+        <div className="px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] flex items-center justify-between gap-2">
+          {transporteError}
+          <Button variant="ghost" size="sm" onClick={onRetryTransporte} className="h-6 text-[10px] px-2">Reintentar</Button>
+        </div>
+      )}
+
       {transporteOps.length > 0 && (
         <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border/30 bg-muted/20 flex items-center justify-between">
@@ -941,6 +950,7 @@ export default function HesPage() {
   const [loading,          setLoading]          = useState(false)
   const [tarifasLoading,   setTarifasLoading]   = useState(false)
   const [exporting,        setExporting]        = useState(false)
+  const ensureFolioPromiseRef = useRef<Promise<{ numero: number; id: string } | null> | null>(null)
   const [showPreview,      setShowPreview]      = useState(false)
   const [showSendDialog,   setShowSendDialog]   = useState(false)
   const [toast,            setToast]            = useState<string | null>(null)
@@ -954,6 +964,7 @@ export default function HesPage() {
   const [folioId,          setFolioId]          = useState<string | null>(null)
   const [existingFolios,   setExistingFolios]   = useState<HesFolio[]>([])
   const [transporteOps,    setTransporteOps]    = useState<TransporteIncomex[]>([])
+  const [transporteError,  setTransporteError]  = useState<string | null>(null)
   const [rangoPersonalizado, setRangoPersonalizado] = useState(false)
   const [customStart,       setCustomStart]       = useState("")
   const [customEnd,         setCustomEnd]         = useState("")
@@ -1125,7 +1136,9 @@ export default function HesPage() {
     Promise.all([
       supabase.from("clientes").select("id, nombre, rut, emails, contacto, dia_corte_facturacion").eq("activo", true).order("nombre"),
       supabase.from("tarifas_cliente").select("cliente_id").eq("activo", true),
-    ]).then(([{ data: cls }, { data: tars }]) => {
+    ]).then(([{ data: cls, error: clsErr }, { data: tars, error: tarsErr }]) => {
+      if (clsErr) console.error("[hes] error cargando clientes:", clsErr)
+      if (tarsErr) console.error("[hes] error cargando tarifas_cliente:", tarsErr)
       setClientes((cls ?? []) as unknown as Cliente[])
       const map: Record<string, boolean> = {}
       for (const t of tars ?? []) map[t.cliente_id] = true
@@ -1140,7 +1153,8 @@ export default function HesPage() {
     setTarifasLoading(true)
     const supabase = createClient()
     supabase.from("tarifas_cliente").select("*").eq("cliente_id", selectedId).eq("activo", true).order("cotizacion_numero")
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) console.error("[hes] error cargando tarifas:", error)
         const list = (data ?? []) as TarifaCliente[]
         setTarifas(list)
         setSelectedTarifaId(list.length > 1 ? TODAS : (list[0]?.id ?? null))
@@ -1155,7 +1169,8 @@ export default function HesPage() {
     supabase.from("servicios_cliente").select("*")
       .eq("cliente_id", selectedId).eq("activo", true)
       .order("orden").order("nombre")
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) console.error("[hes] error cargando servicios:", error)
         const list = (data ?? []) as ServicioCliente[]
         setServicios(list)
         setSrvCantidades({})
@@ -1205,24 +1220,28 @@ export default function HesPage() {
     const [endY, endM, endD] = periodo.end.split("-").map(Number)
     const nextDay = new Date(endY, endM - 1, endD + 1)
     try {
-      const results = await Promise.all(tarifas.map(async t => {
-        let query = supabase
-          .from("movimientos")
-          .select("id, numero, tipo, unidades, operador, fecha, report_id, reports(numero, sec1_guia_numero, sec3_numero_guia)")
-          .eq("cliente_id", selectedId)
-          .lt("fecha", nextDay.toISOString())
-        query = tarifas.length > 1
-          ? query.eq("tarifa_cliente_id", t.id)
-          : query.or(`tarifa_cliente_id.eq.${t.id},tarifa_cliente_id.is.null`)
-        const { data } = await query.order("fecha")
-        const movs = (data as unknown as MovRaw[]) ?? []
+      // Un solo query para todos los movimientos del período, particionado por
+      // tarifa en memoria — antes era 1 query por tarifa (N+1 innecesario, cada
+      // una repitiendo el mismo rango de fecha sobre la misma tabla).
+      const { data, error } = await supabase
+        .from("movimientos")
+        .select("id, numero, tipo, unidades, operador, fecha, report_id, tarifa_cliente_id, reports(numero, sec1_guia_numero, sec3_numero_guia)")
+        .eq("cliente_id", selectedId)
+        .lt("fecha", nextDay.toISOString())
+        .order("fecha")
+      if (error) throw error
+      const allMovs = (data as unknown as (MovRaw & { tarifa_cliente_id: string | null })[]) ?? []
+      const results = tarifas.map(t => {
+        const movs = tarifas.length > 1
+          ? allMovs.filter(m => m.tarifa_cliente_id === t.id)
+          : allMovs.filter(m => m.tarifa_cliente_id === t.id || m.tarifa_cliente_id == null)
         const tarifaAlmacenaje = t.moneda === "CLP" ? (t.tarifa_almacenaje_clp ?? 0) : (t.tarifa_almacenaje_uf ?? 0)
         const hesResult = computeHES(movs, periodo.start, periodo.end, tarifaAlmacenaje)
         // Los servicios adicionales son a nivel cliente, no por tarifa — no se
         // duplican en cada tarjeta, se muestran una sola vez en el total general.
         const billingResult = computeBilling(hesResult, t, parseFloat(ufValue) || 0, [], {})
         return { tarifa: t, hes: hesResult, billing: billingResult }
-      }))
+      })
       setUnifiedResults(results)
     } catch {
       setUnifiedError("No se pudieron calcular todas las tarifas.")
@@ -1236,7 +1255,8 @@ export default function HesPage() {
   // ── HES ya generados este mes para este cliente (indicador, evita
   // generar/enviar dos veces sin darse cuenta) ────────────────────────────
   const loadExistingFolios = useCallback(async () => {
-    if (!selectedId) { setExistingFolios([]); return }
+    setExistingFolios([]) // evita mostrar folios del cliente anterior mientras carga
+    if (!selectedId) return
     const supabase = createClient()
     const { data, error } = await supabase
       .from("hes_folios")
@@ -1245,7 +1265,8 @@ export default function HesPage() {
       .eq("mes", selectedMonth)
       .eq("anio", selectedYear)
       .order("numero", { ascending: false })
-    if (!error) setExistingFolios((data ?? []) as HesFolio[])
+    if (error) { console.error("[hes] error cargando folios existentes:", error); return }
+    setExistingFolios((data ?? []) as HesFolio[])
   }, [selectedId, selectedMonth, selectedYear])
 
   useEffect(() => { loadExistingFolios() }, [loadExistingFolios])
@@ -1253,7 +1274,9 @@ export default function HesPage() {
   // ── Viajes de transporte subcontratado (Incomex) del cliente en el período —
   // solo lectura acá: el servidor vuelve a consultarlos él solo al generar.
   const loadTransporteOps = useCallback(async () => {
-    if (!selectedId) { setTransporteOps([]); return }
+    setTransporteOps([]) // evita atribuir viajes del cliente/periodo anterior mientras carga
+    setTransporteError(null)
+    if (!selectedId) return
     const supabase = createClient()
     const { data, error } = await supabase
       .from("transporte_incomex")
@@ -1263,7 +1286,8 @@ export default function HesPage() {
       .gte("fecha", periodo.start)
       .lte("fecha", periodo.end)
       .order("fecha")
-    if (!error) setTransporteOps((data ?? []) as TransporteIncomex[])
+    if (error) { setTransporteError("No se pudo cargar transporte Incomex: " + error.message); return }
+    setTransporteOps((data ?? []) as TransporteIncomex[])
   }, [selectedId, periodo])
 
   useEffect(() => { loadTransporteOps() }, [loadTransporteOps])
@@ -1294,6 +1318,18 @@ export default function HesPage() {
     return computeBilling(hes, tarifa, parseFloat(ufValue) || 0, servicios, seleccion)
   }, [hes, tarifa, ufValue, servicios, srvCantidades, srvChecked])
 
+  // Total real: la facturación mínima debe aplicar sobre bodegaje+servicios+transporte
+  // sumados, no solo sobre bodegaje con transporte agregado después del piso
+  // (eso sobrecobraría cuando bodegaje solo queda bajo el mínimo).
+  const grandTotal = useMemo(() => {
+    if (!billing || !tarifa) return null
+    const uf = parseFloat(ufValue) || 0
+    const minCLP = (tarifa.facturacion_minima_uf ?? 0) * uf
+    const subtotalCLP = billing.totalCLP + transporteTotalCLP
+    const totalCLP = Math.max(subtotalCLP, minCLP)
+    return { totalCLP, totalUF: uf > 0 ? totalCLP / uf : 0, minCLP, hasMin: totalCLP > subtotalCLP }
+  }, [billing, tarifa, ufValue, transporteTotalCLP])
+
   // ── Modo "Ver todas" — servicios (a nivel cliente) + total general ─────────
   const unifiedServiciosBilling = useMemo(() => {
     if (!isUnificado) return null
@@ -1302,7 +1338,16 @@ export default function HesPage() {
       seleccion[srv.id] = { cantidad: srvCantidades[srv.id] ?? 0, checked: srvChecked[srv.id] ?? true }
     }
     const emptyHes: HesResult = { palletDays: 0, totalIngresos: 0, totalDespachos: 0, dailyLog: [] }
-    const dummyTarifa = { moneda: "UF", tarifa_almacenaje_uf: null, tarifa_inout_uf: null, tarifa_almacenaje_clp: null, tarifa_inout_clp: null, facturacion_minima_uf: null } as unknown as TarifaCliente
+    // Tipado completo (sin "as unknown as") a propósito: si TarifaCliente gana
+    // un campo nuevo que computeBilling llegue a leer, esto deja de compilar
+    // en vez de devolver undefined en silencio.
+    const dummyTarifa: TarifaCliente = {
+      id: "", cliente_id: "", cotizacion_numero: "", clase_imo: null, moneda: "UF",
+      tarifa_almacenaje_uf: null, tarifa_inout_uf: null, tarifa_almacenaje_clp: null, tarifa_inout_clp: null,
+      tarifa_descons_20_uf: null, tarifa_descons_40_uf: null, tarifa_consolid_40_uf: null,
+      tarifa_porteo_uf: null, tarifa_palletizado_uf: null, facturacion_minima_uf: null,
+      activo: true, created_at: "",
+    }
     return computeBilling(emptyHes, dummyTarifa, parseFloat(ufValue) || 0, servicios, seleccion)
   }, [isUnificado, servicios, srvCantidades, srvChecked, ufValue])
 
@@ -1390,6 +1435,7 @@ export default function HesPage() {
   // un número de folio, solo descargar o enviar de verdad.
   async function handleSendEmail(adjuntos: { resumen: boolean; detalle: boolean }) {
     if (!selectedCliente) return { success: false, error: "Sin cliente seleccionado." }
+    if (!(parseFloat(ufValue) > 0)) return { success: false, error: "Falta un valor de UF válido para generar el HES." }
     const folio = await ensureFolio()
     const servicioSeleccion: Record<string, { cantidad: number; checked: boolean }> = {}
     for (const s of servicios) {
@@ -1494,8 +1540,11 @@ export default function HesPage() {
         const billingConTransporte = transporteOps.length === 0 ? baseBilling : {
           ...baseBilling,
           rows: [...baseBilling.rows, { label: "Transporte", qty: transporteOps.length, unit: "viaje", moneda: "UF" as const, tarifa: 0, totalCLP: transporteTotalCLP }],
-          finalUF:  baseBilling.finalUF  + transporteTotalUF,
-          finalCLP: baseBilling.finalCLP + transporteTotalCLP,
+          // La mínima debe aplicar sobre bodegaje+transporte sumados, no solo
+          // sobre bodegaje con transporte agregado después del piso.
+          finalUF:  grandTotal?.totalUF  ?? baseBilling.finalUF,
+          finalCLP: grandTotal?.totalCLP ?? baseBilling.finalCLP,
+          hasMin:   grandTotal?.hasMin   ?? baseBilling.hasMin,
         }
         blob = await pdf(
           <HesResumenPDF data={{
@@ -1553,6 +1602,20 @@ export default function HesPage() {
   async function ensureFolio(): Promise<{ numero: number; id: string } | null> {
     if (folioNumero != null && folioId != null) return { numero: folioNumero, id: folioId }
     if (!selectedCliente) return null
+    // Descargar y Enviar pueden disparar ensureFolio casi al mismo tiempo (dos
+    // modales distintos, cada uno con su propio "disabled"); sin este candado
+    // ambas llamadas verían folioNumero/folioId aún null y crearían 2 folios.
+    if (ensureFolioPromiseRef.current) return ensureFolioPromiseRef.current
+    const promise = ensureFolioImpl(selectedCliente)
+    ensureFolioPromiseRef.current = promise
+    try {
+      return await promise
+    } finally {
+      ensureFolioPromiseRef.current = null
+    }
+  }
+
+  async function ensureFolioImpl(selectedCliente: Cliente): Promise<{ numero: number; id: string } | null> {
     try {
       const res = await fetch("/api/hes/folio", {
         method:  "POST",
@@ -1568,8 +1631,8 @@ export default function HesPage() {
           tarifaId:  tarifa!.id,
           mes: selectedMonth, anio: selectedYear,
           periodStart: periodo.start, periodEnd: periodo.end,
-          totalUF: (billing?.finalUF ?? 0) + transporteTotalUF || null,
-          totalCLP: (billing?.finalCLP ?? 0) + transporteTotalCLP || null,
+          totalUF: grandTotal?.totalUF || null,
+          totalCLP: grandTotal?.totalCLP || null,
         }),
       })
       if (!res.ok) return null
@@ -1636,6 +1699,7 @@ export default function HesPage() {
   // una vez conocido el folio antes de disparar la descarga.
   async function handleDownloadFromPreview() {
     if (!selectedCliente) return
+    if (!(parseFloat(ufValue) > 0)) { setToast("Falta un valor de UF válido para generar el HES."); return }
     setExporting(true)
     try {
       const folio = await ensureFolio()
@@ -1886,8 +1950,8 @@ export default function HesPage() {
                       variant="outline" size="sm"
                       onClick={openPreview}
                       disabled={isUnificado
-                        ? (unifiedLoading || unifiedResults.length === 0)
-                        : (exporting || resumenLoading || !tarifa || (!billing && transporteOps.length === 0))}
+                        ? (unifiedLoading || unifiedResults.length === 0 || !(parseFloat(ufValue) > 0))
+                        : (exporting || resumenLoading || !tarifa || (!billing && transporteOps.length === 0) || !(parseFloat(ufValue) > 0))}
                       className="h-8 sm:h-7 gap-1.5 text-[12px] sm:text-[11px] flex-1 sm:flex-initial justify-center
                         bg-emerald-600 hover:bg-emerald-700 text-white border-0
                         dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:text-white dark:border-0
@@ -1932,6 +1996,8 @@ export default function HesPage() {
                       results={unifiedResults}
                       serviciosBilling={unifiedServiciosBilling}
                       transporteOps={transporteOps}
+                      transporteError={transporteError}
+                      onRetryTransporte={loadTransporteOps}
                       transporteTotalCLP={transporteTotalCLP}
                       totalCLP={unifiedTotalCLP}
                       hasMin={unifiedHasMin}
@@ -2131,6 +2197,13 @@ export default function HesPage() {
                       ))}
                     </div>
 
+                    {transporteError && (
+                      <div className="px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] flex items-center justify-between gap-2">
+                        {transporteError}
+                        <Button variant="ghost" size="sm" onClick={loadTransporteOps} className="h-6 text-[10px] px-2">Reintentar</Button>
+                      </div>
+                    )}
+
                     {/* ── Resumen de cobro ── */}
                     {billing && (
                       <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
@@ -2170,17 +2243,17 @@ export default function HesPage() {
                             )}
                           </tbody>
                           <tfoot>
-                            {billing.hasMin && (
+                            {grandTotal?.hasMin && (
                               <tr className="border-t border-border/30 bg-amber-50/30 dark:bg-amber-900/10">
                                 <td colSpan={3} className="px-4 py-2 text-[11px] text-amber-600 dark:text-amber-400">Facturación mínima aplicada ({fmtUF(tarifa.facturacion_minima_uf!)} UF/mes)</td>
-                                <td className="text-right px-3 py-2 font-mono font-bold text-amber-600">{fmtUF(billing.finalUF)}</td>
-                                <td className="text-right px-4 py-2 font-mono text-amber-600">{fmtCLP(billing.finalCLP)}</td>
+                                <td className="text-right px-3 py-2 font-mono font-bold text-amber-600">{fmtUF(grandTotal.totalUF)}</td>
+                                <td className="text-right px-4 py-2 font-mono text-amber-600">{fmtCLP(grandTotal.totalCLP)}</td>
                               </tr>
                             )}
                             <tr className="border-t-2 border-border/60 bg-primary/5 font-bold">
                               <td colSpan={3} className="px-4 py-2.5 text-[13px]">TOTAL NETO</td>
-                              <td className="text-right px-3 py-2.5 font-mono text-[13px]">{fmtUF(billing.finalUF + transporteTotalUF)} UF</td>
-                              <td className="text-right px-4 py-2.5 font-mono text-[13px] text-primary">{fmtCLP(billing.finalCLP + transporteTotalCLP)}</td>
+                              <td className="text-right px-3 py-2.5 font-mono text-[13px]">{fmtUF(grandTotal?.totalUF ?? 0)} UF</td>
+                              <td className="text-right px-4 py-2.5 font-mono text-[13px] text-primary">{fmtCLP(grandTotal?.totalCLP ?? 0)}</td>
                             </tr>
                           </tfoot>
                         </table>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useRouter, useParams } from "next/navigation"
-import { ArrowLeft, Save, Send, Loader2, Eye, Clock, CheckCircle2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ScanLine, ChevronDown, ChevronUp, Camera, X } from "lucide-react"
+import { ArrowLeft, Save, Send, Loader2, Eye, Clock, CheckCircle2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ScanLine, ChevronDown, ChevronUp, Camera, X, Paperclip } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,6 +17,7 @@ import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit, accionLabel } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
+import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import type { AuditLog } from "@/lib/audit"
 import type { ReportEstado } from "@/types/database"
 import { dbToForm } from "@/components/reports/report-form-types"
@@ -81,6 +82,14 @@ export default function ReportDetailPage() {
   const [previewFile,            setPreviewFile]            = useState<File | null>(null)
   const sec2EvidenciaFileRef = useRef<HTMLInputElement>(null)
 
+  // Documentos HDS — mismo patrón de dos fases que la evidencia fotográfica.
+  // Antes de este fix, reports/[id] no tenía ninguna forma de adjuntar o
+  // reemplazar el HDS al editar (solo reports/nuevo lo permitía).
+  const [existingHdsPaths, setExistingHdsPaths] = useState<string[]>([])
+  const [hdsFiles,         setHdsFiles]         = useState<File[]>([])
+  const [hdsDragOver,      setHdsDragOver]      = useState(false)
+  const hdsFileRef = useRef<HTMLInputElement>(null)
+
   // Firma del conductor — firmaPath es lo que ya está guardado en BD (si el
   // report ya fue firmado antes); firmaDataUrl es una firma NUEVA dibujada
   // recién ahora, que se sube al guardar.
@@ -111,6 +120,17 @@ export default function ReportDetailPage() {
     e.preventDefault()
     setSec2DragOver(false)
     if (e.dataTransfer.files?.length) addSec2EvidenciaFiles(e.dataTransfer.files)
+  }
+  function addHdsFiles(list: FileList | File[]) {
+    setHdsFiles(prev => [...prev, ...Array.from(list)])
+  }
+  function removeHdsFile(index: number) {
+    setHdsFiles(prev => prev.filter((_, i) => i !== index))
+  }
+  function onHdsDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setHdsDragOver(false)
+    if (e.dataTransfer.files?.length) addHdsFiles(e.dataTransfer.files)
   }
   const [docExpanded,  setDocExpanded]  = useState(false)
   const [showPreview,   setShowPreview]   = useState(false)
@@ -169,6 +189,7 @@ export default function ReportDetailPage() {
       setServiciosManual((data.servicios_manual as string[] | null) ?? [])
       if (data.documento_firmado_url) setDocPath(data.documento_firmado_url as string)
       setExistingEvidenciaPaths((data.sec2_evidencia_archivos as string[] | null) ?? [])
+      setExistingHdsPaths((data.hds_archivos as string[] | null) ?? [])
       if (data.firma_conductor_url) setFirmaPath(data.firma_conductor_url as string)
       setLoading(false)
 
@@ -309,26 +330,66 @@ export default function ReportDetailPage() {
     setError(null)
     setSaving(true)
     const supabase = createClient()
-    const { error: err } = await supabase.from("reports").update(buildPayload(newEstado)).eq("id", id)
+    const payload = buildPayload(newEstado)
+    const { error: err } = await supabase.from("reports").update(payload).eq("id", id)
     if (err) {
       setError(err.message)
       setSaving(false)
       return
     }
 
+    // Subir documentos HDS nuevos (si se adjuntó alguno) y sumarlos a los que
+    // ya tenía el report — mismo patrón de dos fases que en reports/nuevo.
+    let hdsFailed = hdsFiles.some(f => validateUploadFile(f))
+    if (hdsFiles.length > 0) {
+      const uploadedPaths: string[] = []
+      for (let i = 0; i < hdsFiles.length && !hdsFailed; i++) {
+        const file = hdsFiles[i]
+        const ext  = sanitizeExt(file.name)
+        const path = `hds-${numero}-${id}-${existingHdsPaths.length + i}.${ext}`
+        const { error: uploadErr } = await supabase.storage
+          .from("reports-firmados")
+          .upload(path, file, { upsert: true })
+        if (uploadErr) {
+          console.error("[reports/id] error subiendo documento HDS:", uploadErr)
+          hdsFailed = true
+        } else {
+          uploadedPaths.push(path)
+        }
+      }
+      if (uploadedPaths.length > 0) {
+        const nuevosPaths = [...existingHdsPaths, ...uploadedPaths]
+        const { error: hdsUpdateErr } = await supabase
+          .from("reports")
+          .update({ hds_archivos: nuevosPaths })
+          .eq("id", id)
+        if (hdsUpdateErr) {
+          console.error("[reports/id] error guardando referencia de los HDS:", hdsUpdateErr)
+          hdsFailed = true
+        }
+      }
+      if (hdsFailed) {
+        setError("No se pudo subir el documento HDS. Vuelve a intentarlo antes de guardar.")
+        setSaving(false)
+        return
+      }
+    }
+
     // Subir evidencia fotográfica nueva (si se adjuntó) y sumarla a la que
     // ya tenía el report — mismo patrón que los HDS en reports/nuevo.
+    let evidenciaFailed = sec2EvidenciaFiles.some(f => validateUploadFile(f))
     if (sec2EvidenciaFiles.length > 0) {
       const uploadedPaths: string[] = []
-      for (let i = 0; i < sec2EvidenciaFiles.length; i++) {
+      for (let i = 0; i < sec2EvidenciaFiles.length && !evidenciaFailed; i++) {
         const file = sec2EvidenciaFiles[i]
-        const ext  = file.name.split(".").pop() ?? "jpg"
+        const ext  = sanitizeExt(file.name, "jpg")
         const path = `sec2-evidencia-${numero}-${id}-${existingEvidenciaPaths.length + i}.${ext}`
         const { error: uploadErr } = await supabase.storage
           .from("reports-firmados")
           .upload(path, file, { upsert: true })
         if (uploadErr) {
           console.error("[reports/id] error subiendo evidencia fotográfica:", uploadErr)
+          evidenciaFailed = true
         } else {
           uploadedPaths.push(path)
         }
@@ -341,10 +402,13 @@ export default function ReportDetailPage() {
           .eq("id", id)
         if (evidenciaUpdateErr) {
           console.error("[reports/id] error guardando referencia de la evidencia:", evidenciaUpdateErr)
-          setError("El report se guardó, pero no se pudo asociar la evidencia fotográfica. Vuelve a intentar adjuntarla.")
-          setSaving(false)
-          return
+          evidenciaFailed = true
         }
+      }
+      if (evidenciaFailed) {
+        setError("No se pudo subir la evidencia fotográfica. Vuelve a intentarlo antes de guardar.")
+        setSaving(false)
+        return
       }
     }
 
@@ -370,12 +434,21 @@ export default function ReportDetailPage() {
       }
     }
 
-    // Validación de pallets solo aplica al enviar a despacho.
+    // Validación de pallets solo aplica al enviar a despacho — usa el
+    // sec3_activa recién inferido en buildPayload, no form.sec3_activa (el
+    // valor cargado de la BD al abrir, nunca refrescado si se activó/completó
+    // la sección durante esta misma edición).
     if (newEstado === "pendiente_despacho" && estado === "borrador" &&
-        form.sec3_activa && form.sec3_inventario_item_id && form.sec3_tipo) {
-      const delta = Number(form.sec3_numero_pallets)
+        payload.sec3_activa && payload.sec3_inventario_item_id && payload.sec3_tipo) {
+      const delta = Number(payload.sec3_numero_pallets)
       if (!delta || delta <= 0) {
-        await supabase.from("reports").update({ estado: "borrador" }).eq("id", id)
+        const { error: revertErr } = await supabase.from("reports").update({ estado: "borrador" }).eq("id", id)
+        if (revertErr) {
+          console.error("[reports/id] error revirtiendo estado sin pallets:", revertErr)
+          setError("Número de pallets requerido para enviar a despacho, y no se pudo revertir el estado guardado — revisa el report antes de continuar.")
+          setSaving(false)
+          return
+        }
         setEstado("borrador")
         setError("Número de pallets requerido para enviar a despacho.")
         setSaving(false)
@@ -628,6 +701,67 @@ export default function ReportDetailPage() {
                   <Checkbox id="hds_header" checked={form.hds_header} onCheckedChange={v => !readOnly && set("hds_header", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
                   <label htmlFor="hds_header" className="text-xs text-foreground/80 cursor-pointer">HDS (Hoja de datos de seguridad presente)</label>
                 </div>
+                {form.hds_header && (
+                  <div className="col-span-1 sm:col-span-3 flex flex-col gap-1.5">
+                    {existingHdsPaths.length > 0 && (
+                      <div className="flex flex-col gap-1.5">
+                        {existingHdsPaths.map((path, i) => (
+                          <EvidenciaExistenteLink key={path} path={path} index={i} label="HDS" />
+                        ))}
+                      </div>
+                    )}
+
+                    {!readOnly && (
+                      <>
+                        <input
+                          ref={hdsFileRef}
+                          type="file"
+                          multiple
+                          accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*"
+                          className="hidden"
+                          onChange={e => { if (e.target.files) addHdsFiles(e.target.files); e.target.value = "" }}
+                        />
+                        <div
+                          onClick={() => hdsFileRef.current?.click()}
+                          onDragOver={e => { e.preventDefault(); setHdsDragOver(true) }}
+                          onDragLeave={e => { e.preventDefault(); setHdsDragOver(false) }}
+                          onDrop={onHdsDrop}
+                          className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 py-3 text-center cursor-pointer transition-colors ${
+                            hdsDragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/40"
+                          }`}
+                        >
+                          <Paperclip className="h-4 w-4 text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">
+                            Arrastra archivos aquí o <span className="text-primary underline underline-offset-2">selecciona</span>
+                          </p>
+                        </div>
+                        {hdsFiles.length > 0 && (
+                          <div className="flex flex-col gap-1.5">
+                            {hdsFiles.map((file, i) => (
+                              <div key={i} className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1.5">
+                                <FileText className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewFile(file)}
+                                  className="text-xs text-emerald-700 dark:text-emerald-400 truncate flex-1 text-left hover:underline underline-offset-2"
+                                >
+                                  {file.name}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeHdsFile(i)}
+                                  className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -738,7 +872,7 @@ export default function ReportDetailPage() {
                       }) : prev)}
                       readOnly={readOnly}
                     />
-                    {form.sec3_activa && form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
+                    {form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
                       <p className="text-[10px] text-amber-600 mt-1">
                         No vinculado al catálogo — este report no actualizará el stock.
                       </p>
@@ -958,7 +1092,7 @@ export default function ReportDetailPage() {
 // Evidencia fotográfica ya guardada (bucket privado "reports-firmados") —
 // resuelve una URL firmada y la muestra como link, igual que el documento
 // firmado de más arriba en esta misma página.
-function EvidenciaExistenteLink({ path, index }: { path: string; index: number }) {
+function EvidenciaExistenteLink({ path, index, label = "Evidencia" }: { path: string; index: number; label?: string }) {
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
     createClient().storage.from("reports-firmados").createSignedUrl(path, 3600)
@@ -975,7 +1109,7 @@ function EvidenciaExistenteLink({ path, index }: { path: string; index: number }
       )}
     >
       <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-      <span className="truncate flex-1">Evidencia {index + 1}</span>
+      <span className="truncate flex-1">{label} {index + 1}</span>
     </a>
   )
 }

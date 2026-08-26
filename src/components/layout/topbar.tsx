@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import {
   Bell, Search,
-  Loader2, CheckCheck, Package, Users, ArrowLeftRight, ClipboardList, X,
+  Loader2, CheckCheck, Package, Users, ArrowLeftRight, ClipboardList, X, Truck, Warehouse,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -20,7 +20,7 @@ import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type ResultType = "cliente" | "inventario" | "movimiento" | "report"
+type ResultType = "cliente" | "inventario" | "movimiento" | "report" | "transporte" | "instalacion"
 
 interface SearchResult {
   id:       string
@@ -32,10 +32,12 @@ interface SearchResult {
 }
 
 interface GroupedResults {
-  clientes:    SearchResult[]
-  inventario:  SearchResult[]
-  movimientos: SearchResult[]
-  reports:     SearchResult[]
+  clientes:     SearchResult[]
+  inventario:   SearchResult[]
+  movimientos:  SearchResult[]
+  reports:      SearchResult[]
+  transporte:   SearchResult[]
+  instalaciones: SearchResult[]
 }
 
 // ── Helpers notificaciones ─────────────────────────────────────────────────────
@@ -70,10 +72,12 @@ function notifHref(item: NotificationItem): string | null {
 
 // ── Helpers búsqueda ───────────────────────────────────────────────────────────
 const TYPE_META: Record<ResultType, { label: string; Icon: React.ElementType; color: string }> = {
-  cliente:    { label: "Cliente",    Icon: Users,          color: "text-blue-500"    },
-  inventario: { label: "Inventario", Icon: Package,        color: "text-emerald-500" },
-  movimiento: { label: "Movimiento", Icon: ArrowLeftRight, color: "text-purple-500"  },
-  report:     { label: "Report",     Icon: ClipboardList,  color: "text-amber-500"   },
+  cliente:     { label: "Cliente",      Icon: Users,          color: "text-blue-500"    },
+  inventario:  { label: "Inventario",   Icon: Package,        color: "text-emerald-500" },
+  movimiento:  { label: "Movimiento",   Icon: ArrowLeftRight, color: "text-purple-500"  },
+  report:      { label: "Report",       Icon: ClipboardList,  color: "text-amber-500"   },
+  transporte:  { label: "Transporte",   Icon: Truck,          color: "text-cyan-500"    },
+  instalacion: { label: "Instalación",  Icon: Warehouse,      color: "text-orange-500"  },
 }
 
 async function globalSearch(q: string): Promise<GroupedResults> {
@@ -87,6 +91,8 @@ async function globalSearch(q: string): Promise<GroupedResults> {
     { data: items, error: e2 },
     { data: movs, error: e3 },
     { data: reps, error: e4 },
+    { data: transp, error: e5 },
+    { data: instal, error: e6 },
   ] = await Promise.all([
     supabase.from("clientes")
       .select("id, numero, nombre, rut, sector")
@@ -110,9 +116,21 @@ async function globalSearch(q: string): Promise<GroupedResults> {
       .neq("estado", "borrador")
       .or(`cliente.ilike.${term},patente.ilike.${term},conductor.ilike.${term}${!isNaN(Number(q)) && q.trim() !== "" ? `,numero.eq.${Number(q)}` : ""}`)
       .limit(5),
+
+    supabase.from("transporte_incomex")
+      .select("id, numero, empresa_texto, guia_numero, transportista, conductor, sigla_contenedor")
+      .eq("activo", true)
+      .or(`empresa_texto.ilike.${term},guia_numero.ilike.${term},transportista.ilike.${term},conductor.ilike.${term},sigla_contenedor.ilike.${term}`)
+      .limit(5),
+
+    supabase.from("instalaciones_almacenamiento")
+      .select("id, codigo, tipo, capacidad")
+      .eq("activo", true)
+      .ilike("codigo", term)
+      .limit(5),
   ])
 
-  for (const err of [e1, e2, e3, e4]) if (err) console.error("[topbar] error en búsqueda global:", err)
+  for (const err of [e1, e2, e3, e4, e5, e6]) if (err) console.error("[topbar] error en búsqueda global:", err)
 
   return {
     clientes: (clientes ?? []).map(c => ({
@@ -150,11 +168,28 @@ async function globalSearch(q: string): Promise<GroupedResults> {
       badge:    `REP-${String(r.numero).padStart(3, "0")}`,
       href:     `/reports/${r.id}`,
     })),
+
+    transporte: (transp ?? []).map(t => ({
+      id:       t.id,
+      type:     "transporte",
+      title:    t.empresa_texto,
+      subtitle: [t.transportista, t.conductor, t.sigla_contenedor].filter(Boolean).join(" · ") || (t.guia_numero ? `Guía ${t.guia_numero}` : "Transporte"),
+      badge:    `TTE-${String(t.numero).padStart(3, "0")}`,
+      href:     `/transporte-incomex`,
+    })),
+
+    instalaciones: (instal ?? []).map(i => ({
+      id:       i.id,
+      type:     "instalacion",
+      title:    i.codigo,
+      subtitle: `${i.tipo} · ${i.capacidad}`,
+      href:     `/instalaciones`,
+    })),
   }
 }
 
 function totalResults(g: GroupedResults) {
-  return g.clientes.length + g.inventario.length + g.movimientos.length + g.reports.length
+  return g.clientes.length + g.inventario.length + g.movimientos.length + g.reports.length + g.transporte.length + g.instalaciones.length
 }
 
 // ── Search panel ───────────────────────────────────────────────────────────────
@@ -234,7 +269,7 @@ export function Topbar() {
         setResults(res)
       } catch (err) {
         console.error("[topbar] error inesperado en búsqueda global:", err)
-        setResults({ clientes: [], inventario: [], movimientos: [], reports: [] })
+        setResults({ clientes: [], inventario: [], movimientos: [], reports: [], transporte: [], instalaciones: [] })
       } finally {
         setSearching(false)
       }
@@ -316,7 +351,7 @@ export function Topbar() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onFocus={() => { if (results) setSearchOpen(true) }}
-            placeholder="Buscar clientes, inventario, movimientos..."
+            placeholder="Buscar en toda la app..."
             className={cn(
               "h-8 pl-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1 rounded-lg placeholder:text-muted-foreground/50 transition-all",
               searchOpen ? "w-80 rounded-b-none border-b-0" : "w-64"
@@ -338,10 +373,12 @@ export function Topbar() {
                 </div>
               ) : results ? (
                 <div className="divide-y divide-border/30">
-                  <SearchResultGroup label="Clientes"    results={results.clientes}    onSelect={clearSearch} />
-                  <SearchResultGroup label="Inventario"  results={results.inventario}  onSelect={clearSearch} />
-                  <SearchResultGroup label="Movimientos" results={results.movimientos} onSelect={clearSearch} />
-                  <SearchResultGroup label="Reports"     results={results.reports}     onSelect={clearSearch} />
+                  <SearchResultGroup label="Clientes"      results={results.clientes}      onSelect={clearSearch} />
+                  <SearchResultGroup label="Inventario"    results={results.inventario}    onSelect={clearSearch} />
+                  <SearchResultGroup label="Movimientos"   results={results.movimientos}   onSelect={clearSearch} />
+                  <SearchResultGroup label="Reports"       results={results.reports}       onSelect={clearSearch} />
+                  <SearchResultGroup label="Transporte"    results={results.transporte}    onSelect={clearSearch} />
+                  <SearchResultGroup label="Instalaciones" results={results.instalaciones} onSelect={clearSearch} />
                 </div>
               ) : null}
             </div>
@@ -510,7 +547,7 @@ export function Topbar() {
               ref={mobileInputRef}
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Buscar clientes, inventario..."
+              placeholder="Buscar en toda la app..."
               className="h-8 pl-8 pr-8 text-[12px] bg-muted/40 border-border/50 focus-visible:ring-1 rounded-lg w-full"
             />
             <button
@@ -534,10 +571,12 @@ export function Topbar() {
                 </div>
               ) : results ? (
                 <div className="divide-y divide-border/30">
-                  <SearchResultGroup label="Clientes"    results={results.clientes}    onSelect={clearSearch} />
-                  <SearchResultGroup label="Inventario"  results={results.inventario}  onSelect={clearSearch} />
-                  <SearchResultGroup label="Movimientos" results={results.movimientos} onSelect={clearSearch} />
-                  <SearchResultGroup label="Reports"     results={results.reports}     onSelect={clearSearch} />
+                  <SearchResultGroup label="Clientes"      results={results.clientes}      onSelect={clearSearch} />
+                  <SearchResultGroup label="Inventario"    results={results.inventario}    onSelect={clearSearch} />
+                  <SearchResultGroup label="Movimientos"   results={results.movimientos}   onSelect={clearSearch} />
+                  <SearchResultGroup label="Reports"       results={results.reports}       onSelect={clearSearch} />
+                  <SearchResultGroup label="Transporte"    results={results.transporte}    onSelect={clearSearch} />
+                  <SearchResultGroup label="Instalaciones" results={results.instalaciones} onSelect={clearSearch} />
                 </div>
               ) : null}
             </div>

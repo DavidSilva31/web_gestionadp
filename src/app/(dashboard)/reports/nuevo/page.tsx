@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
+import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
 import { ClienteCombobox, TarifaSelect, ProductoCombobox, ServiciosSection, FirmaCanvas, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
@@ -219,10 +220,11 @@ export default function NuevoReportPage() {
     // quedó guardado de todas formas.
     let hdsFailed = false
     if (form.hds_header && hdsFiles.length > 0) {
+      if (hdsFiles.some(f => validateUploadFile(f))) hdsFailed = true
       const uploadedPaths: string[] = []
-      for (let i = 0; i < hdsFiles.length; i++) {
+      for (let i = 0; i < hdsFiles.length && !hdsFailed; i++) {
         const file = hdsFiles[i]
-        const ext  = file.name.split(".").pop() ?? "pdf"
+        const ext  = sanitizeExt(file.name)
         const path = `hds-${inserted.numero}-${inserted.id}-${i}.${ext}`
         const { error: uploadErr } = await supabase.storage
           .from("reports-firmados")
@@ -256,10 +258,11 @@ export default function NuevoReportPage() {
     // adjuntó alguna — mismo patrón de dos fases que los HDS.
     let evidenciaFailed = false
     if (sec2EvidenciaFiles.length > 0) {
+      if (sec2EvidenciaFiles.some(f => validateUploadFile(f))) evidenciaFailed = true
       const uploadedPaths: string[] = []
-      for (let i = 0; i < sec2EvidenciaFiles.length; i++) {
+      for (let i = 0; i < sec2EvidenciaFiles.length && !evidenciaFailed; i++) {
         const file = sec2EvidenciaFiles[i]
-        const ext  = file.name.split(".").pop() ?? "jpg"
+        const ext  = sanitizeExt(file.name, "jpg")
         const path = `sec2-evidencia-${inserted.numero}-${inserted.id}-${i}.${ext}`
         const { error: uploadErr } = await supabase.storage
           .from("reports-firmados")
@@ -329,8 +332,13 @@ export default function NuevoReportPage() {
     if (estado === "pendiente_despacho" && form.sec3_inventario_item_id && form.sec3_tipo) {
       const delta = Number(form.sec3_numero_pallets)
       if (!delta || delta <= 0) {
-        await supabase.from("reports").delete().eq("id", inserted.id)
-        setError("Número de pallets debe ser mayor a 0. El report no fue guardado.")
+        const { error: delErr } = await supabase.from("reports").delete().eq("id", inserted.id)
+        if (delErr) {
+          console.error("[reports/nuevo] error revirtiendo report sin pallets:", delErr)
+          setError(`Número de pallets debe ser mayor a 0, pero el report #${inserted.numero} no se pudo revertir automáticamente. Elimínalo manualmente desde la lista.`)
+        } else {
+          setError("Número de pallets debe ser mayor a 0. El report no fue guardado.")
+        }
         setSaving(false)
         return
       }
@@ -612,7 +620,7 @@ export default function NuevoReportPage() {
                         sec3_nu:                 "",
                       }))}
                     />
-                    {form.sec3_activa && form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
+                    {form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
                       <p className="text-[10px] text-amber-600 mt-1">
                         No vinculado al catálogo — este report no actualizará el stock.
                       </p>

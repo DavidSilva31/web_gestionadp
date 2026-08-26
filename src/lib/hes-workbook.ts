@@ -219,7 +219,7 @@ export function buildWorkbook(
   } else {
     const srvs = toServicioExport(built.serviciosCliente, servicioSeleccion)
     const r = built.results[0]
-    addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, srvs, mes, anio, period, uf, folioNumero)
+    addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, srvs, mes, anio, period, uf, folioNumero, true, built.transporteOps)
   }
 
   if (built.transporteOps.length > 0) {
@@ -298,7 +298,7 @@ function addResumenGeneralSheet(
     for (const sr of srvBilling.rows) {
       const r = ws.addRow([]); r.height = 14; spacerA(r)
       r.getCell("B").value = `Servicio: ${sr.label}`
-      r.getCell("C").value = sr.moneda === "CLP" ? null : sr.totalCLP / (sr.totalCLP > 0 ? (sr.totalCLP / sr.tarifa) : 1)
+      r.getCell("C").value = sr.moneda === "CLP" ? null : sr.totalCLP / (uf || 1)
       r.getCell("D").value = sr.totalCLP
       st(r.getCell("B"), { size: 9, italic: true })
       st(r.getCell("C"), { size: 9, ha: "right", fmt: "0.0000" })
@@ -358,7 +358,11 @@ function addTarifaSheet(
   // En modo unificado la facturación mínima se aplica UNA vez a nivel de
   // cliente (ver addResumenGeneralSheet), no por cada clase IMO — acá se
   // muestra el total real de esta clase, sin piso propio.
-  applyOwnMinimum = true
+  applyOwnMinimum = true,
+  // Solo se pasa en modo simple (una tarifa): en modo unificado el transporte
+  // ya se combina a nivel de cliente en addResumenGeneralSheet + su propia
+  // hoja aparte, así que acá llega vacío para no duplicar el combinado.
+  transporteOps: TransporteIncomex[] = []
 ) {
   const [, periodEndM, periodEndD] = period.end.split("-").map(Number)
   const mesNom  = MESES[mes].toUpperCase()
@@ -551,16 +555,40 @@ function addTarifaSheet(
     row++
   })
 
-  const totalUFmostrado  = applyOwnMinimum ? billing.finalUF  : billing.totalUF
-  const totalCLPmostrado = applyOwnMinimum ? billing.finalCLP : billing.totalCLP
+  // El transporte solo llega acá en modo simple — la facturación mínima debe
+  // aplicar sobre bodegaje+servicios+transporte sumados, igual que en la
+  // vista/PDF de hes/page.tsx (ver `grandTotal`), no solo sobre bodegaje con
+  // transporte agregado después del piso.
+  const transporteTotalUF  = transporteOps.reduce((s, t) => s + (t.factura_cliente_uf ?? 0), 0)
+  const transporteTotalCLP = transporteTotalUF * uf
 
-  if (applyOwnMinimum && billing.hasMin) {
+  if (transporteTotalCLP > 0) {
+    const r = ws.addRow([])
+    r.height = 14
+    spacerA(r)
+    r.getCell("B").value = "Transporte Incomex (ver hoja Transporte)"
+    r.getCell("F").value = transporteTotalUF
+    r.getCell("G").value = transporteTotalCLP
+    st(r.getCell("B"), { size: 9, wrap: true })
+    st(r.getCell("F"), { size: 9, ha: "right", fmt: "0.0000" })
+    st(r.getCell("G"), { size: 9, ha: "right", fmt: '"$"#,##0' })
+    ws.mergeCells(`B${row}:E${row}`)
+    row++
+  }
+
+  const subtotalCLP = billing.totalCLP + transporteTotalCLP
+  const minCLP = applyOwnMinimum ? (tarifa.facturacion_minima_uf ?? 0) * uf : 0
+  const totalCLPmostrado = applyOwnMinimum ? Math.max(subtotalCLP, minCLP) : billing.totalCLP
+  const totalUFmostrado  = applyOwnMinimum ? (uf > 0 ? totalCLPmostrado / uf : 0) : billing.totalUF
+  const hasMinCombinado  = applyOwnMinimum && totalCLPmostrado > subtotalCLP
+
+  if (hasMinCombinado) {
     const r = ws.addRow([])
     r.height = 14
     spacerA(r)
     r.getCell("B").value = "Facturación mínima aplicada"
-    r.getCell("F").value = billing.finalUF
-    r.getCell("G").value = billing.finalCLP
+    r.getCell("F").value = totalUFmostrado
+    r.getCell("G").value = totalCLPmostrado
     ;["B","C","D","E"].forEach(col => st(r.getCell(col), { bg: C.AMBER_BG, fc: C.AMBER_TXT, bold: true, size: 9 }))
     st(r.getCell("F"), { bg: C.AMBER_BG, fc: C.AMBER_TXT, bold: true, size: 9, ha: "right", fmt: "0.0000" })
     st(r.getCell("G"), { bg: C.AMBER_BG, fc: C.AMBER_TXT, bold: true, size: 9, ha: "right", fmt: '"$"#,##0' })
@@ -680,7 +708,10 @@ function addTarifaSheet(
     const totAlm   = hes.palletDays    * tarifaAlmacenaje
     const totIn    = hes.totalIngresos * tInout
     const totOut   = hes.totalDespachos * tInout
-    const totSrvs  = activeSrvs.reduce((sum, s) => sum + (s.moneda === tarifa.moneda ? s.cantidad * (isClpTarifa ? s.tarifa_clp : s.tarifa_uf) : 0), 0)
+    const totSrvs  = activeSrvs.reduce((sum, s) => {
+      const srvCLP = s.moneda === "CLP" ? s.cantidad * s.tarifa_clp : s.cantidad * s.tarifa_uf * uf
+      return sum + (isClpTarifa ? srvCLP : srvCLP / (uf || 1))
+    }, 0)
     const totNeto  = totAlm + totIn + totOut + totSrvs
 
     const r = ws.addRow([])

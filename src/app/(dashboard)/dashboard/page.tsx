@@ -189,7 +189,7 @@ export default function DashboardPage() {
       { data: itemsRaw,      error: e1 },
       { data: movsRaw,       error: e2 },
       { count: clientTotal,  error: e3 },
-      { count: clientNewCount },
+      { count: clientNewCount, error: e4 },
     ] = await Promise.all([
       supabase.from("inventario_items").select("id, cliente_id, area, stock_actual, stock_minimo, descripcion, clientes(nombre), peso_ton").eq("activo", true),
       supabase.from("movimientos").select("numero, tipo, cliente_nombre, carga, unidades, fecha, estado").gte("fecha", twelveMonthsAgo).order("fecha", { ascending: false }),
@@ -197,7 +197,7 @@ export default function DashboardPage() {
       supabase.from("clientes").select("*", { count: "exact", head: true }).gte("created_at", curr),
     ])
 
-    const queryError = e1 ?? e2 ?? e3
+    const queryError = e1 ?? e2 ?? e3 ?? e4
     if (queryError) { setFetchError(queryError.message); setLoading(false); return }
 
     const items = (itemsRaw ?? []) as unknown as StockRow[]
@@ -228,7 +228,7 @@ export default function DashboardPage() {
     const al: Alerta[] = []
     const MAX_POR_CATEGORIA = 4
 
-    const sinStock = items.filter(i => i.stock_actual === 0 && i.stock_minimo > 0)
+    const sinStock = items.filter(i => i.stock_actual <= 0 && i.stock_minimo > 0)
     sinStock.slice(0, MAX_POR_CATEGORIA).forEach(i => al.push({
       nivel: "critical", titulo: "Sin stock", detalle: i.descripcion,
       meta: `${i.clientes?.nombre ?? "Sin cliente"} · mínimo ${i.stock_minimo}`,

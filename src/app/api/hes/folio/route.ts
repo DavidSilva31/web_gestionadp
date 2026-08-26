@@ -65,8 +65,10 @@ export async function POST(req: NextRequest) {
       .select("id, numero")
       .single()
 
-    if (error || !data)
-      return NextResponse.json({ error: error?.message ?? "No se pudo asignar el folio." }, { status: 500 })
+    if (error || !data) {
+      console.error("[hes/folio] error asignando folio:", error)
+      return NextResponse.json({ error: "No se pudo asignar el folio." }, { status: 500 })
+    }
 
     await logAuditServer({
       tabla:          "hes_folios",

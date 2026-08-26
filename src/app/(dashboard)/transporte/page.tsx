@@ -214,18 +214,18 @@ export default function TransportePage() {
             <div className="overflow-auto flex-1">
               <table className="w-full text-sm table-fixed min-w-[720px]">
                 <colgroup>
-                  <col style={{ width: "5%" }}  />
+                  <col style={{ width: "12%" }} />
                   <col style={{ width: "19%" }} />
                   <col style={{ width: "9%" }}  />
                   <col style={{ width: "16%" }} />
-                  <col style={{ width: "23%" }} />
+                  <col style={{ width: "16%" }} />
                   <col style={{ width: "10%" }} />
                   <col style={{ width: "10%" }} />
                   <col style={{ width: "8%" }}  />
                 </colgroup>
                 <thead className="sticky top-0 bg-muted/60 border-b z-10">
                   <tr>
-                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Report</th>
+                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs whitespace-nowrap">Report</th>
                     <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Cliente</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Patente</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Conductor</th>
