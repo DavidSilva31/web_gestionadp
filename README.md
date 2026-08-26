@@ -29,6 +29,8 @@ NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 NEXT_PUBLIC_SITE_URL=https://tu-sitio.netlify.app   # URL de producción (para redirects de auth)
+RESEND_API_KEY=...                                   # Envío de HES por correo (/api/hes/send-email)
+RESEND_FROM_EMAIL=...
 ```
 
 > **Importante:** `SUPABASE_SERVICE_ROLE_KEY` nunca se expone al cliente. Solo se usa en rutas API de servidor (`/api/admin/*`).
@@ -81,6 +83,8 @@ Control de ítems almacenados por cliente:
 - Baja lógica (`activo = false`)
 - Exportar inventario del cliente a Excel
 - Indicadores de estado semánticos por cliente y por ítem
+- **Pool de stock compartido**: un cliente puede apuntar a `stock_compartido_con` otro (mismo inventario físico, facturación separada) — resuelto en cada punto de lectura/escritura vía `resolveEffectiveClienteId()`
+- **Vista "Detalle" (Kardex)**: activable por cliente (`usa_vista_kardex`) — toggle Resumen/Detalle junto al agregado habitual; muestra el historial transaccional real por lote/código con saldo corrido (posiciones y unidades) calculado en cliente a partir de `movimientos`, con selector de producto y celdas editables inline (fecha, tipo, IMO, UN, CAS, guía, OC, envase, report, bodega, etc.)
 
 ### Movimientos (`/movimientos`)
 
@@ -100,6 +104,9 @@ Directorio de empresas con carga en bodega:
 - Búsqueda por nombre o RUT
 - Alta, edición y desactivación de clientes
 - Sector económico con badges de color
+- **Contactos separados por rol**: contacto comercial (recibe el HES — nombre/cargo/teléfono, correos en `emails[]`) distinto de hasta 3 contactos operacionales (nombre/cargo/correo/teléfono cada uno)
+- Vínculo de **stock compartido** con otro cliente (mismo pool de inventario, facturación independiente)
+- Activación del flag **"Usa vista Detalle"** (Kardex) en Inventario
 
 ### Servicios (`/servicios`)
 
@@ -117,13 +124,32 @@ Informes de recepción de carga:
 - **Crear report** (`/reports/nuevo`): formulario multi-sección con tabs navegables:
   - Antecedentes (cliente, patente, conductor)
   - Sección 1 — Depósito de contenedores
-  - Sección 2 — Consolidado / Desconsolidado / Otros
+  - Sección 2 — Consolidado / Desconsolidado / Otros (con dropzone/cámara para **evidencia fotográfica** cuando se marca consolidado o desconsolidado)
   - Sección 3 — Bodegaje (vinculado a ítem de inventario)
+  - **Firma del conductor**: recuadro con canvas táctil (pensado para tablet + lápiz) entre los servicios asociados y el cierre del report
 - **Detalle** (`/reports/[id]`): vista y edición completa; al pasar borrador → pendiente_despacho llama `update_stock` con rollback si falla
 - **Cola de despacho** (`/reports/despacho`): cards expandibles con upload de documento firmado y confirmación de salida de vehículo
 - Exportar report individual a **PDF** (con logotipo `adp_logo_hd.png` en cabecera)
 - Exportar listado filtrado a **Excel**
 - Registro de auditoría en cada acción
+- Adjuntos (HDS, evidencia fotográfica, firma) se guardan en el bucket privado `reports-firmados` de Supabase Storage
+
+### Transporte (`/transporte`)
+
+Reports con transporte propio ADP — seguimiento de viajes asociados a reports de recepción/despacho.
+
+### Transporte Incomex (`/transporte-incomex`)
+
+Registro de operaciones de transporte tercerizado por cliente (guía, transportista, conductor, tarifa, costo y facturación en UF) — histórico importado y mantenible desde la propia vista, con exportación a Excel.
+
+### Instalaciones (`/instalaciones`)
+
+Catálogo de bodegas y patios de almacenamiento:
+
+- Alta/edición de instalación: código, tipo (Bodega/Patio), capacidad (texto libre y en toneladas), resolución sanitaria y sustancias/clases IMO autorizadas
+- Cards de ocupación por instalación (stock actual vs. capacidad en toneladas, con barra de progreso semántica) e inventario asociado
+- **Uso por clase IMO**: barras compactas con el total de toneladas en planta por clase, agregando `inventario_items` de todas las instalaciones
+- Exportar catálogo a Excel
 
 ### HES (`/hes`)
 
@@ -133,8 +159,10 @@ Hoja de Estadía — cálculo de almacenaje para facturación mensual:
 - **Valor UF histórico** obtenido automáticamente desde `mindicador.cl/api/uf` — usa el endpoint anual para meses pasados con AbortController de 8s para evitar cuelgues
 - **Múltiples tarifas por cliente**: un cliente puede tener varias tarifas activas simultáneas (ej. clase IMO 8 y clase IMO 3). Selector inline en el header cuando existen más de una. `cotizacion_numero` se auto-genera con formato `COT-YYYY-NNN` mediante secuencia PostgreSQL + trigger si se deja vacío
 - **Cálculo automático**: stock inicial + movimientos diarios del período → pallet-días → monto en UF
+- **Facturación mínima una vez por cliente** en modo unificado (varias tarifas/clases activas): se aplica el máximo de los mínimos configurados sobre el total sumado, en vez de un mínimo independiente por clase
 - Tabla día a día con ingresos, despachos, stock al cierre y tarifa
-- Exportar a **Excel** con formato HES oficial ADP (logotipo `adp_logo_hd.jpg`)
+- Exportar a **Excel** y **PDF** (resumen y detalle) con formato HES oficial ADP
+- **Envío por correo** del HES generado (Resend) al contacto comercial del cliente, con folio y adjuntos
 - Corrección de rango de fechas: usa `.lt(nextMonth.toISOString())` para incluir todos los movimientos del último día del mes
 
 ### Analítica (`/reportes`)
@@ -180,7 +208,11 @@ Todas las rutas verifican sesión (`getUser()`) y rol antes de ejecutar operacio
 | `/api/admin/update-user` | PATCH | `super_admin` | Cambiar rol, estado o permisos |
 | `/api/admin/delete-user` | DELETE | `super_admin` | Eliminar usuario de Auth y profiles |
 | `/api/auth/clear-password-flag` | POST | autenticado | Marcar contraseña como cambiada (solo afecta al propio usuario) |
+| `/api/auth/forgot-password` | POST | público | Solicitar reset de contraseña |
 | `/api/hes/export` | POST | autenticado | Generar Excel HES (valida `mes` 0–11 y `anio` 2020–2100) |
+| `/api/hes/folio` | POST | autenticado | Asignar/consultar folio HES para un cliente/período |
+| `/api/hes/send-email` | POST | autenticado | Enviar HES generado por correo (Resend) al contacto comercial del cliente |
+| `/api/instalaciones/export` | GET | autenticado | Exportar catálogo de instalaciones a Excel |
 
 ---
 
@@ -238,6 +270,9 @@ src/
 │       │   ├── [id]/                  # Detalle / edición
 │       │   └── despacho/              # Cola de despacho
 │       ├── hes/                       # Hoja de estadía
+│       ├── transporte/                # Reports con transporte propio
+│       ├── transporte-incomex/        # Transporte tercerizado por cliente
+│       ├── instalaciones/             # Bodegas/patios y uso por clase IMO
 │       ├── auditoria/                 # Log de acciones
 │       └── configuracion/             # Perfil y gestión de usuarios
 ├── components/
@@ -287,12 +322,15 @@ Tablas principales:
 
 | Tabla | Descripción |
 |---|---|
-| `clientes` | Directorio de empresas |
+| `clientes` | Directorio de empresas (contacto comercial + hasta 3 operacionales, stock compartido, flag vista Detalle) |
 | `servicios_cliente` | Servicios contratados por cliente |
-| `tarifas_cliente` | Tarifas de almacenaje por cliente/período |
+| `tarifas_cliente` | Tarifas de almacenaje por cliente/período/clase IMO |
 | `inventario_items` | Ítems en bodega con stock y mínimos |
-| `movimientos` | Ingresos y despachos de carga |
-| `reports` | Reports de recepción multi-sección |
+| `movimientos` | Ingresos y despachos de carga (incluye datos de manifiesto: lote, IMO, UN, CAS, envase, guía, OC, bodega) |
+| `reports` | Reports de recepción multi-sección (HDS, evidencia fotográfica, firma del conductor) |
+| `transporte_incomex` | Operaciones de transporte tercerizado por cliente |
+| `instalaciones_almacenamiento` / `instalacion_sustancias` | Catálogo de bodegas/patios y sustancias/clases IMO autorizadas por instalación |
+| `hes_folios` | Folios correlativos de HES generados por cliente/período |
 | `profiles` | Perfiles de usuario (rol, permisos, nombre) |
 | `audit_logs` | Registro de acciones de usuarios |
 
@@ -339,10 +377,16 @@ El sistema está optimizado para escritorio y tablet. Mejoras mobile implementad
 
 ## Screenshots
 
-El script `screenshots.mjs` en la raíz genera capturas automáticas de todas las páginas usando Puppeteer:
+El script `generate-screenshots.mjs` en la raíz genera capturas automáticas de las páginas principales usando Puppeteer. Las credenciales se leen del entorno (nunca hardcodeadas):
 
 ```bash
-ADP_EMAIL=... ADP_PASSWORD=... node screenshots.mjs
+# En .env.local:
+SCREENSHOT_EMAIL=...
+SCREENSHOT_PASSWORD=...
+
+node --env-file=.env.local generate-screenshots.mjs
 ```
 
-Las imágenes se guardan en `screenshots_gestion/`. Requiere que el servidor esté corriendo en `localhost:4400`.
+Las imágenes se guardan en `screenshots/`. Requiere que el servidor esté corriendo en `localhost:4400`.
+
+También existen `generate-screenshots-landing.mjs` (capturas de la landing comercial) y `generate-pdf.mjs` (genera un PDF de la propuesta a partir de esas capturas).
