@@ -23,6 +23,7 @@ import type { ReportEstado } from "@/types/database"
 import { dbToForm } from "@/components/reports/report-form-types"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
+import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
 import { ClienteCombobox, TarifaSelect, ProductoCombobox, ServiciosSection, FirmaCanvas, type InventarioItemOption, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
@@ -546,6 +547,7 @@ export default function ReportDetailPage() {
               <h1 className="text-base font-bold text-foreground">
                 Report #{numero}
               </h1>
+              <EstadoSemaforo estado={estado} />
               <Badge className={cn("text-[10px] font-semibold border-0", ESTADO_STYLE[estado].className)}>
                 {ESTADO_STYLE[estado].label}
               </Badge>

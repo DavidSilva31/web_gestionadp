@@ -18,6 +18,7 @@ import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
+import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
 
 type Tab = "todos" | ReportEstado
 
@@ -498,9 +499,12 @@ export default function ReportsPage() {
                       </td>
                       <td className="px-4 py-4 text-center text-muted-foreground text-xs whitespace-nowrap overflow-hidden">{r.fecha}</td>
                       <td className="px-4 py-4 text-center overflow-hidden">
-                        <Badge className={cn("text-xs font-semibold border-0", ESTADO_STYLE[r.estado].className)}>
-                          {ESTADO_STYLE[r.estado].label}
-                        </Badge>
+                        <div className="inline-flex items-center gap-1.5">
+                          <EstadoSemaforo estado={r.estado} />
+                          <Badge className={cn("text-xs font-semibold border-0", ESTADO_STYLE[r.estado].className)}>
+                            {ESTADO_STYLE[r.estado].label}
+                          </Badge>
+                        </div>
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex items-center justify-end gap-0.5">
