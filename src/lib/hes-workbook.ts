@@ -64,7 +64,7 @@ export interface ServicioExport {
   tarifa_uf: number; tarifa_clp: number; unidad: string; cantidad: number
 }
 
-export interface ClienteExport { nombre: string; rut: string | null; emails: string[]; contacto: string | null }
+export interface ClienteExport { nombre: string; rut: string | null; emails: string[]; contacto: string | null; contacto_comercial_nombre: string | null }
 
 export type ServicioSeleccion = Record<string, { cantidad: number; checked: boolean }>
 
@@ -73,10 +73,11 @@ export interface TarifaResultado { tarifa: TarifaCliente; hes: HesResult; billin
 // ── Cliente (nombre/rut/emails/contacto + día de corte de facturación) ─────
 export async function loadCliente(supabase: SupabaseSrv, clienteId: string) {
   const { data: row, error } = await supabase
-    .from("clientes").select("nombre, rut, emails, contacto, dia_corte_facturacion").eq("id", clienteId).single()
+    .from("clientes").select("nombre, rut, emails, contacto, contacto_comercial_nombre, dia_corte_facturacion").eq("id", clienteId).single()
   if (error || !row) return null
   const cliente: ClienteExport = {
     nombre: row.nombre, rut: row.rut, emails: row.emails ?? [], contacto: row.contacto,
+    contacto_comercial_nombre: row.contacto_comercial_nombre,
   }
   return { cliente, diaCorte: row.dia_corte_facturacion ?? 1 }
 }
@@ -207,13 +208,13 @@ export function buildWorkbook(
   wb.created = new Date()
 
   if (built.isUnificado) {
-    // Tarifas sin actividad este período (0 UF/0 CLP, ej. clase IMO sin
-    // movimientos) no aportan nada al HES — se omiten del resumen y no
-    // generan hoja de detalle propia, para no mostrar cuadros vacíos.
-    const resultsConActividad = built.results.filter(r => r.billing.finalUF > 0 || r.billing.finalCLP > 0)
-    addResumenGeneralSheet(wb, cliente, mes, anio, resultsConActividad, built.srvBilling, folioNumero, built.transporteOps, uf)
+    // Tarifas sin actividad este período (0 UF/0 CLP real, sin contar
+    // mínimos) no aportan nada al HES — se omiten del resumen y no generan
+    // hoja de detalle propia, para no mostrar cuadros vacíos.
+    const resultsConActividad = built.results.filter(r => r.billing.totalUF > 0 || r.billing.totalCLP > 0)
+    addResumenGeneralSheet(wb, cliente, mes, anio, built.results, resultsConActividad, built.srvBilling, folioNumero, built.transporteOps, uf)
     for (const r of resultsConActividad) {
-      addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, [], mes, anio, period, uf, folioNumero)
+      addTarifaSheet(wb, cliente, r.tarifa, r.hes, r.billing, [], mes, anio, period, uf, folioNumero, false)
     }
   } else {
     const srvs = toServicioExport(built.serviciosCliente, servicioSeleccion)
@@ -237,9 +238,13 @@ export function excelFilename(clienteNombre: string, mes: number, anio: number) 
 }
 
 // ── Hoja "Resumen general" — modo unificado: una fila por CI + servicios + total ──
+// La facturación mínima es un piso a nivel de CLIENTE, no por clase IMO —
+// se aplica UNA vez acá (el mayor mínimo entre las tarifas activas, contra
+// la suma real de todas las clases + servicios), nunca dentro de cada hoja
+// de detalle individual (ver `applyOwnMinimum=false` en addTarifaSheet).
 function addResumenGeneralSheet(
   wb: ExcelJS.Workbook, cliente: ClienteExport, mes: number, anio: number,
-  results: TarifaResultado[], srvBilling: BillingResult, folioNumero?: number | null,
+  allResults: TarifaResultado[], results: TarifaResultado[], srvBilling: BillingResult, folioNumero?: number | null,
   transporteOps: TransporteIncomex[] = [], uf = 0
 ) {
   const mesTit = `${MESES[mes]} ${anio}`
@@ -280,12 +285,12 @@ function addResumenGeneralSheet(
   for (const { tarifa, billing } of results) {
     const r = ws.addRow([]); r.height = 14; spacerA(r)
     r.getCell("B").value = tarifa.clase_imo ?? tarifa.cotizacion_numero
-    r.getCell("C").value = billing.finalUF
-    r.getCell("D").value = billing.finalCLP
+    r.getCell("C").value = billing.totalUF
+    r.getCell("D").value = billing.totalCLP
     st(r.getCell("B"), { size: 9 })
     st(r.getCell("C"), { size: 9, ha: "right", fmt: "0.0000" })
     st(r.getCell("D"), { size: 9, ha: "right", fmt: '"$"#,##0' })
-    totalCLP += billing.finalCLP
+    totalCLP += billing.totalCLP
     row++
   }
 
@@ -316,13 +321,31 @@ function addResumenGeneralSheet(
     totalCLP += totalTransporteCLP
   }
 
+  // Mínimo único del cliente — el mayor facturacion_minima_uf entre TODAS
+  // sus tarifas activas (incluidas las que no se muestran arriba por no
+  // tener actividad este período), aplicado una sola vez contra el
+  // subtotal real ya sumado.
+  const minimoUnicoUF  = Math.max(0, ...allResults.map(r => r.tarifa.facturacion_minima_uf ?? 0))
+  const minimoUnicoCLP = minimoUnicoUF * uf
+  if (minimoUnicoCLP > totalCLP) {
+    const r = ws.addRow([]); r.height = 14; spacerA(r)
+    r.getCell("B").value = "Facturación mínima aplicada"
+    r.getCell("C").value = minimoUnicoUF
+    r.getCell("D").value = minimoUnicoCLP
+    st(r.getCell("B"), { bg: C.AMBER_BG, fc: C.AMBER_TXT, bold: true, size: 9 })
+    st(r.getCell("C"), { bg: C.AMBER_BG, fc: C.AMBER_TXT, bold: true, size: 9, ha: "right", fmt: "0.0000" })
+    st(r.getCell("D"), { bg: C.AMBER_BG, fc: C.AMBER_TXT, bold: true, size: 9, ha: "right", fmt: '"$"#,##0' })
+    row++
+  }
+  const totalGeneralCLP = Math.max(totalCLP, minimoUnicoCLP)
+
   {
     const r = ws.addRow([]); r.height = 18; spacerA(r)
     r.getCell("B").value = "TOTAL GENERAL"
     st(r.getCell("B"), { bg: C.TOT_BG, fc: C.HDR_TXT, bold: true, size: 10, ha: "right" })
     r.getCell("C").value = ""
     st(r.getCell("C"), { bg: C.TOT_BG })
-    r.getCell("D").value = totalCLP
+    r.getCell("D").value = totalGeneralCLP
     st(r.getCell("D"), { bg: C.TOT_BG, fc: C.HDR_TXT, bold: true, size: 10, ha: "right", fmt: '"$"#,##0' })
   }
 }
@@ -331,7 +354,11 @@ function addResumenGeneralSheet(
 function addTarifaSheet(
   wb: ExcelJS.Workbook, cliente: ClienteExport, tarifa: TarifaCliente, hes: HesResult, billing: BillingResult,
   srvs: ServicioExport[], mes: number, anio: number, period: { start: string; end: string }, uf: number,
-  folioNumero?: number | null
+  folioNumero?: number | null,
+  // En modo unificado la facturación mínima se aplica UNA vez a nivel de
+  // cliente (ver addResumenGeneralSheet), no por cada clase IMO — acá se
+  // muestra el total real de esta clase, sin piso propio.
+  applyOwnMinimum = true
 ) {
   const [, periodEndM, periodEndD] = period.end.split("-").map(Number)
   const mesNom  = MESES[mes].toUpperCase()
@@ -524,7 +551,10 @@ function addTarifaSheet(
     row++
   })
 
-  if (billing.hasMin) {
+  const totalUFmostrado  = applyOwnMinimum ? billing.finalUF  : billing.totalUF
+  const totalCLPmostrado = applyOwnMinimum ? billing.finalCLP : billing.totalCLP
+
+  if (applyOwnMinimum && billing.hasMin) {
     const r = ws.addRow([])
     r.height = 14
     spacerA(r)
@@ -545,9 +575,9 @@ function addTarifaSheet(
     r.getCell("B").value = "TOTAL NETO"
     st(r.getCell("B"), { bg: C.TOT_BG, fc: C.HDR_TXT, bold: true, size: 10, ha: "right" })
     ws.mergeCells(`B${row}:E${row}`)
-    r.getCell("F").value = billing.finalUF
+    r.getCell("F").value = totalUFmostrado
     st(r.getCell("F"), { bg: C.TOT_BG, fc: C.HDR_TXT, bold: true, size: 10, ha: "right", fmt: "0.00" })
-    r.getCell("G").value = billing.finalCLP
+    r.getCell("G").value = totalCLPmostrado
     st(r.getCell("G"), { bg: C.TOT_BG, fc: C.HDR_TXT, bold: true, size: 10, ha: "right", fmt: '"$"#,##0' })
     r.getCell("I").value = `UF al ${pad(periodEndD)}/${pad(periodEndM)}/${anio}`
     st(r.getCell("I"), { size: 8, ha: "right", noBorder: true })

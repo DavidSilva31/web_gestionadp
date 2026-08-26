@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Save, Send, Loader2, Paperclip, FileText, X } from "lucide-react"
+import { ArrowLeft, Save, Send, Loader2, Paperclip, FileText, X, Camera } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,7 +13,7 @@ import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
-import { ClienteCombobox, TarifaSelect, ProductoCombobox, ServiciosSection, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
+import { ClienteCombobox, TarifaSelect, ProductoCombobox, ServiciosSection, FirmaCanvas, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
 
 interface FormData extends ReportFormData {
   cliente_id:              string
@@ -51,6 +51,17 @@ export default function NuevoReportPage() {
   const [previewFile, setPreviewFile] = useState<File | null>(null)
   const hdsFileRef = useRef<HTMLInputElement>(null)
 
+  // Evidencia fotográfica de consolidado/desconsolidado — mismo patrón que
+  // los archivos HDS (se suben recién después de crear el report, porque
+  // el path del archivo usa el número/id ya asignado).
+  const [sec2EvidenciaFiles, setSec2EvidenciaFiles] = useState<File[]>([])
+  const [sec2DragOver,       setSec2DragOver]       = useState(false)
+  const sec2EvidenciaFileRef = useRef<HTMLInputElement>(null)
+
+  // Firma del conductor (canvas) — se convierte a Blob y se sube recién
+  // después de crear el report, mismo patrón de dos fases que HDS/evidencia.
+  const [firmaDataUrl, setFirmaDataUrl] = useState<string | null>(null)
+
   const previewUrl = useMemo(() => previewFile ? URL.createObjectURL(previewFile) : null, [previewFile])
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
@@ -66,6 +77,20 @@ export default function NuevoReportPage() {
     e.preventDefault()
     setDragOver(false)
     if (e.dataTransfer.files?.length) addHdsFiles(e.dataTransfer.files)
+  }
+
+  function addSec2EvidenciaFiles(list: FileList | File[]) {
+    setSec2EvidenciaFiles(prev => [...prev, ...Array.from(list)])
+  }
+
+  function removeSec2EvidenciaFile(index: number) {
+    setSec2EvidenciaFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function onSec2EvidenciaDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setSec2DragOver(false)
+    if (e.dataTransfer.files?.length) addSec2EvidenciaFiles(e.dataTransfer.files)
   }
 
   function set<K extends keyof FormData>(key: K, value: FormData[K]) {
@@ -227,7 +252,70 @@ export default function NuevoReportPage() {
       }
     }
 
-    if (hdsFailed) {
+    // Subir la evidencia fotográfica de consolidado/desconsolidado, si se
+    // adjuntó alguna — mismo patrón de dos fases que los HDS.
+    let evidenciaFailed = false
+    if (sec2EvidenciaFiles.length > 0) {
+      const uploadedPaths: string[] = []
+      for (let i = 0; i < sec2EvidenciaFiles.length; i++) {
+        const file = sec2EvidenciaFiles[i]
+        const ext  = file.name.split(".").pop() ?? "jpg"
+        const path = `sec2-evidencia-${inserted.numero}-${inserted.id}-${i}.${ext}`
+        const { error: uploadErr } = await supabase.storage
+          .from("reports-firmados")
+          .upload(path, file, { upsert: true })
+
+        if (uploadErr) {
+          console.error("[reports/nuevo] error subiendo evidencia fotográfica:", uploadErr)
+          evidenciaFailed = true
+        } else {
+          uploadedPaths.push(path)
+        }
+      }
+
+      if (uploadedPaths.length > 0) {
+        const { error: evidenciaUpdateErr } = await supabase
+          .from("reports")
+          .update({ sec2_evidencia_archivos: uploadedPaths })
+          .eq("id", inserted.id)
+        if (evidenciaUpdateErr) {
+          console.error("[reports/nuevo] error guardando referencia de la evidencia:", evidenciaUpdateErr)
+          evidenciaFailed = true
+        }
+      }
+
+      if (evidenciaFailed) {
+        setError(`Report #${inserted.numero} guardado, pero ${uploadedPaths.length < sec2EvidenciaFiles.length ? "algunas fotos de evidencia no se pudieron subir" : "no se pudo asociar la evidencia fotográfica"}. Vuelve a la lista e ingresa al report para revisarlo.`)
+      }
+    }
+
+    // Subir la firma del conductor (canvas -> PNG), si se firmó.
+    let firmaFailed = false
+    if (firmaDataUrl) {
+      const blob = await fetch(firmaDataUrl).then(r => r.blob())
+      const path = `firma-${inserted.numero}-${inserted.id}.png`
+      const { error: firmaUploadErr } = await supabase.storage
+        .from("reports-firmados")
+        .upload(path, blob, { upsert: true, contentType: "image/png" })
+      if (firmaUploadErr) {
+        console.error("[reports/nuevo] error subiendo firma del conductor:", firmaUploadErr)
+        firmaFailed = true
+      } else {
+        const { error: firmaUpdateErr } = await supabase
+          .from("reports")
+          .update({ firma_conductor_url: path })
+          .eq("id", inserted.id)
+        if (firmaUpdateErr) {
+          console.error("[reports/nuevo] error guardando referencia de la firma:", firmaUpdateErr)
+          firmaFailed = true
+        }
+      }
+      if (firmaFailed) {
+        setError(`Report #${inserted.numero} guardado, pero no se pudo guardar la firma del conductor. Vuelve a la lista e ingresa al report para firmar de nuevo.`)
+      }
+    }
+
+    if (hdsFailed || evidenciaFailed || firmaFailed) {
       setSaving(false)
       return
     }
@@ -466,6 +554,57 @@ export default function NuevoReportPage() {
             <div>
               <h2 className="text-[13px] font-bold text-foreground mb-1.5">2. Consolidado / Desconsolidado / Otros</h2>
               <Sec2Content form={form} set={set as unknown as FormSetter} readOnly={false} toUpperCase hideActivation />
+
+              {(form.sec2_consolidado || form.sec2_desconsolidado) && (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  <label className="text-[11px] font-medium text-muted-foreground">Evidencia fotográfica</label>
+                  <input
+                    ref={sec2EvidenciaFileRef}
+                    type="file"
+                    multiple
+                    accept="image/*,.pdf,application/pdf"
+                    className="hidden"
+                    onChange={e => { if (e.target.files) addSec2EvidenciaFiles(e.target.files); e.target.value = "" }}
+                  />
+                  <div
+                    onClick={() => sec2EvidenciaFileRef.current?.click()}
+                    onDragOver={e => { e.preventDefault(); setSec2DragOver(true) }}
+                    onDragLeave={e => { e.preventDefault(); setSec2DragOver(false) }}
+                    onDrop={onSec2EvidenciaDrop}
+                    className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 py-3 text-center cursor-pointer transition-colors ${
+                      sec2DragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/40"
+                    }`}
+                  >
+                    <Camera className="h-4 w-4 text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">
+                      Toma una foto o <span className="text-primary underline underline-offset-2">adjunta un archivo</span>
+                    </p>
+                  </div>
+                  {sec2EvidenciaFiles.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      {sec2EvidenciaFiles.map((file, i) => (
+                        <div key={i} className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1.5">
+                          <FileText className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                          <button
+                            type="button"
+                            onClick={() => setPreviewFile(file)}
+                            className="text-xs text-emerald-700 dark:text-emerald-400 truncate flex-1 text-left hover:underline underline-offset-2"
+                          >
+                            {file.name}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeSec2EvidenciaFile(i)}
+                            className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Sección 3 + Operador de carga */}
@@ -515,6 +654,12 @@ export default function NuevoReportPage() {
               onAddManual={nombre => setServiciosManual(prev => [...prev, nombre])}
               onRemoveManual={index => setServiciosManual(prev => prev.filter((_, i) => i !== index))}
             />
+          </div>
+
+          {/* Firma del conductor — tablet/lápiz óptico */}
+          <div className="border-t mt-3 pt-3">
+            <h2 className="text-[13px] font-bold text-foreground mb-1.5">Firma del conductor</h2>
+            <FirmaCanvas onChange={setFirmaDataUrl} />
           </div>
 
           {/* Cierre del report — nombre del operador, centrado */}

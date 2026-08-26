@@ -42,6 +42,7 @@ export default function InstalacionesPage() {
   const [sustancias,    setSustancias]    = useState<Record<string, InstalacionSustancia[]>>({})
   const [ocupacion,     setOcupacion]     = useState<Record<string, { peso: number; items: number }>>({})
   const [itemsPorInstalacion, setItemsPorInstalacion] = useState<Record<string, ItemResumen[]>>({})
+  const [claseImoUsage, setClaseImoUsage] = useState<{ clase: string; peso: number }[]>([])
   const [loading,       setLoading]       = useState(true)
   const [fetchError,    setFetchError]    = useState<string | null>(null)
 
@@ -87,6 +88,7 @@ export default function InstalacionesPage() {
     }
     const ocup: Record<string, { peso: number; items: number }> = {}
     const itemsGrouped: Record<string, ItemResumen[]> = {}
+    const claseTon: Record<string, number> = {}
     for (const it of (items ?? []) as unknown as ItemRow[]) {
       const cur = ocup[it.instalacion_id] ?? { peso: 0, items: 0 }
       cur.peso  += it.peso_ton ?? 0
@@ -98,9 +100,18 @@ export default function InstalacionesPage() {
         descripcion: it.descripcion, clase_imo: it.clase_imo, unidad: it.unidad,
         stock_actual: it.stock_actual, cliente_nombre: it.clientes?.nombre ?? null,
       })
+
+      if (it.clase_imo && it.peso_ton) {
+        claseTon[it.clase_imo] = (claseTon[it.clase_imo] ?? 0) + it.peso_ton
+      }
     }
     setOcupacion(ocup)
     setItemsPorInstalacion(itemsGrouped)
+    setClaseImoUsage(
+      Object.entries(claseTon)
+        .map(([clase, peso]) => ({ clase, peso }))
+        .sort((a, b) => b.peso - a.peso)
+    )
     setLoading(false)
   }, [])
 
@@ -252,6 +263,29 @@ export default function InstalacionesPage() {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        {!loading && claseImoUsage.length > 0 && (() => {
+          const max = claseImoUsage[0].peso
+          return (
+            <div className="mb-4 rounded-xl border border-border/40 bg-background px-4 py-3 shadow-sm">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2.5">
+                Uso por clase IMO (toneladas en planta)
+              </p>
+              <div className="flex flex-wrap gap-x-5 gap-y-2.5">
+                {claseImoUsage.map(({ clase, peso }) => (
+                  <div key={clase} className="w-32 flex-shrink-0">
+                    <div className="flex items-baseline justify-between text-[11px] mb-1">
+                      <span className="font-semibold">Cl.{clase}</span>
+                      <span className="text-muted-foreground tabular-nums">{peso.toFixed(1)} t</span>
+                    </div>
+                    <div className="h-1 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full rounded-full bg-teal-600" style={{ width: `${Math.max(4, (peso / max) * 100)}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />

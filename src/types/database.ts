@@ -8,7 +8,7 @@ export type TipoMovimiento = 'ingreso' | 'despacho'
 export type TipoContenedor = '20ft' | '40ft' | 'isotanque'
 export type SolicitadoPor = 'clientes' | 'hds' | 'operaciones' | 'cuyd'
 export type TransporteTipo = 'propio' | 'externo'
-export type TipoEnvase = 'Tambor' | 'Bidón' | 'IBC' | 'Saco' | 'Caja' | 'Pallet' | 'Granel' | 'Otro'
+export type TipoEnvase = 'Tambor' | 'Bidón' | 'IBC' | 'Saco' | 'Caja' | 'Pallet' | 'Granel' | 'Maxisaco' | 'Tineta' | 'Cilindro' | 'Cuñete' | 'Otro'
 
 export interface Report {
   id: string
@@ -53,6 +53,7 @@ export interface Report {
   sec2_hora_termino: string | null
   sec2_sigla_numero: string | null
   sec2_observaciones: string | null
+  sec2_evidencia_archivos: string[]
 
   // Sección 3
   sec3_activa: boolean
@@ -71,6 +72,7 @@ export interface Report {
   sec3_observaciones: string | null
 
   // Firmas
+  firma_conductor_url: string | null
   nombre_operador: string | null
   created_at: string
   created_by: string | null
@@ -102,6 +104,11 @@ export interface Cliente {
   contacto_email:      string | null
   contacto_telefono:   string | null
   contacto_telefono2:  string | null
+  // Contacto comercial — quien recibe el HES (correo(s) en `emails`),
+  // separado de los contactos operacionales de arriba/abajo.
+  contacto_comercial_nombre:   string | null
+  contacto_comercial_cargo:    string | null
+  contacto_comercial_telefono: string | null
   contacto2_nombre:    string | null
   contacto2_cargo:     string | null
   contacto2_email:     string | null
@@ -115,6 +122,10 @@ export interface Cliente {
   sector:     string | null
   activo:     boolean
   dia_corte_facturacion: number
+  // Si está seteado, este cliente usa el inventario_items de OTRO cliente
+  // en vez del propio (mismo stock físico, facturación separada).
+  stock_compartido_con: string | null
+  usa_vista_kardex: boolean
   created_at: string
   updated_at: string
 }
@@ -171,6 +182,9 @@ export interface Movimiento {
   peso_envase:        number | null
   tipo_envase:        TipoEnvase | null
   posiciones:         number | null
+  guia_numero:        string | null
+  orden_compra:       string | null
+  bodega:             string | null
   fecha:              string
   report_id:          string | null
   created_at:         string

@@ -8,8 +8,12 @@ const OUT = resolve(__dirname, 'screenshots')
 mkdirSync(OUT, { recursive: true })
 
 const BASE = 'http://localhost:4400'
-const EMAIL    = 'REDACTED_EMAIL'
-const PASSWORD = 'REDACTED_PASSWORD'
+const EMAIL    = process.env.SCREENSHOT_EMAIL
+const PASSWORD = process.env.SCREENSHOT_PASSWORD
+if (!EMAIL || !PASSWORD) {
+  console.error('Faltan SCREENSHOT_EMAIL / SCREENSHOT_PASSWORD en el entorno (agrégalos a .env.local, nunca hardcodeados aquí).')
+  process.exit(1)
+}
 
 const snap = async (page, name, selector = null) => {
   if (selector) await page.waitForSelector(selector, { timeout: 8000 }).catch(() => {})

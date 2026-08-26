@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import { Field } from "./report-form-sections"
+import { resolveEffectiveClienteId } from "@/lib/inventario"
 
 // Widgets compartidos entre reports/nuevo y reports/[id] — misma vista para
 // crear y editar un report, ambos con el mismo vínculo real a cliente/
@@ -184,13 +185,14 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
   useEffect(() => {
     setItems([])
     if (!clienteId) return
-    createClient()
+    const supabase = createClient()
+    resolveEffectiveClienteId(supabase, clienteId).then(effectiveId => supabase
       .from("inventario_items")
       .select("id, descripcion, clase_imo, nu")
-      .eq("cliente_id", clienteId)
+      .eq("cliente_id", effectiveId)
       .eq("activo", true)
       .order("descripcion", { ascending: true })
-      .then(({ data }) => { if (data) setItems(data as InventarioItemOption[]) })
+      .then(({ data }) => { if (data) setItems(data as InventarioItemOption[]) }))
   }, [clienteId])
 
   // Sincronizar query si el valor externo cambia (ej: al limpiar)
@@ -409,6 +411,98 @@ export function ServiciosSection({
           </div>
         )}
       </div>
+      )}
+    </div>
+  )
+}
+
+// ── FirmaCanvas ──────────────────────────────────────────────────────────────
+// Firma del conductor en tablet/lápiz óptico. Componente "no controlado" a
+// propósito — no recibe la firma ya guardada como prop: cuando el report ya
+// tiene una firma en BD, el padre la muestra por separado como imagen
+// (mismo patrón que la evidencia fotográfica ya subida vs. la nueva por
+// adjuntar) y solo renderiza este canvas para capturar una firma nueva.
+export function FirmaCanvas({ onChange, readOnly }: {
+  onChange: (dataUrl: string | null) => void
+  readOnly?: boolean
+}) {
+  const canvasRef  = useRef<HTMLCanvasElement>(null)
+  const drawingRef = useRef(false)
+  const [hasStroke, setHasStroke] = useState(false)
+
+  function getPos(e: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current!
+    const rect = canvas.getBoundingClientRect()
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height),
+    }
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (readOnly) return
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext("2d")
+    if (!canvas || !ctx) return
+    canvas.setPointerCapture(e.pointerId)
+    drawingRef.current = true
+    const { x, y } = getPos(e)
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (readOnly || !drawingRef.current) return
+    const ctx = canvasRef.current?.getContext("2d")
+    if (!ctx) return
+    const { x, y } = getPos(e)
+    ctx.lineWidth = 2.5
+    ctx.lineCap = "round"
+    ctx.strokeStyle = "#1e293b"
+    ctx.lineTo(x, y)
+    ctx.stroke()
+  }
+
+  function handlePointerUp() {
+    if (readOnly || !drawingRef.current) return
+    drawingRef.current = false
+    setHasStroke(true)
+    const canvas = canvasRef.current
+    if (canvas) onChange(canvas.toDataURL("image/png"))
+  }
+
+  function handleClear() {
+    if (readOnly) return
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext("2d")
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
+    setHasStroke(false)
+    onChange(null)
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="relative rounded-lg border-2 border-dashed border-muted-foreground/25 overflow-hidden">
+        <canvas
+          ref={canvasRef}
+          width={700}
+          height={200}
+          className="w-full h-[170px] touch-none cursor-crosshair bg-white"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+        />
+        {!hasStroke && (
+          <p className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/70 pointer-events-none px-4 text-center">
+            Firma aquí — el conductor firma con el dedo o lápiz óptico
+          </p>
+        )}
+      </div>
+      {!readOnly && hasStroke && (
+        <button type="button" onClick={handleClear} className="self-end text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+          Limpiar firma
+        </button>
       )}
     </div>
   )

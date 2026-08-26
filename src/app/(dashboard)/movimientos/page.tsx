@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { exportToExcel } from "@/lib/excel"
-import { syncPesoTon } from "@/lib/inventario"
+import { syncPesoTon, resolveEffectiveClienteId } from "@/lib/inventario"
 import { cn } from "@/lib/utils"
 import type {
   Movimiento, MovimientoInsert, MovimientoTipo, MovimientoServicio,
@@ -23,7 +23,7 @@ import type {
 // ── Constantes ─────────────────────────────────────────────────────────────────
 const SERVICIOS: MovimientoServicio[] = ["Almacenaje", "Transporte", "Porteo", "Logística"]
 const AREAS: InventarioArea[] = ["Bodega IMO", "Zona Isotanques", "Zona RESPEL", "Bodega General"]
-const TIPOS_ENVASE: TipoEnvase[] = ["Tambor", "Bidón", "IBC", "Saco", "Caja", "Pallet", "Granel", "Otro"]
+const TIPOS_ENVASE: TipoEnvase[] = ["Tambor", "Bidón", "IBC", "Saco", "Caja", "Pallet", "Granel", "Maxisaco", "Tineta", "Cilindro", "Cuñete", "Otro"]
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
 const SERVICIO_BADGE: Record<string, string> = {
@@ -72,6 +72,9 @@ const EMPTY_FORM = (tipo: MovimientoTipo): MovimientoInsert => ({
   peso_envase:        null,
   tipo_envase:        null,
   posiciones:         null,
+  guia_numero:        null,
+  orden_compra:       null,
+  bodega:             null,
   fecha:              new Date().toISOString().slice(0, 16),
   report_id:          null,
   created_by:         null,
@@ -133,14 +136,16 @@ export default function MovimientosPage() {
     fetchClientes()
   }, [fetchMovimientos, fetchClientes])
 
-  // Cargar ítems de inventario cuando cambia el cliente en el form
+  // Cargar ítems de inventario cuando cambia el cliente en el form — si el
+  // cliente comparte pool de stock con otro, se usan los ítems del dueño real.
   const fetchItemsParaCliente = useCallback(async (clienteId: string) => {
     setLoadingItems(true)
     const supabase = createClient()
+    const effectiveId = await resolveEffectiveClienteId(supabase, clienteId)
     const { data, error } = await supabase
       .from("inventario_items")
       .select("id, numero, descripcion, stock_actual, area")
-      .eq("cliente_id", clienteId)
+      .eq("cliente_id", effectiveId)
       .eq("activo", true)
       .order("numero")
     if (error) {
@@ -203,6 +208,9 @@ export default function MovimientosPage() {
       peso_envase:        m.peso_envase,
       tipo_envase:        m.tipo_envase,
       posiciones:         m.posiciones,
+      guia_numero:        m.guia_numero,
+      orden_compra:       m.orden_compra,
+      bodega:             m.bodega,
       fecha:              m.fecha.slice(0, 16),
       report_id:          m.report_id,
       created_by:         m.created_by,
@@ -215,7 +223,7 @@ export default function MovimientosPage() {
       setClienteTarifas([])
     }
     setError(null)
-    setManifiestoOpen(!!(m.codigo || m.imo || m.un || m.cas || m.lote || m.fecha_elaboracion || m.fecha_vencimiento || m.peso_envase || m.tipo_envase || m.posiciones))
+    setManifiestoOpen(!!(m.codigo || m.imo || m.un || m.cas || m.lote || m.fecha_elaboracion || m.fecha_vencimiento || m.peso_envase || m.tipo_envase || m.posiciones || m.guia_numero || m.orden_compra || m.bodega))
     setDialog(m)
   }
 
@@ -265,6 +273,9 @@ export default function MovimientosPage() {
       un:                 form.un?.trim() || null,
       cas:                form.cas?.trim() || null,
       lote:               form.lote?.trim() || null,
+      guia_numero:        form.guia_numero?.trim() || null,
+      orden_compra:       form.orden_compra?.trim() || null,
+      bodega:             form.bodega?.trim() || null,
       fecha_elaboracion:  form.fecha_elaboracion || null,
       fecha_vencimiento:  form.fecha_vencimiento || null,
       fecha:              new Date(form.fecha as string).toISOString(),
@@ -853,6 +864,36 @@ export default function MovimientosPage() {
                         value={form.posiciones ?? ""}
                         onChange={e => setForm(p => ({ ...p, posiciones: e.target.value ? parseInt(e.target.value) : null }))}
                         placeholder="0"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">N° guía de despacho</Label>
+                      <Input
+                        value={form.guia_numero ?? ""}
+                        onChange={e => setForm(p => ({ ...p, guia_numero: e.target.value || null }))}
+                        placeholder="Ej: 3197"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Orden de compra</Label>
+                      <Input
+                        value={form.orden_compra ?? ""}
+                        onChange={e => setForm(p => ({ ...p, orden_compra: e.target.value || null }))}
+                        placeholder="Ej: 4500375616"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bodega</Label>
+                      <Input
+                        value={form.bodega ?? ""}
+                        onChange={e => setForm(p => ({ ...p, bodega: e.target.value || null }))}
+                        placeholder="Ej: 106-1"
                         className="h-9"
                       />
                     </div>

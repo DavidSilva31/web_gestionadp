@@ -29,11 +29,15 @@ const initials = (nombre: string) =>
   nombre.split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase()
 
 const EMPTY: ClienteInsert = {
-  nombre: "", rut: "", contacto: "", contacto_cargo: "", contacto_email: "",
+  nombre: "", rut: "",
+  contacto_comercial_nombre: "", contacto_comercial_cargo: "", contacto_comercial_telefono: "",
+  contacto: "", contacto_cargo: "", contacto_email: "",
   contacto_telefono: "", contacto_telefono2: "",
   contacto2_nombre: "", contacto2_cargo: "", contacto2_email: "", contacto2_telefono: "", contacto2_telefono2: "",
   contacto3_nombre: "", contacto3_cargo: "", contacto3_email: "", contacto3_telefono: "",
   emails: [], sector: "", activo: true, dia_corte_facturacion: 1,
+  stock_compartido_con: null,
+  usa_vista_kardex: false,
 }
 
 export default function ClientesPage() {
@@ -72,7 +76,11 @@ export default function ClientesPage() {
 
   function openEdit(c: Cliente) {
     setForm({
-      nombre: c.nombre, rut: c.rut ?? "", contacto: c.contacto ?? "",
+      nombre: c.nombre, rut: c.rut ?? "",
+      contacto_comercial_nombre: c.contacto_comercial_nombre ?? "",
+      contacto_comercial_cargo: c.contacto_comercial_cargo ?? "",
+      contacto_comercial_telefono: c.contacto_comercial_telefono ?? "",
+      contacto: c.contacto ?? "",
       contacto_cargo: c.contacto_cargo ?? "", contacto_email: c.contacto_email ?? "",
       contacto_telefono: c.contacto_telefono ?? "", contacto_telefono2: c.contacto_telefono2 ?? "",
       contacto2_nombre: c.contacto2_nombre ?? "", contacto2_cargo: c.contacto2_cargo ?? "",
@@ -82,6 +90,8 @@ export default function ClientesPage() {
       contacto3_email: c.contacto3_email ?? "", contacto3_telefono: c.contacto3_telefono ?? "",
       emails: c.emails ?? [], sector: c.sector ?? "", activo: c.activo,
       dia_corte_facturacion: c.dia_corte_facturacion,
+      stock_compartido_con: c.stock_compartido_con,
+      usa_vista_kardex: c.usa_vista_kardex,
     })
     setError(null)
     setDialog(c)
@@ -104,6 +114,9 @@ export default function ClientesPage() {
     const payload = {
       nombre:             form.nombre.trim(),
       rut:                form.rut?.trim() || null,
+      contacto_comercial_nombre:   form.contacto_comercial_nombre?.trim() || null,
+      contacto_comercial_cargo:    form.contacto_comercial_cargo?.trim() || null,
+      contacto_comercial_telefono: form.contacto_comercial_telefono?.trim() || null,
       contacto:            form.contacto?.trim() || null,
       contacto_cargo:      form.contacto_cargo?.trim() || null,
       contacto_email:      form.contacto_email?.trim() || null,
@@ -121,6 +134,8 @@ export default function ClientesPage() {
       emails:   form.emails.map(e => e.trim()).filter(Boolean),
       sector:   form.sector           || null,
       activo:   form.activo,
+      stock_compartido_con: form.stock_compartido_con || null,
+      usa_vista_kardex: form.usa_vista_kardex,
     }
 
     try {
@@ -310,6 +325,48 @@ export default function ClientesPage() {
               <option value="">Sin sector</option>
               {SECTORES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Comparte stock con
+              <span className="text-muted-foreground font-normal ml-1 normal-case">mismo inventario físico, facturación separada</span>
+            </Label>
+            <select value={form.stock_compartido_con ?? ""} onChange={e => setForm(p => ({ ...p, stock_compartido_con: e.target.value || null }))}
+              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
+              <option value="">Ninguno (dueño de su propio stock)</option>
+              {clientes.filter(c => !(dialog && dialog !== "new" && c.id === dialog.id)).map(c => (
+                <option key={c.id} value={c.id}>{c.nombre}</option>
+              ))}
+            </select>
+          </div>
+          <div className="col-span-2 flex items-center gap-2 pt-1">
+            <input type="checkbox" id="usa_vista_kardex" checked={form.usa_vista_kardex}
+              onChange={e => setForm(p => ({ ...p, usa_vista_kardex: e.target.checked }))}
+              className="h-3.5 w-3.5 rounded border-input" />
+            <Label htmlFor="usa_vista_kardex" className="text-xs font-medium cursor-pointer">
+              Usa vista Detalle
+              <span className="text-muted-foreground font-normal ml-1">detalle transaccional por lote con saldo corrido (piloto)</span>
+            </Label>
+          </div>
+          <div className="col-span-2 pt-2">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide border-t pt-2">
+              Contacto comercial <span className="font-normal normal-case">(recibe el HES — los correos van en la lista de abajo)</span>
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Nombre</Label>
+            <Input value={form.contacto_comercial_nombre ?? ""} onChange={e => setForm(p => ({ ...p, contacto_comercial_nombre: e.target.value }))} placeholder="Nombre contacto comercial" className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cargo</Label>
+            <Input value={form.contacto_comercial_cargo ?? ""} onChange={e => setForm(p => ({ ...p, contacto_comercial_cargo: e.target.value }))} placeholder="Cargo" className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Teléfono</Label>
+            <Input value={form.contacto_comercial_telefono ?? ""} onChange={e => setForm(p => ({ ...p, contacto_comercial_telefono: e.target.value }))} placeholder="+56 9 1234 5678" className="h-9" />
+          </div>
+          <div className="col-span-2 pt-2">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide border-t pt-2">Contacto operacional 1</p>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contacto</Label>

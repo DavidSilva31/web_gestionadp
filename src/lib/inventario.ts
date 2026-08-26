@@ -19,3 +19,18 @@ export async function syncPesoTon(supabase: SupabaseClient, itemId: string) {
   const { error: updateError } = await supabase.from("inventario_items").update({ peso_ton: nuevoPeso }).eq("id", itemId)
   if (updateError) console.error("[syncPesoTon] error actualizando peso_ton:", itemId, updateError)
 }
+
+// Resuelve a qué cliente pertenece REALMENTE el inventario que hay que
+// mostrar/usar — si el cliente comparte pool de stock con otro
+// (clientes.stock_compartido_con), devuelve el dueño real; si no, se
+// devuelve a sí mismo. Único punto de esta regla — reusar acá siempre que
+// se filtre inventario_items por cliente_id.
+export async function resolveEffectiveClienteId(supabase: SupabaseClient, clienteId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from("clientes")
+    .select("stock_compartido_con")
+    .eq("id", clienteId)
+    .single()
+  if (error) { console.error("[resolveEffectiveClienteId] error:", clienteId, error); return clienteId }
+  return data?.stock_compartido_con ?? clienteId
+}

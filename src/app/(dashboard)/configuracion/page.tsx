@@ -13,7 +13,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
-import { logAudit } from "@/lib/audit"
 import { AVATAR_ICONS, AVATAR_ICON_KEYS } from "@/lib/avatar-icons"
 import { ACCENT_COLORS, ACCENT_COLOR_KEYS } from "@/lib/accent-colors"
 import { ROLE_LABELS } from "@/types/auth"
@@ -166,14 +165,6 @@ export default function ConfiguracionPage() {
       if (error || !data) {
         console.error("[configuracion] error actualizando avatar:", error)
       } else {
-        logAudit({
-          tabla:          "profiles",
-          registro_id:    user.id,
-          accion:         "perfil.actualizar",
-          descripcion:    `${profile.nombre} ${next ? `eligió el avatar "${next}"` : "quitó su avatar personalizado"}`,
-          usuario_id:     user.id,
-          usuario_nombre: profile.nombre,
-        })
         await refreshProfile()
       }
     } catch (err) {
@@ -197,14 +188,6 @@ export default function ConfiguracionPage() {
         console.error("[configuracion] error actualizando color de acento:", error)
         document.documentElement.setAttribute("data-accent", prev)
       } else {
-        logAudit({
-          tabla:          "profiles",
-          registro_id:    user.id,
-          accion:         "perfil.actualizar",
-          descripcion:    `${profile.nombre} cambió el color de acento a "${ACCENT_COLORS[key]?.label ?? key}"`,
-          usuario_id:     user.id,
-          usuario_nombre: profile.nombre,
-        })
         await refreshProfile()
       }
     } catch (err) {
@@ -229,14 +212,6 @@ export default function ConfiguracionPage() {
       if (error || !data) {
         console.error("[configuracion] error actualizando preferencia de notificaciones:", error)
       } else {
-        logAudit({
-          tabla:          "profiles",
-          registro_id:    user.id,
-          accion:         "perfil.actualizar",
-          descripcion:    `${profile.nombre} ${next ? "activó" : "desactivó"} las notificaciones`,
-          usuario_id:     user.id,
-          usuario_nombre: profile.nombre,
-        })
         await refreshProfile()
       }
     } catch (err) {
@@ -260,14 +235,6 @@ export default function ConfiguracionPage() {
           : { ok: true, text: "Perfil actualizado correctamente" }
       )
       if (!error && data) {
-        logAudit({
-          tabla:          "profiles",
-          registro_id:    user.id,
-          accion:         "perfil.actualizar",
-          descripcion:    `${profile?.nombre ?? user.email} actualizó su nombre a "${nombre}"`,
-          usuario_id:     user.id,
-          usuario_nombre: nombre || user.email,
-        })
         refreshProfile()
       }
     } catch (err) {
@@ -298,16 +265,6 @@ export default function ConfiguracionPage() {
       setPassMsg({ ok: true, text: "Contraseña actualizada" })
       setNewPass("")
       setConfirmPass("")
-      if (user) {
-        logAudit({
-          tabla:          "profiles",
-          registro_id:    user.id,
-          accion:         "perfil.actualizar",
-          descripcion:    `${profile?.nombre ?? user.email} cambió su contraseña`,
-          usuario_id:     user.id,
-          usuario_nombre: profile?.nombre ?? user.email,
-        })
-      }
     } catch (err) {
       console.error("[configuracion] error cambiando contraseña:", err)
       setPassMsg({ ok: false, text: "No se pudo conectar con el servidor." })

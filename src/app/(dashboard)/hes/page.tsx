@@ -792,12 +792,14 @@ function EnviarHesDialog({ clienteNombre, emails, onClose, onSend, onSent }: {
 // ── Vista apilada del modo "Ver todas" — una tarjeta de cobro por tarifa/CI
 // + servicios a nivel cliente + total general. Se usa en la pantalla
 // principal y dentro de la pestaña "Resumen" de la vista previa. ──────────────
-function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transporteTotalCLP, totalCLP, loading, error }: {
+function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transporteTotalCLP, totalCLP, hasMin, minimoCLP, loading, error }: {
   results: { tarifa: TarifaCliente; hes: HesResult; billing: BillingResult }[]
   serviciosBilling: BillingResult | null
   transporteOps: TransporteIncomex[]
   transporteTotalCLP: number
   totalCLP: number
+  hasMin: boolean
+  minimoCLP: number
   loading: boolean
   error:   string | null
 }) {
@@ -813,7 +815,7 @@ function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transpo
       {error && (
         <p className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg border border-destructive/20">{error}</p>
       )}
-      {results.filter(r => r.billing.finalUF > 0 || r.billing.finalCLP > 0).map(({ tarifa: t, hes: h, billing: b }) => (
+      {results.filter(r => r.billing.totalUF > 0 || r.billing.totalCLP > 0).map(({ tarifa: t, hes: h, billing: b }) => (
         <div key={t.id} className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/20">
             <span className="text-[12px] font-semibold">{t.clase_imo ?? t.cotizacion_numero}</span>
@@ -844,7 +846,7 @@ function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transpo
               <tfoot>
                 <tr className="border-t-2 border-border/60 bg-primary/5 font-bold">
                   <td colSpan={3} className="px-4 py-2 text-[12px]">TOTAL {t.clase_imo ?? ""}</td>
-                  <td className="text-right px-4 py-2 font-mono text-[12px] text-primary">{fmtCLP(b.finalCLP)}</td>
+                  <td className="text-right px-4 py-2 font-mono text-[12px] text-primary">{fmtCLP(b.totalCLP)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -894,6 +896,13 @@ function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transpo
               </tr>
             </tfoot>
           </table>
+        </div>
+      )}
+
+      {hasMin && (
+        <div className="bg-amber-50 dark:bg-amber-900/10 rounded-xl border border-amber-300 dark:border-amber-700 px-4 py-2.5 flex items-center justify-between">
+          <span className="text-[12px] font-semibold text-amber-700 dark:text-amber-400">Facturación mínima aplicada (una vez por cliente)</span>
+          <span className="text-[12px] font-bold text-amber-700 dark:text-amber-400 font-mono">{fmtCLP(minimoCLP)}</span>
         </div>
       )}
 
@@ -1297,15 +1306,28 @@ export default function HesPage() {
     return computeBilling(emptyHes, dummyTarifa, parseFloat(ufValue) || 0, servicios, seleccion)
   }, [isUnificado, servicios, srvCantidades, srvChecked, ufValue])
 
-  const unifiedTotalCLP = useMemo(
-    () => unifiedResults.reduce((s, r) => s + r.billing.finalCLP, 0) + (unifiedServiciosBilling?.finalCLP ?? 0) + transporteTotalCLP,
+  // La facturación mínima es un piso por CLIENTE (el mayor mínimo entre sus
+  // tarifas activas), no por cada clase IMO — se aplica una sola vez acá
+  // contra la suma real de todas las clases + servicios + transporte,
+  // nunca dentro de cada tarjeta/hoja individual (ver billing.totalCLP,
+  // no finalCLP, usado abajo y en UnifiedResumenCards/el PDF).
+  const unifiedMinimoUnicoUF = useMemo(
+    () => Math.max(0, ...unifiedResults.map(r => r.tarifa.facturacion_minima_uf ?? 0)),
+    [unifiedResults]
+  )
+  const unifiedSubtotalCLP = useMemo(
+    () => unifiedResults.reduce((s, r) => s + r.billing.totalCLP, 0) + (unifiedServiciosBilling?.finalCLP ?? 0) + transporteTotalCLP,
     [unifiedResults, unifiedServiciosBilling, transporteTotalCLP]
   )
-
-  const unifiedTotalUF = useMemo(
-    () => unifiedResults.reduce((s, r) => s + r.billing.finalUF, 0) + (unifiedServiciosBilling?.finalUF ?? 0) + transporteTotalUF,
+  const unifiedSubtotalUF = useMemo(
+    () => unifiedResults.reduce((s, r) => s + r.billing.totalUF, 0) + (unifiedServiciosBilling?.finalUF ?? 0) + transporteTotalUF,
     [unifiedResults, unifiedServiciosBilling, transporteTotalUF]
   )
+  const unifiedMinimoUnicoCLP = unifiedMinimoUnicoUF * (parseFloat(ufValue) || 0)
+  const unifiedHasMin = unifiedMinimoUnicoCLP > unifiedSubtotalCLP
+
+  const unifiedTotalCLP = Math.max(unifiedSubtotalCLP, unifiedMinimoUnicoCLP)
+  const unifiedTotalUF  = Math.max(unifiedSubtotalUF,  unifiedMinimoUnicoUF)
 
   // ── Filtered clients ───────────────────────────────────────────────────────
   const filteredClientes = useMemo(() =>
@@ -1431,12 +1453,12 @@ export default function HesPage() {
       if (isUnificado) {
         const { HesResumenUnificadoPDF } = await import("@/components/hes/hes-resumen-unificado-pdf")
         const filas: { label: string; cotizacion: string | null; totalUF: number; totalCLP: number }[] = unifiedResults
-          .filter(r => r.billing.finalUF > 0 || r.billing.finalCLP > 0)
+          .filter(r => r.billing.totalUF > 0 || r.billing.totalCLP > 0)
           .map(r => ({
             label:      r.tarifa.clase_imo ?? r.tarifa.cotizacion_numero,
             cotizacion: r.tarifa.cotizacion_numero,
-            totalUF:    r.billing.finalUF,
-            totalCLP:   r.billing.finalCLP,
+            totalUF:    r.billing.totalUF,
+            totalCLP:   r.billing.totalCLP,
           }))
         for (const sr of unifiedServiciosBilling?.rows ?? []) {
           filas.push({
@@ -1448,6 +1470,9 @@ export default function HesPage() {
         }
         if (transporteOps.length > 0) {
           filas.push({ label: "Transporte", cotizacion: null, totalUF: transporteTotalUF, totalCLP: transporteTotalCLP })
+        }
+        if (unifiedHasMin) {
+          filas.push({ label: "Facturación mínima aplicada (una vez por cliente)", cotizacion: null, totalUF: unifiedMinimoUnicoUF, totalCLP: unifiedMinimoUnicoCLP })
         }
         blob = await pdf(
           <HesResumenUnificadoPDF data={{
@@ -1909,6 +1934,8 @@ export default function HesPage() {
                       transporteOps={transporteOps}
                       transporteTotalCLP={transporteTotalCLP}
                       totalCLP={unifiedTotalCLP}
+                      hasMin={unifiedHasMin}
+                      minimoCLP={unifiedMinimoUnicoCLP}
                       loading={unifiedLoading}
                       error={unifiedError}
                     />

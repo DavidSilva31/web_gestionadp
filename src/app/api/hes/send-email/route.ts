@@ -141,7 +141,7 @@ async function handleSendEmail(req: NextRequest) {
     to: destino,
     subject: `HES ${cliente.nombre} — ${periodoLabel}`,
     html: `
-      <p>Estimado(a) ${cliente.contacto ?? "cliente"},</p>
+      <p>Estimado(a) ${cliente.contacto_comercial_nombre ?? cliente.contacto ?? "cliente"},</p>
       <p>Adjuntamos la Hoja de Estado de Servicio (HES) de <strong>${cliente.nombre}</strong> correspondiente a <strong>${periodoLabel}</strong>.</p>
       <p>Saludos cordiales,<br/>Altos del Puerto — Logística Integral</p>
     `,

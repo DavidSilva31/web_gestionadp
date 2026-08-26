@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, Suspense } from "react"
+import { useState, useEffect, useCallback, useMemo, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   Package, Plus, Search, RefreshCw, ChevronRight, ArrowLeft,
@@ -16,6 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { exportToExcel } from "@/lib/excel"
+import { resolveEffectiveClienteId } from "@/lib/inventario"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
@@ -26,6 +27,7 @@ import type {
   InventarioCategoria,
   InventarioArea,
   InstalacionAlmacenamiento,
+  Movimiento,
 } from "@/types/database"
 
 const CATEGORIAS: InventarioCategoria[] = [
@@ -94,6 +96,73 @@ const EMPTY_FORM: InventarioItemInsert = {
   peso_unitario_ton: null,
 }
 
+const KARDEX_ENVASES = ["Tambor", "Bidón", "IBC", "Saco", "Caja", "Pallet", "Granel", "Maxisaco", "Tineta", "Cilindro", "Cuñete", "Otro"]
+const KARDEX_TIPOS = ["ingreso", "despacho"] as const
+
+// Celda editable del Kardex: clic para editar, blur/Enter guarda, Escape
+// cancela. `onSave` hace el update real y devuelve un mensaje de error (o
+// nada si quedó bien) — la celda no cambia de estado hasta confirmar éxito.
+function KardexCell({
+  value, kind, options, onSave, align = "left", placeholder = "—", labels,
+}: {
+  value: string | number | null
+  kind: "text" | "number" | "date" | "select"
+  options?: readonly string[]
+  labels?: Record<string, string>
+  onSave: (v: string | number | null) => Promise<string | void>
+  align?: "left" | "right"
+  placeholder?: string
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value == null ? "" : String(value))
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => { if (!editing) setDraft(value == null ? "" : String(value)) }, [value, editing])
+
+  async function commit() {
+    const raw = draft.trim()
+    const parsed: string | number | null = kind === "number" ? (raw === "" ? null : parseFloat(raw)) : (raw || null)
+    if (parsed === (value ?? null)) { setEditing(false); return }
+    setSaving(true)
+    const error = await onSave(parsed)
+    setSaving(false)
+    if (error) { setErr(error); return }
+    setErr(null)
+    setEditing(false)
+  }
+  function cancel() { setDraft(value == null ? "" : String(value)); setEditing(false); setErr(null) }
+
+  if (!editing) {
+    return (
+      <button type="button" onClick={() => setEditing(true)}
+        className={cn("block w-full whitespace-nowrap text-left px-2 py-1.5 hover:bg-primary/10 transition-colors", align === "right" && "text-right")}>
+        {value == null || value === ""
+          ? <span className="text-muted-foreground/40">{placeholder}</span>
+          : (labels?.[String(value)] ?? String(value))}
+      </button>
+    )
+  }
+  const shared = "h-7 w-full min-w-[70px] text-[11px] px-1.5 rounded-none border border-primary bg-background focus:outline-none"
+  return (
+    <div className="relative">
+      {kind === "select" ? (
+        <select autoFocus disabled={saving} value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit}
+          onKeyDown={e => { if (e.key === "Escape") cancel() }} className={shared}>
+          <option value="">—</option>
+          {options?.map(o => <option key={o} value={o}>{labels?.[o] ?? o}</option>)}
+        </select>
+      ) : (
+        <input autoFocus disabled={saving} type={kind === "number" ? "number" : kind === "date" ? "date" : "text"}
+          value={draft} onChange={e => setDraft(e.target.value)}
+          onBlur={commit} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel() }}
+          className={cn(shared, align === "right" && "text-right")} />
+      )}
+      {err && <span className="absolute left-0 top-full mt-0.5 whitespace-nowrap z-10 text-[9px] text-destructive-foreground bg-destructive rounded px-1.5 py-0.5">{err}</span>}
+    </div>
+  )
+}
+
 // ── Inner component (requiere useSearchParams → envuelto en Suspense) ──────────
 function InventarioContent() {
   const { user, profile } = useAuth()
@@ -117,13 +186,18 @@ function InventarioContent() {
   const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
   const [exportError,  setExportError]  = useState<string | null>(null)
   const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
+  const [vista,        setVista]        = useState<"resumen" | "kardex">("resumen")
+  const [kardexProducto, setKardexProducto] = useState<string | null>(null)
+  const [kardexMovs,   setKardexMovs]   = useState<Record<string, (Movimiento & { reports: { numero: number } | null })[]>>({})
+  const [loadingKardex, setLoadingKardex] = useState(false)
+  const [kardexError,  setKardexError]  = useState<string | null>(null)
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)
     setFetchError(null)
     const supabase = createClient()
     const [{ data: cData, error: e1 }, { data: iData, error: e2 }] = await Promise.all([
-      supabase.from("clientes").select("id, nombre").eq("activo", true).order("nombre"),
+      supabase.from("clientes").select("id, nombre, stock_compartido_con, usa_vista_kardex").eq("activo", true).order("nombre"),
       supabase.from("inventario_items").select("*").eq("activo", true).order("numero"),
     ])
     if (e1 ?? e2) { setFetchError((e1 ?? e2)!.message); setLoading(false); return }
@@ -134,6 +208,13 @@ function InventarioContent() {
     for (const item of (iData ?? []) as InventarioItem[]) {
       if (grouped[item.cliente_id]) grouped[item.cliente_id].push(item)
       else grouped[item.cliente_id] = [item]
+    }
+    // Clientes que comparten pool de stock con otro ven los mismos ítems —
+    // mismo arreglo, no una copia, para que el contador y el panel coincidan.
+    for (const c of clientes) {
+      if (c.stock_compartido_con && grouped[c.stock_compartido_con]) {
+        grouped[c.id] = grouped[c.stock_compartido_con]
+      }
     }
     setClienteItems(grouped)
     setLoading(false)
@@ -150,10 +231,11 @@ function InventarioContent() {
     setLoadingItems(true)
     setItemsError(null)
     const supabase = createClient()
+    const effectiveId = await resolveEffectiveClienteId(supabase, clienteId)
     const { data, error } = await supabase
       .from("inventario_items")
       .select("*")
-      .eq("cliente_id", clienteId)
+      .eq("cliente_id", effectiveId)
       .eq("activo", true)
       .order("numero")
     if (error) {
@@ -177,14 +259,106 @@ function InventarioContent() {
 
   function selectCliente(c: Cliente) {
     setSelected(c)
+    setVista("resumen")
+    setKardexProducto(null)
     if (!clienteItems[c.id]) {
       fetchItemsForCliente(c.id)
     }
   }
 
-  function openNew() {
+  const fetchKardexForCliente = useCallback(async (clienteId: string) => {
+    setLoadingKardex(true)
+    setKardexError(null)
+    const supabase = createClient()
+    const effectiveId = await resolveEffectiveClienteId(supabase, clienteId)
+    const { data, error } = await supabase
+      .from("movimientos")
+      .select("*, reports(numero)")
+      .eq("cliente_id", effectiveId)
+      .order("fecha", { ascending: true })
+    if (error) {
+      setKardexError(error.message)
+    } else {
+      setKardexMovs(prev => ({ ...prev, [clienteId]: (data ?? []) as unknown as (Movimiento & { reports: { numero: number } | null })[] }))
+    }
+    setLoadingKardex(false)
+  }, [])
+
+  useEffect(() => {
+    if (vista === "kardex" && selected && !kardexMovs[selected.id]) {
+      fetchKardexForCliente(selected.id)
+    }
+  }, [vista, selected, kardexMovs, fetchKardexForCliente])
+
+  // Agrupa por lote (código) y calcula el saldo corrido fila a fila, igual
+  // que el Kardex en excel del cliente — el saldo nunca se guarda en BD.
+  const kardexGroups = useMemo(() => {
+    const movs = selected ? (kardexMovs[selected.id] ?? []) : []
+    const groups = new Map<string, typeof movs>()
+    for (const m of movs) {
+      const key = m.codigo || m.lote || m.carga
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(m)
+    }
+    return [...groups.entries()].map(([key, groupMovs]) => {
+      let stockPos = 0
+      let stockUnd = 0
+      const rows = groupMovs.map(m => {
+        if (m.tipo === "ingreso") { stockPos += m.posiciones ?? 0; stockUnd += m.unidades ?? 0 }
+        else                      { stockPos -= m.posiciones ?? 0; stockUnd -= m.unidades ?? 0 }
+        return { ...m, stockPos, stockUnd }
+      })
+      return { key, carga: groupMovs[0].carga, lote: groupMovs[0].lote, codigo: groupMovs[0].codigo, rows }
+    })
+  }, [selected, kardexMovs])
+
+  const kardexProductos = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const g of kardexGroups) counts.set(g.carga, (counts.get(g.carga) ?? 0) + 1)
+    return [...counts.entries()].map(([carga, lotes]) => ({ carga, lotes })).sort((a, b) => a.carga.localeCompare(b.carga))
+  }, [kardexGroups])
+
+  const kardexGroupsFiltered = kardexProducto ? kardexGroups.filter(g => g.carga === kardexProducto) : []
+
+  // Edición inline de un valor del Kardex — el trigger de BD ya recalcula
+  // stock_actual del ítem cuando cambian tipo/unidades, no hay que tocarlo acá.
+  async function updateKardexField<K extends keyof Movimiento>(movId: string, field: K, value: Movimiento[K]) {
     if (!selected) return
-    setForm({ ...EMPTY_FORM, cliente_id: selected.id })
+    const supabase = createClient()
+    const { error } = await supabase.from("movimientos").update({ [field]: value }).eq("id", movId)
+    if (error) return error.message
+    setKardexMovs(prev => ({
+      ...prev,
+      [selected.id]: (prev[selected.id] ?? []).map(m => m.id === movId ? { ...m, [field]: value } : m),
+    }))
+  }
+
+  async function updateKardexReport(movId: string, raw: string | number | null) {
+    if (!selected) return
+    const supabase = createClient()
+    if (raw == null || raw === "") {
+      const { error } = await supabase.from("movimientos").update({ report_id: null }).eq("id", movId)
+      if (error) return error.message
+      setKardexMovs(prev => ({ ...prev, [selected.id]: (prev[selected.id] ?? []).map(m => m.id === movId ? { ...m, report_id: null, reports: null } : m) }))
+      return
+    }
+    const numero = parseInt(String(raw), 10)
+    if (Number.isNaN(numero)) return "Número inválido"
+    const { data: rep, error: findErr } = await supabase.from("reports").select("id, numero").eq("numero", numero).maybeSingle()
+    if (findErr) return findErr.message
+    if (!rep) return `No existe report ${numero}`
+    const { error } = await supabase.from("movimientos").update({ report_id: rep.id }).eq("id", movId)
+    if (error) return error.message
+    setKardexMovs(prev => ({ ...prev, [selected.id]: (prev[selected.id] ?? []).map(m => m.id === movId ? { ...m, report_id: rep.id, reports: { numero: rep.numero } } : m) }))
+  }
+
+  async function openNew() {
+    if (!selected) return
+    // Si el cliente seleccionado comparte pool de stock, el ítem nuevo debe
+    // quedar bajo el dueño real del inventario, no bajo el cliente en pantalla.
+    const supabase = createClient()
+    const ownerId = await resolveEffectiveClienteId(supabase, selected.id)
+    setForm({ ...EMPTY_FORM, cliente_id: ownerId })
     setError(null)
     setDialog("new")
   }
@@ -481,6 +655,19 @@ function InventarioContent() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {selected.usa_vista_kardex && (
+                      <div className="inline-flex rounded-md border border-border/50 overflow-hidden h-7">
+                        {(["resumen", "kardex"] as const).map(v => (
+                          <button key={v} type="button" onClick={() => setVista(v)}
+                            className={cn(
+                              "px-2.5 text-[11px] font-medium transition-colors",
+                              vista === v ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:text-foreground"
+                            )}>
+                            {v === "kardex" ? "Detalle" : "Resumen"}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <Button
                       variant="outline" size="sm"
                       onClick={openExportPreview}
@@ -501,9 +688,167 @@ function InventarioContent() {
                   </div>
                 </div>
 
+                {vista === "kardex" && kardexProductos.length > 0 && (
+                  <div className="px-6 py-2.5 border-b bg-muted/5 flex items-center gap-2 flex-shrink-0">
+                    <Label className="text-[11px] text-muted-foreground font-medium">Producto</Label>
+                    <select value={kardexProducto ?? ""} onChange={e => setKardexProducto(e.target.value || null)}
+                      className="h-8 flex-1 max-w-sm rounded-md border border-input bg-background px-2.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring">
+                      <option value="">Selecciona un producto…</option>
+                      {kardexProductos.map(p => (
+                        <option key={p.carga} value={p.carga}>{p.carga}{p.lotes > 1 ? ` (${p.lotes} lotes)` : ""}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {/* Tabla de ítems */}
                 <div className="flex-1 min-h-0 overflow-hidden">
-                  {loadingItems ? (
+                  {vista === "kardex" ? (
+                    loadingKardex ? (
+                      <div className="flex items-center justify-center h-32">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      </div>
+                    ) : kardexError ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+                        <AlertCircle className="h-8 w-8 text-destructive/60" />
+                        <p className="text-sm">No se pudo cargar el kardex: {kardexError}</p>
+                        <Button size="sm" variant="outline" onClick={() => selected && fetchKardexForCliente(selected.id)} className="gap-1.5 text-xs">
+                          Reintentar
+                        </Button>
+                      </div>
+                    ) : kardexGroups.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+                        <Package className="h-10 w-10 opacity-20" />
+                        <p className="text-sm font-medium">Sin movimientos registrados</p>
+                      </div>
+                    ) : !kardexProducto ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+                        <Package className="h-10 w-10 opacity-20" />
+                        <p className="text-sm font-medium">Selecciona un producto para ver su Detalle</p>
+                        <p className="text-xs">{kardexProductos.length} productos con movimientos</p>
+                      </div>
+                    ) : (
+                      <div className="h-full overflow-y-auto overflow-x-auto p-4 space-y-5">
+                        {kardexGroupsFiltered.map(group => (
+                          <div key={group.key} className="rounded-lg border border-border/40 overflow-hidden">
+                            <div className="px-3 py-2 bg-muted/40 border-b border-border/30 flex items-baseline gap-2 flex-wrap">
+                              <span className="text-xs font-bold">{group.carga}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {[group.codigo && `Código ${group.codigo}`, group.lote && `Lote ${group.lote}`].filter(Boolean).join(" · ")}
+                              </span>
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="text-[11px] min-w-[1400px] w-full">
+                                <thead className="bg-muted/20 border-b border-border/20">
+                                  <tr className="text-left text-muted-foreground">
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Fecha</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Tipo</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">IMO</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">UN</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">CAS</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Guía</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">OC</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Elab.</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Venc.</th>
+                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Peso neto</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Envase</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Report</th>
+                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Ing. Pos</th>
+                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Ing. Und</th>
+                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Desp. Pos</th>
+                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Desp. Und</th>
+                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Stock Pos</th>
+                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Stock Und</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Bodega</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {group.rows.map((m, i) => {
+                                    const vencido = m.fecha_vencimiento && m.fecha_vencimiento < new Date().toISOString().slice(0, 10)
+                                    return (
+                                      <tr key={m.id} className={cn("border-b border-border/10 last:border-0", i % 2 !== 0 && "bg-muted/10")}>
+                                        <td className="p-0 whitespace-nowrap tabular-nums">
+                                          <KardexCell kind="date" value={m.fecha.slice(0, 10)}
+                                            onSave={async v => {
+                                              if (!v) return "Requerido"
+                                              const old = new Date(m.fecha)
+                                              const [y, mo, d] = String(v).split("-").map(Number)
+                                              old.setUTCFullYear(y, mo - 1, d)
+                                              return updateKardexField(m.id, "fecha", old.toISOString())
+                                            }} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap">
+                                          <KardexCell kind="select" value={m.tipo} options={KARDEX_TIPOS}
+                                            labels={{ ingreso: "Ingreso", despacho: "Despacho" }}
+                                            onSave={v => updateKardexField(m.id, "tipo", (v as Movimiento["tipo"]) ?? "ingreso")} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.imo} onSave={v => updateKardexField(m.id, "imo", v as string | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.un} onSave={v => updateKardexField(m.id, "un", v as string | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.cas} onSave={v => updateKardexField(m.id, "cas", v as string | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.guia_numero} onSave={v => updateKardexField(m.id, "guia_numero", v as string | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.orden_compra} onSave={v => updateKardexField(m.id, "orden_compra", v as string | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="date" value={m.fecha_elaboracion} onSave={v => updateKardexField(m.id, "fecha_elaboracion", v as string | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap">
+                                          <KardexCell kind="date" value={m.fecha_vencimiento} onSave={v => updateKardexField(m.id, "fecha_vencimiento", v as string | null)} />
+                                          {vencido && <span className="text-[9px] text-destructive font-medium block px-1.5">Vencido</span>}
+                                        </td>
+                                        <td className="p-0 text-right whitespace-nowrap tabular-nums">
+                                          <KardexCell kind="number" align="right" value={m.peso_envase} onSave={v => updateKardexField(m.id, "peso_envase", v as number | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="select" value={m.tipo_envase} options={KARDEX_ENVASES} onSave={v => updateKardexField(m.id, "tipo_envase", v as Movimiento["tipo_envase"])} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.reports?.numero ?? null} onSave={v => updateKardexReport(m.id, v)} />
+                                        </td>
+                                        <td className="p-0 text-right whitespace-nowrap tabular-nums">
+                                          {m.tipo === "ingreso"
+                                            ? <KardexCell kind="number" align="right" value={m.posiciones} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
+                                            : ""}
+                                        </td>
+                                        <td className="p-0 text-right whitespace-nowrap tabular-nums">
+                                          {m.tipo === "ingreso"
+                                            ? <KardexCell kind="number" align="right" value={m.unidades} onSave={v => updateKardexField(m.id, "unidades", v as number | null)} />
+                                            : ""}
+                                        </td>
+                                        <td className="p-0 text-right whitespace-nowrap tabular-nums">
+                                          {m.tipo === "despacho"
+                                            ? <KardexCell kind="number" align="right" value={m.posiciones} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
+                                            : ""}
+                                        </td>
+                                        <td className="p-0 text-right whitespace-nowrap tabular-nums">
+                                          {m.tipo === "despacho"
+                                            ? <KardexCell kind="number" align="right" value={m.unidades} onSave={v => updateKardexField(m.id, "unidades", v as number | null)} />
+                                            : ""}
+                                        </td>
+                                        <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums font-semibold">{m.stockPos}</td>
+                                        <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums font-semibold">{m.stockUnd}</td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.bodega} onSave={v => updateKardexField(m.id, "bodega", v as string | null)} />
+                                        </td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  ) : loadingItems ? (
                     <div className="flex items-center justify-center h-32">
                       <Loader2 className="h-5 w-5 animate-spin text-primary" />
                     </div>
