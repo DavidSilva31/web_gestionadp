@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { CheckCircle2, Clock, Truck, Search, User, Calendar, Package, ChevronDown, ChevronUp, Loader2, RefreshCw, Upload, FileText, X } from "lucide-react"
+import { CheckCircle2, Clock, Truck, Search, User, Calendar, Package, ChevronDown, ChevronUp, Loader2, RefreshCw, Upload, FileText, X, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
+import { syncPesoTon } from "@/lib/inventario"
 import { cn } from "@/lib/utils"
 
 interface PendingReport {
@@ -23,6 +24,9 @@ interface PendingReport {
   sec3_activa:          boolean
   sec1_tipo_contenedor: string | null
   sec3_producto:        string | null
+  sec3_tipo:            string | null
+  sec3_numero_pallets:  number | null
+  sec3_inventario_item_id: string | null
 }
 
 interface DispatchedReport {
@@ -52,7 +56,7 @@ function SeccionTag({ active, label }: { active: boolean; label: string }) {
   )
 }
 
-function ReportCard({ report, onDispatch }: { report: PendingReport; onDispatch: (id: string, nombre: string, docPath: string) => Promise<string | null> }) {
+function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport; stockActual: number | null; onDispatch: (id: string, nombre: string, docPath: string) => Promise<string | null> }) {
   const [expanded,    setExpanded]    = useState(false)
   const [nombre,      setNombre]      = useState("")
   const [file,        setFile]        = useState<File | null>(null)
@@ -144,6 +148,15 @@ function ReportCard({ report, onDispatch }: { report: PendingReport; onDispatch:
       {expanded && (
         <div className="border-t bg-muted/30 px-5 py-4 space-y-4">
           <p className="text-xs font-semibold text-foreground">Confirmar salida del vehículo</p>
+
+          {report.sec3_tipo === "despacho" && report.sec3_numero_pallets != null && stockActual != null && report.sec3_numero_pallets > stockActual && (
+            <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                Stock actual: <strong>{stockActual}</strong> — se despachan <strong>{report.sec3_numero_pallets}</strong>. El sistema puede estar desactualizado; puedes confirmar igual.
+              </p>
+            </div>
+          )}
 
           {/* Paso 1: Documento firmado */}
           <div>
@@ -260,6 +273,7 @@ export default function DespachoPage() {
   const [loading,    setLoading]    = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [search,     setSearch]     = useState("")
+  const [stockPorItem, setStockPorItem] = useState<Record<string, number>>({})
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -269,7 +283,7 @@ export default function DespachoPage() {
     const [pendingRes, dispatchedRes] = await Promise.all([
       supabase
         .from("reports")
-        .select("id, numero, cliente, patente, conductor, created_at, nombre_operador, sec1_activa, sec2_activa, sec3_activa, sec1_tipo_contenedor, sec3_producto")
+        .select("id, numero, cliente, patente, conductor, created_at, nombre_operador, sec1_activa, sec2_activa, sec3_activa, sec1_tipo_contenedor, sec3_producto, sec3_tipo, sec3_numero_pallets, sec3_inventario_item_id")
         .eq("estado", "pendiente_despacho")
         .order("created_at", { ascending: true }),
 
@@ -286,8 +300,21 @@ export default function DespachoPage() {
       setLoading(false)
       return
     }
-    if (pendingRes.data)    setPending(pendingRes.data as PendingReport[])
+    const pendingData = (pendingRes.data ?? []) as PendingReport[]
+    if (pendingRes.data)    setPending(pendingData)
     if (dispatchedRes.data) setDispatched(dispatchedRes.data as DispatchedReport[])
+
+    // Stock actual de los ítems que se van a despachar, para avisar si no alcanza.
+    const itemIds = [...new Set(
+      pendingData.filter(r => r.sec3_tipo === "despacho" && r.sec3_inventario_item_id).map(r => r.sec3_inventario_item_id!)
+    )]
+    if (itemIds.length > 0) {
+      const { data: items } = await supabase.from("inventario_items").select("id, stock_actual").in("id", itemIds)
+      setStockPorItem(Object.fromEntries((items ?? []).map(i => [i.id, i.stock_actual])))
+    } else {
+      setStockPorItem({})
+    }
+
     setLoading(false)
   }, [])
 
@@ -330,6 +357,23 @@ export default function DespachoPage() {
       usuario_id:     user?.id,
       usuario_nombre: nombre,
     })
+    // El stock recién se mueve acá (trigger reports_sync_inventario en la
+    // transición a 'despachado') — el log de auditoría de stock va en el
+    // mismo momento, no al crear/editar el report.
+    if (r?.sec3_activa && r.sec3_inventario_item_id && r.sec3_tipo) {
+      const delta     = Number(r.sec3_numero_pallets) || 0
+      const invAccion = r.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
+      const invDesc   = `Stock ${r.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${r.sec3_producto ?? ""}`
+      logAudit({
+        tabla:          "inventario_items",
+        registro_id:    r.sec3_inventario_item_id,
+        accion:         invAccion,
+        descripcion:    `${invDesc} via Report #${r.numero}`,
+        usuario_id:     user?.id,
+        usuario_nombre: nombre,
+      })
+      await syncPesoTon(supabase, r.sec3_inventario_item_id)
+    }
     setPending(prev => prev.filter(x => x.id !== id))
     return null
   }
@@ -385,7 +429,14 @@ export default function DespachoPage() {
                 <p className="text-xs text-muted-foreground mt-1">No hay vehículos en espera</p>
               </div>
             ) : (
-              filtered.map(r => <ReportCard key={r.id} report={r} onDispatch={handleDispatch} />)
+              filtered.map(r => (
+                <ReportCard
+                  key={r.id}
+                  report={r}
+                  stockActual={r.sec3_inventario_item_id ? stockPorItem[r.sec3_inventario_item_id] ?? null : null}
+                  onDispatch={handleDispatch}
+                />
+              ))
             )}
           </div>
         </div>

@@ -320,12 +320,12 @@ export default function NuevoReportPage() {
       return
     }
 
-    // stock_actual ya lo actualiza el trigger de BD reports_sync_inventario en
-    // CUALQUIER insert con sec3 activa (no solo al despachar) — llamar
-    // update_stock acá también duplicaba el descuento/incremento. Por eso
-    // syncPesoTon corre siempre que haya ítem vinculado, sin importar el
-    // estado; la validación de pallets y el log de auditoría de stock quedan
-    // solo para el envío a despacho.
+    // stock_actual solo lo mueve el trigger de BD reports_sync_inventario
+    // cuando el report queda en estado 'despachado' (no en esta creación como
+    // borrador/pendiente_despacho) — llamar update_stock acá duplicaría el
+    // ajuste. syncPesoTon igual corre siempre que haya ítem vinculado, para
+    // no dejar peso_ton desactualizado; el log de auditoría de stock se
+    // registra recién en la confirmación real de despacho (/reports/despacho).
     if (estado === "pendiente_despacho" && form.sec3_inventario_item_id && form.sec3_tipo) {
       const delta = Number(form.sec3_numero_pallets)
       if (!delta || delta <= 0) {
@@ -338,30 +338,6 @@ export default function NuevoReportPage() {
 
     if (form.sec3_inventario_item_id) {
       await syncPesoTon(supabase, form.sec3_inventario_item_id)
-    }
-
-    if (estado === "pendiente_despacho" && form.sec3_inventario_item_id && form.sec3_tipo) {
-      const delta = Number(form.sec3_numero_pallets)
-      const invAccion = form.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
-      const invDesc   = `Stock ${form.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${form.sec3_producto}`
-
-      // fire-and-forget — audit failures no bloquean el flujo
-      logAudit({
-        tabla:          "inventario_items",
-        registro_id:    form.sec3_inventario_item_id,
-        accion:         invAccion,
-        descripcion:    `${invDesc} via Report #${inserted.numero}`,
-        usuario_id:     user?.id,
-        usuario_nombre: profile?.nombre ?? user?.email,
-      })
-      logAudit({
-        tabla:          "reports",
-        registro_id:    inserted.id,
-        accion:         invAccion,
-        descripcion:    invDesc,
-        usuario_id:     user?.id,
-        usuario_nombre: profile?.nombre ?? user?.email,
-      })
     }
 
     // fire-and-forget
@@ -617,24 +593,31 @@ export default function NuevoReportPage() {
                 toUpperCase
                 hideActivation
                 productoNode={
-                  <ProductoCombobox
-                    clienteId={form.cliente_id}
-                    value={form.sec3_producto}
-                    onChange={v => set("sec3_producto", v)}
-                    onSelect={item => setForm(prev => ({
-                      ...prev,
-                      sec3_inventario_item_id: item.id,
-                      sec3_producto:           item.descripcion,
-                      sec3_clase_imo:          item.clase_imo ?? "",
-                      sec3_nu:                 item.nu        ?? "",
-                    }))}
-                    onClear={() => setForm(prev => ({
-                      ...prev,
-                      sec3_inventario_item_id: "",
-                      sec3_clase_imo:          "",
-                      sec3_nu:                 "",
-                    }))}
-                  />
+                  <>
+                    <ProductoCombobox
+                      clienteId={form.cliente_id}
+                      value={form.sec3_producto}
+                      onChange={v => set("sec3_producto", v)}
+                      onSelect={item => setForm(prev => ({
+                        ...prev,
+                        sec3_inventario_item_id: item.id,
+                        sec3_producto:           item.descripcion,
+                        sec3_clase_imo:          item.clase_imo ?? "",
+                        sec3_nu:                 item.nu        ?? "",
+                      }))}
+                      onClear={() => setForm(prev => ({
+                        ...prev,
+                        sec3_inventario_item_id: "",
+                        sec3_clase_imo:          "",
+                        sec3_nu:                 "",
+                      }))}
+                    />
+                    {form.sec3_activa && form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
+                      <p className="text-[10px] text-amber-600 mt-1">
+                        No vinculado al catálogo — este report no actualizará el stock.
+                      </p>
+                    )}
+                  </>
                 }
               />
             </div>

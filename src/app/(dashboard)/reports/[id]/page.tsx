@@ -383,10 +383,10 @@ export default function ReportDetailPage() {
       }
     }
 
-    // stock_actual ya lo actualiza el trigger de BD reports_sync_inventario en
-    // CUALQUIER update con sec3 activa (no solo al pasar a pendiente_despacho)
-    // — llamar update_stock acá también duplicaba el descuento/incremento.
-    // syncPesoTon corre siempre que haya ítem vinculado para no dejar el peso
+    // stock_actual solo lo mueve el trigger de BD reports_sync_inventario
+    // cuando el report queda en estado 'despachado' — una edición mientras
+    // sigue en borrador/pendiente_despacho no toca stock. syncPesoTon corre
+    // igual siempre que haya ítem vinculado para no dejar peso_ton
     // desactualizado en ediciones que no cambian de estado.
     if (form.sec3_activa && form.sec3_inventario_item_id) {
       await syncPesoTon(supabase, form.sec3_inventario_item_id)
@@ -718,25 +718,32 @@ export default function ReportDetailPage() {
                 toUpperCase
                 hideActivation
                 productoNode={
-                  <ProductoCombobox
-                    clienteId={form.cliente_id}
-                    value={form.sec3_producto}
-                    onChange={v => set("sec3_producto", v)}
-                    onSelect={(item: InventarioItemOption) => setForm(prev => prev ? ({
-                      ...prev,
-                      sec3_inventario_item_id: item.id,
-                      sec3_producto:           item.descripcion,
-                      sec3_clase_imo:          item.clase_imo ?? "",
-                      sec3_nu:                 item.nu        ?? "",
-                    }) : prev)}
-                    onClear={() => setForm(prev => prev ? ({
-                      ...prev,
-                      sec3_inventario_item_id: "",
-                      sec3_clase_imo:          "",
-                      sec3_nu:                 "",
-                    }) : prev)}
-                    readOnly={readOnly}
-                  />
+                  <>
+                    <ProductoCombobox
+                      clienteId={form.cliente_id}
+                      value={form.sec3_producto}
+                      onChange={v => set("sec3_producto", v)}
+                      onSelect={(item: InventarioItemOption) => setForm(prev => prev ? ({
+                        ...prev,
+                        sec3_inventario_item_id: item.id,
+                        sec3_producto:           item.descripcion,
+                        sec3_clase_imo:          item.clase_imo ?? "",
+                        sec3_nu:                 item.nu        ?? "",
+                      }) : prev)}
+                      onClear={() => setForm(prev => prev ? ({
+                        ...prev,
+                        sec3_inventario_item_id: "",
+                        sec3_clase_imo:          "",
+                        sec3_nu:                 "",
+                      }) : prev)}
+                      readOnly={readOnly}
+                    />
+                    {form.sec3_activa && form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
+                      <p className="text-[10px] text-amber-600 mt-1">
+                        No vinculado al catálogo — este report no actualizará el stock.
+                      </p>
+                    )}
+                  </>
                 }
               />
             </div>

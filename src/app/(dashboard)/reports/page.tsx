@@ -15,6 +15,7 @@ import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { exportReportsToExcel } from "@/lib/export-reports-excel"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
+import { syncPesoTon } from "@/lib/inventario"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 
 type Tab = "todos" | ReportEstado
@@ -30,6 +31,10 @@ interface ReportRow {
   sec1_activa: boolean
   sec2_activa: boolean
   sec3_activa: boolean
+  sec3_tipo:               string | null
+  sec3_numero_pallets:     number | null
+  sec3_inventario_item_id: string | null
+  sec3_producto:           string | null
 }
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
@@ -81,7 +86,7 @@ export default function ReportsPage() {
     const supabase = createClient()
     const { data, error: err } = await supabase
       .from("reports")
-      .select("id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa")
+      .select("id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa, sec3_tipo, sec3_numero_pallets, sec3_inventario_item_id, sec3_producto")
       .order("numero", { ascending: false })
       .limit(500)
 
@@ -201,6 +206,23 @@ export default function ReportsPage() {
         usuario_id:     user?.id,
         usuario_nombre: profile?.nombre ?? dispatchNombre,
       })
+      // El stock recién se mueve acá (trigger reports_sync_inventario en la
+      // transición a 'despachado') — el log de auditoría de stock va en el
+      // mismo momento, no al crear/editar el report.
+      if (dispatchFor.sec3_activa && dispatchFor.sec3_inventario_item_id && dispatchFor.sec3_tipo) {
+        const delta     = Number(dispatchFor.sec3_numero_pallets) || 0
+        const invAccion = dispatchFor.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
+        const invDesc   = `Stock ${dispatchFor.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${dispatchFor.sec3_producto ?? ""}`
+        await logAudit({
+          tabla:          "inventario_items",
+          registro_id:    dispatchFor.sec3_inventario_item_id,
+          accion:         invAccion,
+          descripcion:    `${invDesc} via Report #${dispatchFor.numero}`,
+          usuario_id:     user?.id,
+          usuario_nombre: profile?.nombre ?? dispatchNombre,
+        })
+        await syncPesoTon(supabase, dispatchFor.sec3_inventario_item_id)
+      }
 
       closeDispatchModal()
       fetchReports()
