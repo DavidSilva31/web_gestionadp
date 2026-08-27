@@ -45,22 +45,25 @@ const ROLE_ICON: Record<UserRole, React.ReactNode> = {
 }
 
 const MODULE_OPTIONS = [
-  { href: "/dashboard",        label: "Inicio",      group: "Módulos principales"     },
-  { href: "/inventario",       label: "Inventario",  group: "Módulos principales"     },
-  { href: "/movimientos",      label: "Movimientos", group: "Módulos principales"     },
-  { href: "/clientes",         label: "Clientes",    group: "Módulos principales"     },
-  { href: "/reportes",         label: "Analítica",   group: "Módulos principales"     },
-  { href: "/hes",              label: "HES",         group: "Módulos principales"     },
-  { href: "/reports",          label: "Reports",     group: "Servicio almacenamiento" },
-  { href: "/reports/despacho", label: "Despacho",    group: "Servicio almacenamiento" },
-  { href: "/transporte",       label: "Transporte",  group: "Servicio almacenamiento" },
-  { href: "/auditoria",        label: "Auditoría",   group: "Administración"          },
+  { href: "/dashboard",           label: "Inicio",             group: "Módulos principales"     },
+  { href: "/inventario",          label: "Inventario",         group: "Módulos principales"     },
+  { href: "/instalaciones",       label: "Instalaciones",      group: "Módulos principales"     },
+  { href: "/movimientos",         label: "Movimientos",        group: "Módulos principales"     },
+  { href: "/clientes",            label: "Clientes",           group: "Módulos principales"     },
+  { href: "/servicios",           label: "Servicios",          group: "Módulos principales"     },
+  { href: "/reportes",            label: "Analítica",          group: "Módulos principales"     },
+  { href: "/hes",                 label: "HES",                group: "Módulos principales"     },
+  { href: "/reports",             label: "Reports",            group: "Servicio almacenamiento" },
+  { href: "/reports/despacho",    label: "Despacho",           group: "Servicio almacenamiento" },
+  { href: "/transporte",          label: "Transporte",         group: "Servicio almacenamiento" },
+  { href: "/transporte-incomex",  label: "Transporte Incomex", group: "Servicio almacenamiento" },
+  { href: "/auditoria",           label: "Auditoría",          group: "Administración"          },
 ]
 
 const ROLE_MODULE_DEFAULTS: Record<UserRole, string[]> = {
-  super_admin:    ["/dashboard", "/inventario", "/movimientos", "/clientes", "/reportes", "/hes", "/reports", "/reports/despacho", "/transporte", "/auditoria"],
-  operador:       ["/dashboard", "/inventario", "/movimientos", "/clientes", "/reportes", "/hes", "/reports", "/reports/despacho", "/transporte"],
-  operador_carga: ["/inventario", "/reports", "/reports/despacho"],
+  super_admin:    ["/dashboard", "/inventario", "/instalaciones", "/movimientos", "/clientes", "/servicios", "/reportes", "/hes", "/reports", "/reports/despacho", "/transporte", "/transporte-incomex", "/auditoria"],
+  operador:       ["/dashboard", "/inventario", "/instalaciones", "/movimientos", "/clientes", "/servicios", "/reportes", "/hes", "/reports", "/reports/despacho", "/transporte", "/transporte-incomex"],
+  operador_carga: ["/inventario", "/instalaciones", "/reports", "/reports/despacho"],
 }
 
 const MODULE_GROUPS = [...new Set(MODULE_OPTIONS.map(m => m.group))]
