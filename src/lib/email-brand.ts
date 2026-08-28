@@ -19,8 +19,13 @@ let logoCache: string | null = null
 // Base64 inline en vez de una URL pública: la mayoría de los clientes de
 // correo bloquean imágenes remotas por defecto, y en dev NEXT_PUBLIC_SITE_URL
 // apunta a localhost (inalcanzable para quien recibe el correo).
+//
+// Usa adp_logo_email.png (300px, ~7KB) y NO el original (1024px, ~62KB) —
+// en base64 el original pesa ~83KB solo la imagen, y Gmail recorta el
+// cuerpo del correo a partir de ~102KB ("[Mensaje recortado]"), cortando el
+// string base64 a la mitad y dejando el logo cargado solo parcialmente.
 function getLogoBase64(): string {
-  if (!logoCache) logoCache = readFileSync(join(process.cwd(), "public", "adp_logo.png")).toString("base64")
+  if (!logoCache) logoCache = readFileSync(join(process.cwd(), "public", "adp_logo_email.png")).toString("base64")
   return logoCache
 }
 
