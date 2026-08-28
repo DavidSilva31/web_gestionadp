@@ -363,11 +363,11 @@ export default function MovimientosPage() {
     if (built) setExportPreview(built)
   }
 
-  function handleDownloadExport() {
+  async function handleDownloadExport() {
     if (!exportPreview) return
     setExportError(null)
     try {
-      exportToExcel(exportPreview.rows, exportPreview.filename, "Movimientos")
+      await exportToExcel(exportPreview.rows, exportPreview.filename, "Movimientos")
       setExportPreview(null)
     } catch (err) {
       console.error("[movimientos] error exportando Excel:", err)

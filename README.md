@@ -406,4 +406,4 @@ node --env-file=.env.local generate-screenshots.mjs
 
 Las imágenes se guardan en `screenshots/`. Requiere que el servidor esté corriendo en `localhost:4400`.
 
-También existen `generate-screenshots-landing.mjs` (capturas de la landing comercial) y `generate-pdf.mjs` (genera un PDF de la propuesta a partir de esas capturas).
+También existe `generate-pdf.mjs`, que genera un PDF de la propuesta comercial a partir de `propuesta_ADP_Gestion.html` (documento interno, no versionado — ver `.gitignore`).

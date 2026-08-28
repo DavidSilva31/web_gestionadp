@@ -50,3 +50,6 @@ next-env.d.ts
 
 # Local Netlify folder
 .netlify
+
+# capturas de verificación manual, no son parte del proyecto
+/screenshots-responsive/

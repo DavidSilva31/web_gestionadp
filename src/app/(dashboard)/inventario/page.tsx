@@ -498,11 +498,11 @@ function InventarioContent() {
     if (built) setExportPreview(built)
   }
 
-  function handleDownloadExport() {
+  async function handleDownloadExport() {
     if (!exportPreview) return
     setExportError(null)
     try {
-      exportToExcel(exportPreview.rows, exportPreview.filename, "Inventario")
+      await exportToExcel(exportPreview.rows, exportPreview.filename, "Inventario")
       setExportPreview(null)
     } catch (err) {
       console.error("[inventario] error exportando Excel:", err)

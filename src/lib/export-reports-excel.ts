@@ -1,5 +1,14 @@
-import * as XLSX from "xlsx"
+import ExcelJS from "exceljs"
 import type { Report } from "@/types/database"
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a   = document.createElement("a")
+  a.href     = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 const TIPO_MOV: Record<string, string> = { ingreso: "Ingreso", despacho: "Despacho" }
 const TIPO_CONT: Record<string, string> = { "20ft": "20 ft", "40ft": "40 ft", isotanque: "Isotanque" }
@@ -8,7 +17,7 @@ const SOL_POR: Record<string, string> = { clientes: "Clientes", hds: "HDS", oper
 const yn = (v: boolean | null | undefined) => (v ? "Sí" : "No")
 const str = (v: string | number | null | undefined) => v ?? ""
 
-export function exportReportsToExcel(reports: Report[], filename = "reports_adp") {
+export async function exportReportsToExcel(reports: Report[], filename = "reports_adp") {
   const rows = reports.map(r => ({
     // ── Identificación ──────────────────────────────────────────
     "N° Report":            r.numero,
@@ -74,17 +83,17 @@ export function exportReportsToExcel(reports: Report[], filename = "reports_adp"
     "Actualizado":          r.updated_at ? new Date(r.updated_at).toLocaleString("es-CL") : "",
   }))
 
-  const ws = XLSX.utils.json_to_sheet(rows)
-
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet("Reports")
+  const keys = Object.keys(rows[0] ?? {})
   // Ancho automático de columnas
-  const colWidths = Object.keys(rows[0] ?? {}).map(key => ({
-    wch: Math.max(key.length, ...rows.map(r => String((r as Record<string,unknown>)[key] ?? "").length)) + 2,
+  ws.columns = keys.map(key => ({
+    header: key, key,
+    width: Math.max(key.length, ...rows.map(r => String((r as Record<string, unknown>)[key] ?? "").length)) + 2,
   }))
-  ws["!cols"] = colWidths
-
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, "Reports")
+  ws.addRows(rows)
 
   const date = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `${filename}_${date}.xlsx`)
+  const buffer = await wb.xlsx.writeBuffer()
+  triggerBlobDownload(new Blob([buffer]), `${filename}_${date}.xlsx`)
 }

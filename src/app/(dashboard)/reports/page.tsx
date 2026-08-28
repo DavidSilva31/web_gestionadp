@@ -153,7 +153,7 @@ export default function ReportsPage() {
         .in("id", ids)
         .order("numero", { ascending: true })
       if (error) throw error
-      if (data && data.length > 0) exportReportsToExcel(data as Report[])
+      if (data && data.length > 0) await exportReportsToExcel(data as Report[])
     } catch (err) {
       console.error("[reports] error exportando Excel:", err)
       setActionError("No se pudo exportar a Excel. Intenta de nuevo.")
