@@ -8,6 +8,7 @@ import {
 } from "@/lib/hes-workbook"
 import { renderResumenPdfBuffer, renderResumenUnificadoPdfBuffer } from "@/lib/hes-pdf-server"
 import { logAuditServer } from "@/lib/audit"
+import { wrapBrandedEmail, emailColors } from "@/lib/email-brand"
 
 interface ReqBody {
   clienteId:  string
@@ -136,15 +137,27 @@ async function handleSendEmail(req: NextRequest) {
   const periodoLabel = `${MESES[mes]} ${anio}`
   const fromAddress = process.env.RESEND_FROM_EMAIL || "HES Altos del Puerto <onboarding@resend.dev>"
 
+  const saludo = cliente.contacto_comercial_nombre ?? cliente.contacto ?? "cliente"
+  const bodyHtml = `
+    <h1 style="margin:0 0 6px;font-size:20px;color:${emailColors.text};">Hoja de Estado de Servicio</h1>
+    <p style="margin:0 0 20px;font-size:14px;color:${emailColors.muted};line-height:1.6;">Estimado(a) ${saludo}, adjuntamos la Hoja de Estado de Servicio (HES) correspondiente al período indicado abajo.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+      <tr>
+        <td style="padding:14px 18px;background:${emailColors.celesteLight};border:1px solid ${emailColors.celeste};border-radius:8px;">
+          <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Cliente</p>
+          <p style="margin:0 0 12px;font-size:14px;color:${emailColors.text};">${cliente.nombre}</p>
+          <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Período</p>
+          <p style="margin:0;font-size:14px;color:${emailColors.text};">${periodoLabel}</p>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0;font-size:13px;color:${emailColors.text};line-height:1.6;">Revisa los documentos adjuntos a este correo.</p>
+  `
   const { error: sendError } = await resend.emails.send({
     from: fromAddress,
     to: destino,
     subject: `HES ${cliente.nombre} — ${periodoLabel}`,
-    html: `
-      <p>Estimado(a) ${cliente.contacto_comercial_nombre ?? cliente.contacto ?? "cliente"},</p>
-      <p>Adjuntamos la Hoja de Estado de Servicio (HES) de <strong>${cliente.nombre}</strong> correspondiente a <strong>${periodoLabel}</strong>.</p>
-      <p>Saludos cordiales,<br/>Altos del Puerto — Logística Integral</p>
-    `,
+    html: wrapBrandedEmail(bodyHtml),
     attachments,
   })
   if (sendError)

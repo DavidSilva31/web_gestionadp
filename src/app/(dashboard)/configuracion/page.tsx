@@ -290,6 +290,9 @@ export default function ConfiguracionPage() {
   const [creating,       setCreating]       = useState(false)
   const [createMsg,      setCreateMsg]      = useState<{ ok: boolean; text: string } | null>(null)
   const [invitedEmail,   setInvitedEmail]   = useState<string | null>(null)
+  // Solo se llena si Resend falló al enviar la clave temporal — el usuario
+  // igual quedó creado y puede entrar, pero hay que pasarle la clave a mano.
+  const [tempPasswordToShare, setTempPasswordToShare] = useState<string | null>(null)
 
   /* ── Eliminar usuario ── */
   const [deleteTarget,  setDeleteTarget]  = useState<ProfileRow | null>(null)
@@ -370,7 +373,7 @@ export default function ConfiguracionPage() {
   }
 
   async function handleCreateUser() {
-    setCreating(true); setCreateMsg(null); setInvitedEmail(null)
+    setCreating(true); setCreateMsg(null); setInvitedEmail(null); setTempPasswordToShare(null)
     try {
       const res  = await fetch("/api/admin/create-user", {
         method:  "POST",
@@ -383,6 +386,7 @@ export default function ConfiguracionPage() {
       } else {
         setCreateMsg({ ok: true, text: "Usuario creado correctamente" })
         setInvitedEmail(newUser.email)
+        if (!json.emailSent) setTempPasswordToShare(json.tempPassword ?? null)
         setNewUser({ nombre: "", email: "", role: "operador" })
         setCreatePermisos(ROLE_MODULE_DEFAULTS["operador"])
         fetchUsers()
@@ -895,12 +899,23 @@ export default function ConfiguracionPage() {
             )}
           </div>
 
-          {invitedEmail && (
+          {invitedEmail && !tempPasswordToShare && (
             <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5 dark:bg-emerald-900/20 dark:border-emerald-700">
               <Mail className="h-4 w-4 flex-shrink-0 text-emerald-700 dark:text-emerald-400" />
               <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                Se envió un correo de invitación a <span className="font-semibold">{invitedEmail}</span> para que defina su contraseña.
-                Si no aparece en unos minutos, revisa la carpeta de spam o correo no deseado.
+                Se envió a <span className="font-semibold">{invitedEmail}</span> un correo con su contraseña temporal.
+                Al ingresar se le pedirá cambiarla. Si no aparece en unos minutos, revisa spam.
+              </p>
+            </div>
+          )}
+
+          {tempPasswordToShare && (
+            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 dark:bg-amber-900/20 dark:border-amber-700">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5 text-amber-700 dark:text-amber-400" />
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                El usuario se creó, pero no se pudo enviar el correo. Comparte esta contraseña temporal a mano
+                con <span className="font-semibold">{invitedEmail}</span>:{" "}
+                <span className="font-mono font-bold text-sm">{tempPasswordToShare}</span>
               </p>
             </div>
           )}
@@ -908,7 +923,7 @@ export default function ConfiguracionPage() {
           <StatusMsg msg={createMsg} />
         </div>
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => { setCreateOpen(false); setInvitedEmail(null); setCreateMsg(null) }}>
+          <Button variant="outline" size="sm" onClick={() => { setCreateOpen(false); setInvitedEmail(null); setTempPasswordToShare(null); setCreateMsg(null) }}>
             {invitedEmail ? "Cerrar" : "Cancelar"}
           </Button>
           {!invitedEmail && (

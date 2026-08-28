@@ -121,6 +121,7 @@ Gestión de servicios contratados por cliente:
 Informes de recepción de carga:
 
 - Lista con tabs: Todos / Pendiente despacho / Despachados / Borradores
+- **Semáforo de estado**: punto de color junto al badge de estado (en la lista y en el detalle) — amarillo = borrador (antecedentes listos), azul = pendiente de despacho (falta que el chofer vuelva a recepción con el físico), verde = despachado
 - **Crear report** (`/reports/nuevo`): formulario multi-sección con tabs navegables:
   - Antecedentes (cliente, patente, conductor)
   - Sección 1 — Depósito de contenedores
@@ -161,8 +162,9 @@ Hoja de Estadía — cálculo de almacenaje para facturación mensual:
 - **Cálculo automático**: stock inicial + movimientos diarios del período → pallet-días → monto en UF
 - **Facturación mínima una vez por cliente** en modo unificado (varias tarifas/clases activas): se aplica el máximo de los mínimos configurados sobre el total sumado, en vez de un mínimo independiente por clase
 - Tabla día a día con ingresos, despachos, stock al cierre y tarifa
+- **Servicios manuales pendientes de tarifa**: si un operador escribió un servicio a mano en un report (fuera del catálogo del cliente), aparece acá agrupado por nombre con la cantidad de veces que se usó en el período — botón "Tarificar" abre el mismo diálogo de servicios, precargado con el nombre, y al guardar queda en el catálogo del cliente para siempre (no solo para este HES)
 - Exportar a **Excel** y **PDF** (resumen y detalle) con formato HES oficial ADP
-- **Envío por correo** del HES generado (Resend) al contacto comercial del cliente, con folio y adjuntos
+- **Envío por correo** del HES generado (Resend, template de marca ADP) al contacto comercial del cliente, con folio y adjuntos
 - Corrección de rango de fechas: usa `.lt(nextMonth.toISOString())` para incluir todos los movimientos del último día del mes
 
 ### Analítica (`/reportes`)
@@ -189,11 +191,23 @@ Registro paginado (50/página) de todas las acciones sobre reports, inventario y
 
 **Tab Usuarios** *(solo `super_admin`):*
 - Lista de todos los usuarios del sistema con rol y estado
-- Crear usuario: genera contraseña temporal segura (12 caracteres, charset sin ambigüedades) y la muestra copiable
+- **Crear usuario**: genera una contraseña temporal (12 caracteres, charset sin ambigüedades) y la envía por correo (Resend, template de marca) junto con el link de acceso — el usuario entra directo, sin depender de un link de invitación. Si el correo falla, la contraseña se muestra en el diálogo para compartirla a mano
+- **Primer login forzado**: `must_change_password = true` bloquea la navegación en `/configuracion` (tab Perfil) hasta que el usuario define su propia contraseña — mínimo 8 caracteres, sin requisitos de complejidad
 - Activar / desactivar usuario
 - Cambiar rol con lista blanca de roles válidos
-- Editar permisos de módulos por usuario
+- Editar permisos de módulos por usuario (incluye Inventario, Instalaciones, Movimientos, Clientes, Servicios, Analítica, HES, Reports, Despacho, Transporte, Transporte Incomex y Auditoría)
 - Eliminar usuario (con protección anti-autoborrado)
+
+### Correos transaccionales
+
+Todos los correos salen por **Resend** con un template de marca compartido (`src/lib/email-brand.ts`: logo ADP embebido, borde celeste, footer) — Supabase Auth no envía ningún correo propio (los usuarios se crean con `email_confirm: true`):
+
+| Correo | Disparado por | Contenido |
+|---|---|---|
+| Bienvenida | `/api/admin/create-user` | Credenciales de acceso + contraseña temporal |
+| Restablecimos tu contraseña | `/api/auth/forgot-password` | Nueva contraseña temporal (reemplaza el correo nativo de Supabase, que no se puede personalizar sin plan pago) |
+| Contraseña actualizada | `/api/auth/clear-password-flag` | Aviso de seguridad tras cualquier cambio de contraseña exitoso |
+| HES | `/api/hes/send-email` | HES generado con adjuntos (PDF/Excel) |
 
 ---
 
@@ -207,8 +221,8 @@ Todas las rutas verifican sesión (`getUser()`) y rol antes de ejecutar operacio
 | `/api/admin/create-user` | POST | `super_admin` | Crear usuario + perfil |
 | `/api/admin/update-user` | PATCH | `super_admin` | Cambiar rol, estado o permisos |
 | `/api/admin/delete-user` | DELETE | `super_admin` | Eliminar usuario de Auth y profiles |
-| `/api/auth/clear-password-flag` | POST | autenticado | Marcar contraseña como cambiada (solo afecta al propio usuario) |
-| `/api/auth/forgot-password` | POST | público | Solicitar reset de contraseña |
+| `/api/auth/clear-password-flag` | POST | autenticado | Marcar contraseña como cambiada (solo afecta al propio usuario) + correo de aviso |
+| `/api/auth/forgot-password` | POST | público | Genera y envía una contraseña temporal por correo (respuesta genérica siempre, evita enumerar correos registrados) |
 | `/api/hes/export` | POST | autenticado | Generar Excel HES (valida `mes` 0–11 y `anio` 2020–2100) |
 | `/api/hes/folio` | POST | autenticado | Asignar/consultar folio HES para un cliente/período |
 | `/api/hes/send-email` | POST | autenticado | Enviar HES generado por correo (Resend) al contacto comercial del cliente |
@@ -295,6 +309,8 @@ src/
     ├── supabase-server.ts             # Cliente Supabase (SSR)
     ├── supabase-admin.ts              # Cliente con service role key
     ├── audit.ts                       # logAudit() / logAuditServer()
+    ├── email-brand.ts                 # Template de correo compartido (logo, colores, botón)
+    ├── temp-password.ts               # Generador de contraseña temporal
     ├── download-report-pdf.tsx        # Genera y descarga el PDF
     ├── export-reports-excel.ts        # Exporta reportes a Excel
     └── excel.ts                       # Helper genérico exportToExcel()
@@ -367,10 +383,11 @@ Skills instaladas vía `npx autoskills` para asistir al desarrollo con Claude Co
 
 El sistema está optimizado para escritorio y tablet. Mejoras mobile implementadas:
 
-- **Topbar**: botón 🔍 en mobile despliega buscador global inline con resultados y cierre
+- **Topbar**: botón 🔍 en mobile despliega buscador global inline con resultados y cierre — cubre clientes, inventario, movimientos, reports, transporte incomex e instalaciones
 - **HES**: paneles se apilan en mobile; flecha ← para volver a la lista de clientes desde el detalle
 - **Reports**: estadísticas en grid responsive; tabs de filtro muestran solo íconos en pantallas pequeñas
 - **Movimientos**: botones del header colapsados a ícono en mobile; buscador de ancho flexible
+- **Tablas de Reports, Transporte e Inventario**: scroll horizontal propio (`overflow-x-auto` + `min-width`) y columnas rebalanceadas — antes los encabezados se solapaban y el contenido se cortaba sin forma de verlo en tablet/mobile
 - El sidebar usa `collapsible="offcanvas"` — se oculta en mobile con hamburguesa en la topbar
 
 ---

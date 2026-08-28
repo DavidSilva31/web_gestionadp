@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   FileSpreadsheet, Search, Settings2, CheckCircle2,
-  AlertCircle, Loader2, ChevronRight, ChevronLeft, ChevronDown, FileText, RefreshCw, Download, Wrench,
+  AlertCircle, AlertTriangle, Loader2, ChevronRight, ChevronLeft, ChevronDown, FileText, RefreshCw, Download, Wrench,
   Calendar as CalendarIcon, Trash2, Pencil, Mail,
 } from "lucide-react"
 import type { Cliente, TarifaCliente, TarifaClienteInsert, ServicioCliente, ServicioClienteInsert, HesFolio, TransporteIncomex } from "@/types/database"
@@ -373,10 +373,13 @@ function TarifaDialog({
 
 // ── Servicio Dialog ────────────────────────────────────────────────────────────
 function ServicioDialog({
-  clienteId, clienteNombre, existing, onClose, onSaved, onDeleted,
+  clienteId, clienteNombre, existing, defaultNombre, onClose, onSaved, onDeleted,
 }: {
   clienteId: string; clienteNombre: string
   existing: ServicioCliente | null
+  // Precarga el nombre al tarificar un servicio manual pendiente (ver
+  // pendingManuales) — el usuario solo tiene que completar la tarifa.
+  defaultNombre?: string
   onClose: () => void
   onSaved: (s: ServicioCliente) => void
   onDeleted?: (id: string) => void
@@ -387,7 +390,7 @@ function ServicioDialog({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<ServicioClienteInsert>>({
     cliente_id:  clienteId,
-    nombre:      existing?.nombre      ?? "",
+    nombre:      existing?.nombre      ?? defaultNombre ?? "",
     descripcion: existing?.descripcion ?? "",
     tarifa_uf:   existing?.tarifa_uf   ?? null,
     unidad:      existing?.unidad      ?? "unidad",
@@ -947,6 +950,11 @@ export default function HesPage() {
   // servicioDialog: undefined=cerrado | null=nuevo | ServicioCliente=editar existente
   const [servicioDialog,   setServicioDialog]   = useState<ServicioCliente | null | undefined>(undefined)
   const [srvChecked,       setSrvChecked]       = useState<Record<string, boolean>>({})
+  // Servicios que algún operador tipeó a mano en un report de este período
+  // (ServiciosSection en el formulario de report) y todavía no están en el
+  // catálogo del cliente — se ofrecen acá para ponerles tarifa recién ahora.
+  const [pendingManuales,  setPendingManuales]  = useState<{ nombre: string; cantidad: number }[]>([])
+  const [manualPrefill,    setManualPrefill]    = useState<{ nombre: string; cantidad: number } | null>(null)
   const [loading,          setLoading]          = useState(false)
   const [tarifasLoading,   setTarifasLoading]   = useState(false)
   const [exporting,        setExporting]        = useState(false)
@@ -1291,6 +1299,38 @@ export default function HesPage() {
   }, [selectedId, periodo])
 
   useEffect(() => { loadTransporteOps() }, [loadTransporteOps])
+
+  // ── Servicios manuales de reports del período que aún no están en el
+  // catálogo del cliente — agrupados por nombre exacto, cantidad = veces que
+  // aparecen. reports.cliente es texto libre (no cliente_id), mismo lookup
+  // por nombre que ya usa reports/[id]/page.tsx para resolver el cliente.
+  const loadPendingManuales = useCallback(async () => {
+    setPendingManuales([])
+    if (!selectedId || !selectedCliente) return
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("reports")
+      .select("servicios_manual")
+      .eq("cliente", selectedCliente.nombre)
+      .gte("fecha", periodo.start)
+      .lte("fecha", periodo.end)
+    if (error) { console.error("[hes] error cargando servicios manuales pendientes:", error); return }
+    const counts = new Map<string, number>()
+    for (const r of data ?? []) {
+      for (const nombre of (r.servicios_manual as string[] | null) ?? []) {
+        const key = nombre.trim()
+        if (key) counts.set(key, (counts.get(key) ?? 0) + 1)
+      }
+    }
+    const catalogo = new Set(servicios.map(s => s.nombre.trim().toUpperCase()))
+    setPendingManuales(
+      [...counts.entries()]
+        .filter(([nombre]) => !catalogo.has(nombre.toUpperCase()))
+        .map(([nombre, cantidad]) => ({ nombre, cantidad }))
+    )
+  }, [selectedId, selectedCliente, periodo, servicios])
+
+  useEffect(() => { loadPendingManuales() }, [loadPendingManuales])
 
   const transporteTotalUF = useMemo(
     () => transporteOps.reduce((sum, t) => sum + (t.factura_cliente_uf ?? 0), 0),
@@ -1749,14 +1789,21 @@ export default function HesPage() {
           clienteId={selectedCliente.id}
           clienteNombre={selectedCliente.nombre}
           existing={servicioDialog}
-          onClose={() => setServicioDialog(undefined)}
+          defaultNombre={manualPrefill?.nombre}
+          onClose={() => { setServicioDialog(undefined); setManualPrefill(null) }}
           onSaved={s => {
             setServicios(prev => {
               const idx = prev.findIndex(x => x.id === s.id)
               return idx >= 0 ? prev.with(idx, s) : [...prev, s].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
             })
             setSrvChecked(prev => ({ ...prev, [s.id]: prev[s.id] ?? true }))
+            // Si venía de "Tarificar" un manual pendiente, precargar también
+            // la cantidad ya conocida (veces que apareció en los reports).
+            if (manualPrefill && s.nombre.trim().toUpperCase() === manualPrefill.nombre.trim().toUpperCase()) {
+              setSrvCantidades(prev => ({ ...prev, [s.id]: manualPrefill.cantidad }))
+            }
             setServicioDialog(undefined)
+            setManualPrefill(null)
           }}
           onDeleted={id => {
             setServicios(prev => prev.filter(x => x.id !== id))
@@ -1992,6 +2039,35 @@ export default function HesPage() {
                       <h1 className="text-lg font-bold mt-1">HES {selectedCliente.nombre.toUpperCase()} · Todas las tarifas ({tarifas.length})</h1>
                       <p className="text-sm text-muted-foreground mt-0.5">{MESES[selectedMonth]} {selectedYear}</p>
                     </div>
+
+                    {/* ── Servicios manuales de reports sin tarifa aún ── */}
+                    {pendingManuales.length > 0 && (
+                      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 space-y-2 print:hidden">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
+                          <span className="text-[12px] font-semibold text-amber-800 dark:text-amber-300">
+                            Servicios manuales sin tarifa ({pendingManuales.length})
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                          Se escribieron a mano en reports de este período pero no están en el catálogo del cliente — ponles una tarifa para incluirlos en este HES.
+                        </p>
+                        <div className="flex flex-col gap-1.5">
+                          {pendingManuales.map(p => (
+                            <div key={p.nombre} className="flex items-center justify-between gap-2 bg-background/60 rounded-lg px-3 py-1.5">
+                              <span className="text-[12px] font-medium truncate">
+                                {p.nombre} <span className="text-muted-foreground font-normal">× {p.cantidad}</span>
+                              </span>
+                              <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 flex-shrink-0"
+                                onClick={() => { setManualPrefill(p); setServicioDialog(null) }}>
+                                Tarificar
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <UnifiedResumenCards
                       results={unifiedResults}
                       serviciosBilling={unifiedServiciosBilling}
@@ -2082,6 +2158,34 @@ export default function HesPage() {
                         <div className="min-w-0"><p className="text-[10px] text-muted-foreground">Contacto</p><p className="text-[12px] font-medium truncate">{selectedCliente.contacto ?? "—"}</p></div>
                       </div>
                     </div>
+
+                    {/* ── Servicios manuales de reports sin tarifa aún ── */}
+                    {pendingManuales.length > 0 && (
+                      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 space-y-2 print:hidden">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
+                          <span className="text-[12px] font-semibold text-amber-800 dark:text-amber-300">
+                            Servicios manuales sin tarifa ({pendingManuales.length})
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                          Se escribieron a mano en reports de este período pero no están en el catálogo del cliente — ponles una tarifa para incluirlos en este HES.
+                        </p>
+                        <div className="flex flex-col gap-1.5">
+                          {pendingManuales.map(p => (
+                            <div key={p.nombre} className="flex items-center justify-between gap-2 bg-background/60 rounded-lg px-3 py-1.5">
+                              <span className="text-[12px] font-medium truncate">
+                                {p.nombre} <span className="text-muted-foreground font-normal">× {p.cantidad}</span>
+                              </span>
+                              <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 flex-shrink-0"
+                                onClick={() => { setManualPrefill(p); setServicioDialog(null) }}>
+                                Tarificar
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* ── Servicios a cobrar — acordeón, se comprime cuando crece la lista ── */}
                     <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden print:hidden">
