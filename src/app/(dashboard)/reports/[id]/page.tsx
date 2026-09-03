@@ -502,28 +502,6 @@ export default function ReportDetailPage() {
       }
     }
 
-    // Validación de pallets solo aplica al enviar a despacho — usa el
-    // sec3_activa recién inferido en buildPayload, no form.sec3_activa (el
-    // valor cargado de la BD al abrir, nunca refrescado si se activó/completó
-    // la sección durante esta misma edición). Bodegaje (sec3) lo llena
-    // Operaciones en pendiente_operaciones, así que esta transición ahora
-    // sale de ahí en vez de "borrador".
-    if (newEstado === "pendiente_despacho" && estado === "pendiente_operaciones" &&
-        payload.sec3_activa && payload.sec3_inventario_item_id && payload.sec3_tipo) {
-      const delta = Number(payload.sec3_numero_pallets)
-      if (!delta || delta <= 0) {
-        const { error: revertErr } = await supabase.from("reports").update({ estado: "pendiente_operaciones" }).eq("id", id)
-        if (revertErr) {
-          console.error("[reports/id] error revirtiendo estado sin pallets:", revertErr)
-          setError("Número de pallets requerido para enviar a despacho, y no se pudo revertir el estado guardado — revisa el report antes de continuar.")
-            return
-        }
-        setEstado("pendiente_operaciones")
-        setError("Número de pallets requerido para enviar a despacho.")
-        return
-      }
-    }
-
     // stock_actual solo lo mueve el trigger de BD reports_sync_inventario
     // cuando el report queda en estado 'despachado' — una edición mientras
     // sigue en borrador/pendiente_despacho no toca stock. syncPesoTon corre
@@ -674,7 +652,7 @@ export default function ReportDetailPage() {
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 Ingreso Report
               </Button>
-              <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => handleSave("pendiente_operaciones")}>
+              <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving} onClick={() => handleSave("pendiente_operaciones")}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                 Enviar a Operaciones
               </Button>
@@ -682,7 +660,7 @@ export default function ReportDetailPage() {
           )}
 
           {estado === "pendiente_operaciones" && (
-            <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving} onClick={() => handleSave("pendiente_despacho")}>
+            <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => handleSave("pendiente_despacho")}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               Enviar a despacho
             </Button>
@@ -759,23 +737,14 @@ export default function ReportDetailPage() {
                 </Field>
                 <Field label="Solicitado por">
                   <select value={form.sec3_solicitado_por}
-                    onChange={e => {
-                      set("sec3_solicitado_por", e.target.value as FormData["sec3_solicitado_por"])
-                      if (e.target.value !== "cuyd") set("sec3_cuyd_detalle", "")
-                    }}
+                    onChange={e => set("sec3_solicitado_por", e.target.value as FormData["sec3_solicitado_por"])}
                     disabled={leftReadOnly}
                     className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 disabled:cursor-default"
                   >
                     <option value="">Seleccionar...</option>
                     <option value="clientes">Clientes</option>
-                    <option value="hds">HDS</option>
                     <option value="operaciones">Operaciones</option>
-                    <option value="cuyd">CUyD</option>
                   </select>
-                  {form.sec3_solicitado_por === "cuyd" && (
-                    <Input value={form.sec3_cuyd_detalle} onChange={e => set("sec3_cuyd_detalle", e.target.value.toUpperCase())}
-                      placeholder="Detalle CUyD..." className="h-7 text-xs mt-1.5 w-full" disabled={leftReadOnly} />
-                  )}
                 </Field>
                 <Field label="Transporte" className="col-span-1 sm:col-span-2">
                   <div className="h-8 flex items-center">
@@ -989,6 +958,8 @@ export default function ReportDetailPage() {
                   </>
                 }
               />
+              {/* Nombre operador de carga: un solo input, más abajo junto a
+                  la Firma — acá no hace falta otro (quedaba duplicado). */}
             </div>
             </div>
           </div>

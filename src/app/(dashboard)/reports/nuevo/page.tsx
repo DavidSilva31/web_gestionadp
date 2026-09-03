@@ -108,11 +108,14 @@ export default function NuevoReportPage() {
   // Sin el checkbox "Activar Sección", se infiere sola: activa si algún campo
   // propio de esa sección quedó con contenido.
   //
-  // Esta página solo ingresa el report como borrador — "Enviar a Operaciones"
-  // vive en reports/[id], al reabrirlo, para forzar un paso de revisión
-  // separado antes de destrabar la columna de Operaciones.
+  // Antes esta página ingresaba el report como "borrador" y alguien tenía
+  // que reabrirlo en reports/[id] y clickear "Enviar a Operaciones" a mano
+  // para recién destrabar la columna de Operaciones — un paso intermedio
+  // que no aportaba nada (Recepción ya completó todo lo que le corresponde
+  // acá) y solo demoraba a Operaciones. Ahora al guardar queda directo en
+  // "pendiente_operaciones".
   function buildPayload() {
-    const estado = "borrador" as const
+    const estado = "pendiente_operaciones" as const
     const sec1Activa = !!(
       form.sec1_tipo_movimiento || form.sec1_tipo_contenedor || form.sec1_carga_normal ||
       form.sec1_carga_imo || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
@@ -410,22 +413,13 @@ export default function NuevoReportPage() {
                 </Field>
                 <Field label="Solicitado por">
                   <select value={form.sec3_solicitado_por}
-                    onChange={e => {
-                      set("sec3_solicitado_por", e.target.value as FormData["sec3_solicitado_por"])
-                      if (e.target.value !== "cuyd") set("sec3_cuyd_detalle", "")
-                    }}
+                    onChange={e => set("sec3_solicitado_por", e.target.value as FormData["sec3_solicitado_por"])}
                     className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                   >
                     <option value="">Seleccionar...</option>
                     <option value="clientes">Clientes</option>
-                    <option value="hds">HDS</option>
                     <option value="operaciones">Operaciones</option>
-                    <option value="cuyd">CUyD</option>
                   </select>
-                  {form.sec3_solicitado_por === "cuyd" && (
-                    <Input value={form.sec3_cuyd_detalle} onChange={e => setUpper("sec3_cuyd_detalle", e.target.value)}
-                      placeholder="Detalle CUyD..." className="h-7 text-xs mt-1.5 w-full" />
-                  )}
                 </Field>
                 <Field label="Transporte" className="col-span-1 sm:col-span-2">
                   <div className="h-8 flex items-center">

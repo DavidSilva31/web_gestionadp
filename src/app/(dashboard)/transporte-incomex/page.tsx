@@ -2,14 +2,104 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import Link from "next/link"
-import { Truck, Plus, Search, Loader2, RefreshCw, Pencil, FileText } from "lucide-react"
+import { Truck, Plus, Search, Loader2, RefreshCw, Pencil, FileText, Wrench, ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
-import type { TransporteIncomex, TransporteIncomexInsert, Cliente } from "@/types/database"
+import type { TransporteIncomex, TransporteIncomexInsert, Cliente, ServicioCliente } from "@/types/database"
+
+function CatalogoTransporteList({ clienteId, onSelect }: { clienteId: string; onSelect: (s: ServicioCliente) => void }) {
+  // Componente separado del toggle a propósito: se monta recién cuando el
+  // panel se abre (ver el uso más abajo), así el estado "cargando" sale
+  // solo del valor inicial de useState — sin necesitar un setState síncrono
+  // dentro del efecto cada vez que se vuelve a abrir.
+  const [servicios, setServicios] = useState<ServicioCliente[] | null>(null)
+  const [error,     setError]     = useState<string | null>(null)
+  const [q,         setQ]         = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    createClient()
+      .from("servicios_cliente")
+      .select("*")
+      .eq("cliente_id", clienteId).eq("activo", true).eq("categoria", "transporte")
+      .order("orden").order("nombre")
+      .then(({ data, error: err }) => {
+        if (cancelled) return
+        if (err) { setError(err.message); return }
+        setServicios((data ?? []) as ServicioCliente[])
+      })
+    return () => { cancelled = true }
+  }, [clienteId])
+
+  const filtered = useMemo(() => {
+    if (!servicios) return []
+    const term = q.trim().toLowerCase()
+    if (!term) return servicios
+    return servicios.filter(s => s.nombre.toLowerCase().includes(term))
+  }, [servicios, q])
+
+  if (error) return <p className="text-[11px] text-destructive">No se pudo cargar el catálogo: {error}</p>
+  if (!servicios) return (
+    <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando catálogo...
+    </div>
+  )
+  if (servicios.length === 0) return (
+    <p className="text-[11px] text-muted-foreground">Este cliente no tiene servicios de transporte en catálogo — configúralos en el módulo Servicios.</p>
+  )
+  return (
+    <>
+      <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar servicio..." className="h-7 text-[11px]" />
+      <div className="max-h-32 overflow-y-auto divide-y divide-border/30">
+        {filtered.map(s => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onSelect(s)}
+            className="w-full flex items-center justify-between gap-2 py-1.5 text-left hover:bg-muted/40 px-1 rounded"
+          >
+            <span className="text-[11px] text-foreground/90 truncate">{s.nombre}</span>
+            <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">
+              {s.moneda === "CLP" ? (s.tarifa_clp != null ? `$${s.tarifa_clp.toLocaleString("es-CL")}` : "sin tarifa") : (s.tarifa_uf != null ? `${s.tarifa_uf.toFixed(4)} UF` : "sin tarifa")}
+            </span>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+// Catálogo de servicios de transporte del cliente (servicios_cliente,
+// categoria='transporte') — buscar y hacer clic autocompleta Tipo de
+// movimiento y Factura cliente (UF) del viaje, en vez de tipear todo a
+// mano cada vez que se repite el mismo servicio contratado.
+function CatalogoTransporteCliente({ clienteId, onSelect }: { clienteId: string; onSelect: (s: ServicioCliente) => void }) {
+  const [open, setOpen] = useState(false)
+
+  if (!clienteId) return null
+
+  return (
+    <div className="col-span-2 space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+      >
+        <Wrench className="h-3 w-3" /> Buscar en catálogo de transporte del cliente
+        {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+      </button>
+      {open && (
+        <div className="rounded-lg border bg-muted/20 p-2.5 space-y-2">
+          <CatalogoTransporteList clienteId={clienteId} onSelect={s => { onSelect(s); setOpen(false) }} />
+        </div>
+      )}
+    </div>
+  )
+}
 
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
@@ -51,6 +141,7 @@ export default function TransporteIncomexPage() {
   const [yearFilter,    setYearFilter]    = useState(currentYear)
   const [monthFilter,   setMonthFilter]   = useState<number | "todos">(new Date().getMonth())
   const [search,        setSearch]        = useState("")
+  const [soloPendientes, setSoloPendientes] = useState(false)
   const [saving,        setSaving]        = useState(false)
   const [error,         setError]         = useState<string | null>(null)
   const [fetchError,    setFetchError]    = useState<string | null>(null)
@@ -132,8 +223,11 @@ export default function TransporteIncomexPage() {
     }
   }
 
+  const pendientesCount = useMemo(() => ops.filter(o => o.factura_cliente_uf == null).length, [ops])
+
   const filtered = useMemo(() => ops.filter(o => {
     if (monthFilter !== "todos" && new Date(o.fecha).getMonth() !== monthFilter) return false
+    if (soloPendientes && o.factura_cliente_uf != null) return false
     if (search) {
       const q = search.toLowerCase()
       return o.empresa_texto.toLowerCase().includes(q) ||
@@ -142,7 +236,7 @@ export default function TransporteIncomexPage() {
              (o.guia_numero?.toLowerCase().includes(q) ?? false)
     }
     return true
-  }), [ops, monthFilter, search])
+  }), [ops, monthFilter, search, soloPendientes])
 
   const totalUF = useMemo(() => filtered.reduce((s, o) => s + (o.factura_cliente_uf ?? 0), 0), [filtered])
 
@@ -175,6 +269,18 @@ export default function TransporteIncomexPage() {
           <option value="todos">Todos los meses</option>
           {MESES.map((m, i) => <option key={m} value={i}>{m}</option>)}
         </select>
+        <button
+          type="button"
+          onClick={() => setSoloPendientes(v => !v)}
+          className={`h-8 rounded-md border px-2.5 text-xs font-medium transition-colors ${
+            soloPendientes
+              ? "bg-amber-100 dark:bg-amber-900/30 border-amber-400 text-amber-700 dark:text-amber-400"
+              : "border-input bg-background text-muted-foreground hover:text-foreground"
+          }`}
+          title="Viajes generados desde un report (Transporte ADP) a los que aún no se les asigna tarifa"
+        >
+          Sin tarifa {pendientesCount > 0 && `(${pendientesCount})`}
+        </button>
         <span className="text-[11px] text-muted-foreground ml-auto">
           {filtered.length} viajes · Total facturado: <span className="font-semibold text-foreground">{fmtUF(totalUF)} UF</span>
         </span>
@@ -222,7 +328,11 @@ export default function TransporteIncomexPage() {
                       <td className="px-4 py-2.5 text-xs text-muted-foreground">{o.tipo_movimiento ?? "—"}</td>
                       <td className="hidden md:table-cell px-4 py-2.5 text-xs">{o.transportista ?? "—"}</td>
                       <td className="hidden lg:table-cell px-4 py-2.5 text-xs font-mono text-muted-foreground">{o.guia_numero ?? "—"}</td>
-                      <td className="px-4 py-2.5 text-xs text-right font-mono">{fmtUF(o.factura_cliente_uf)}</td>
+                      <td className="px-4 py-2.5 text-xs text-right font-mono">
+                        {o.factura_cliente_uf == null
+                          ? <span className="text-amber-600 dark:text-amber-400 font-sans">sin tarifa</span>
+                          : fmtUF(o.factura_cliente_uf)}
+                      </td>
                       <td className="px-4 py-2.5 text-center">
                         <Button variant="ghost" size="icon-xs" onClick={() => openEdit(o)}>
                           <Pencil className="h-3.5 w-3.5" />
@@ -267,6 +377,16 @@ export default function TransporteIncomexPage() {
                 {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
             </div>
+
+            <CatalogoTransporteCliente
+              clienteId={form.cliente_id ?? ""}
+              onSelect={s => setForm(p => ({
+                ...p,
+                tipo_movimiento: s.nombre,
+                factura_cliente_uf: s.moneda === "UF" ? (s.tarifa_uf ?? p.factura_cliente_uf) : p.factura_cliente_uf,
+              }))}
+            />
+
             <div className="col-span-2 space-y-1.5">
               <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Empresa (texto origen) *</Label>
               <Input value={form.empresa_texto} onChange={e => setForm(p => ({ ...p, empresa_texto: e.target.value }))} placeholder="Ej: ENAP" className="h-9" />

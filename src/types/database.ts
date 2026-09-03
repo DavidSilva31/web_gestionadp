@@ -267,6 +267,7 @@ export interface ServicioCliente {
   tarifa_clp:  number | null
   unidad:      string
   orden:       number
+  categoria:   'transporte' | 'otro'
   activo:      boolean
   created_at:  string
 }

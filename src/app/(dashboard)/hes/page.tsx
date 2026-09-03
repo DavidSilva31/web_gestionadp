@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import ExcelJS from "exceljs"
+import Link from "next/link"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
@@ -800,10 +801,11 @@ function EnviarHesDialog({ clienteNombre, emails, onClose, onSend, onSent }: {
 // ── Vista apilada del modo "Ver todas" — una tarjeta de cobro por tarifa/CI
 // + servicios a nivel cliente + total general. Se usa en la pantalla
 // principal y dentro de la pestaña "Resumen" de la vista previa. ──────────────
-function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transporteError, onRetryTransporte, transporteTotalCLP, totalCLP, hasMin, minimoCLP, loading, error }: {
+function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transportePendientes, transporteError, onRetryTransporte, transporteTotalCLP, totalCLP, hasMin, minimoCLP, loading, error }: {
   results: { tarifa: TarifaCliente; hes: HesResult; billing: BillingResult }[]
   serviciosBilling: BillingResult | null
   transporteOps: TransporteIncomex[]
+  transportePendientes: TransporteIncomex[]
   transporteError: string | null
   onRetryTransporte: () => void
   transporteTotalCLP: number
@@ -890,6 +892,15 @@ function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transpo
         </div>
       )}
 
+      {transportePendientes.length > 0 && (
+        <div className="px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 text-[11px] flex items-center justify-between gap-2">
+          <span>
+            {transportePendientes.length} viaje{transportePendientes.length > 1 ? "s" : ""} de Transporte ADP sin tarifa asignada — hoy suman 0 UF en el cobro. Complétalos en el módulo Transporte Incomex antes de enviar el HES.
+          </span>
+          <Link href="/transporte-incomex" className="whitespace-nowrap underline hover:no-underline">Ir al módulo</Link>
+        </div>
+      )}
+
       {transporteOps.length > 0 && (
         <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border/30 bg-muted/20 flex items-center justify-between">
@@ -902,7 +913,11 @@ function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transpo
                 <tr key={op.id} className="border-b border-border/20">
                   <td className="px-4 py-1.5">{fmtDateDisplay(op.fecha)} — {op.tipo_movimiento ?? op.detalle_carga ?? "Viaje"}</td>
                   <td className="text-right px-3 py-1.5 font-mono text-muted-foreground">{op.guia_numero ?? ""}</td>
-                  <td className="text-right px-4 py-1.5 font-mono">{fmtUF(op.factura_cliente_uf ?? 0)} UF</td>
+                  <td className="text-right px-4 py-1.5 font-mono">
+                    {op.factura_cliente_uf == null
+                      ? <span className="text-amber-600 dark:text-amber-400">sin tarifa</span>
+                      : `${fmtUF(op.factura_cliente_uf)} UF`}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1325,15 +1340,22 @@ export default function HesPage() {
   // catálogo del cliente — agrupados por nombre exacto, cantidad = veces que
   // aparecen. reports.cliente es texto libre (no cliente_id), mismo lookup
   // por nombre que ya usa reports/[id]/page.tsx para resolver el cliente.
+  // Además de los pendientes por nombre libre (arriba), cuenta cuántas veces
+  // aparece cada servicio DEL CATÁLOGO (servicios_ids) entre los reports ya
+  // despachados del período — y precarga esa cantidad en el cobro, en vez de
+  // dejar que quien genera el HES tenga que recordarlo y tipearlo a mano.
+  // Solo despachados: mientras el report sigue en curso, el servicio marcado
+  // todavía puede cambiar.
   const loadPendingManuales = useCallback(async () => {
     setPendingManuales([])
     setPendingManualesError(null)
-    if (!selectedId || !selectedCliente) return
+    if (!selectedId || !selectedCliente) { setSrvCantidades({}); return }
     const supabase = createClient()
     const { data, error } = await supabase
       .from("reports")
-      .select("servicios_manual")
+      .select("servicios_manual, servicios_ids")
       .eq("cliente", selectedCliente.nombre)
+      .eq("estado", "despachado")
       .gte("fecha", periodo.start)
       .lte("fecha", periodo.end)
     if (error) {
@@ -1346,10 +1368,14 @@ export default function HesPage() {
       return
     }
     const counts = new Map<string, number>()
+    const idCounts: Record<string, number> = {}
     for (const r of data ?? []) {
       for (const nombre of (r.servicios_manual as string[] | null) ?? []) {
         const key = nombre.trim()
         if (key) counts.set(key, (counts.get(key) ?? 0) + 1)
+      }
+      for (const id of (r.servicios_ids as string[] | null) ?? []) {
+        idCounts[id] = (idCounts[id] ?? 0) + 1
       }
     }
     const catalogo = new Set(servicios.map(s => s.nombre.trim().toUpperCase()))
@@ -1358,6 +1384,9 @@ export default function HesPage() {
         .filter(([nombre]) => !catalogo.has(nombre.toUpperCase()))
         .map(([nombre, cantidad]) => ({ nombre, cantidad }))
     )
+    // Precarga — el usuario igual puede editar cada cantidad a mano después,
+    // esto solo evita partir siempre desde cero.
+    setSrvCantidades(idCounts)
   }, [selectedId, selectedCliente, periodo, servicios])
 
   useEffect(() => { loadPendingManuales() }, [loadPendingManuales])
@@ -1369,6 +1398,13 @@ export default function HesPage() {
   const transporteTotalCLP = useMemo(
     () => transporteTotalUF * (parseFloat(ufValue) || 0),
     [transporteTotalUF, ufValue]
+  )
+  // Viajes que el trigger de reports creó solo (Transporte ADP) pero a los
+  // que nadie les cargó todavía la tarifa — hoy entran al total como 0 UF
+  // sin ningún aviso, subcobrando al cliente en silencio.
+  const transportePendientes = useMemo(
+    () => transporteOps.filter(t => t.factura_cliente_uf == null),
+    [transporteOps]
   )
 
   // ── Compute HES ────────────────────────────────────────────────────────────
@@ -2119,6 +2155,7 @@ export default function HesPage() {
                       results={unifiedResults}
                       serviciosBilling={unifiedServiciosBilling}
                       transporteOps={transporteOps}
+                      transportePendientes={transportePendientes}
                       transporteError={transporteError}
                       onRetryTransporte={loadTransporteOps}
                       transporteTotalCLP={transporteTotalCLP}
@@ -2362,6 +2399,15 @@ export default function HesPage() {
                       </div>
                     )}
 
+                    {transportePendientes.length > 0 && (
+                      <div className="px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 text-[11px] flex items-center justify-between gap-2">
+                        <span>
+                          {transportePendientes.length} viaje{transportePendientes.length > 1 ? "s" : ""} de Transporte ADP sin tarifa asignada — hoy suman 0 UF en el cobro. Complétalos en el módulo Transporte Incomex antes de enviar el HES.
+                        </span>
+                        <Link href="/transporte-incomex" className="whitespace-nowrap underline hover:no-underline">Ir al módulo</Link>
+                      </div>
+                    )}
+
                     {movimientosError && (
                       <div className="px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] flex items-center justify-between gap-2">
                         {movimientosError}
@@ -2399,7 +2445,12 @@ export default function HesPage() {
                             ))}
                             {transporteOps.length > 0 && (
                               <tr className="border-b border-border/20 hover:bg-muted/20 italic">
-                                <td className="px-4 py-2">Transporte</td>
+                                <td className="px-4 py-2">
+                                  Transporte
+                                  {transportePendientes.length > 0 && (
+                                    <span className="ml-1.5 text-amber-600 dark:text-amber-400 not-italic">({transportePendientes.length} sin tarifa)</span>
+                                  )}
+                                </td>
                                 <td className="text-right px-3 py-2 font-mono">{transporteOps.length} <span className="text-muted-foreground text-[10px]">viajes</span></td>
                                 <td className="text-right px-3 py-2 font-mono">—</td>
                                 <td className="text-right px-3 py-2 font-mono font-semibold">{fmtUF(transporteTotalUF)}</td>
@@ -2464,7 +2515,11 @@ export default function HesPage() {
                               <tr key={op.id} className="border-b border-border/20">
                                 <td className="px-4 py-1.5">{fmtDateDisplay(op.fecha)} — {op.tipo_movimiento ?? op.detalle_carga ?? "Viaje"}</td>
                                 <td className="text-right px-3 py-1.5 font-mono text-muted-foreground">{op.guia_numero ?? ""}</td>
-                                <td className="text-right px-4 py-1.5 font-mono">{fmtUF(op.factura_cliente_uf ?? 0)} UF</td>
+                                <td className="text-right px-4 py-1.5 font-mono">
+                                  {op.factura_cliente_uf == null
+                                    ? <span className="text-amber-600 dark:text-amber-400">sin tarifa</span>
+                                    : `${fmtUF(op.factura_cliente_uf)} UF`}
+                                </td>
                               </tr>
                             ))}
                           </tbody>

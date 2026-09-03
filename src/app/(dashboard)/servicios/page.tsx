@@ -38,6 +38,7 @@ function ServiceForm({
     tarifa_uf:   existing?.tarifa_uf   != null ? String(existing.tarifa_uf) : "",
     unidad:      existing?.unidad      ?? "unidad",
     orden:       existing?.orden       ?? 0,
+    categoria:   existing?.categoria   ?? "otro" as "transporte" | "otro",
   })
 
   const field = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -57,6 +58,7 @@ function ServiceForm({
       tarifa_clp:  existing?.tarifa_clp ?? null,
       unidad:      form.unidad.trim() || "unidad",
       orden:       Number(form.orden) || 0,
+      categoria:   form.categoria,
       activo:      true,
     }
     let data, error
@@ -101,6 +103,24 @@ function ServiceForm({
         <Label className={lbl}>Descripción (opcional)</Label>
         <Input className={inp} value={form.descripcion} onChange={field("descripcion")}
           placeholder="Descripción detallada para el HES" />
+      </div>
+
+      <div className="space-y-1">
+        <Label className={lbl}>Categoría</Label>
+        <div className="flex gap-3">
+          {(["otro", "transporte"] as const).map(c => (
+            <label key={c} className="flex items-center gap-1.5 text-[12px] cursor-pointer">
+              <input
+                type="radio"
+                name={`categoria-${existing?.id ?? "new"}`}
+                checked={form.categoria === c}
+                onChange={() => setForm(prev => ({ ...prev, categoria: c }))}
+                className="h-3 w-3 accent-primary"
+              />
+              {c === "transporte" ? "Transporte (aparece en Transporte Incomex)" : "Otro (aparece en Servicios Adicionales)"}
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -181,6 +201,11 @@ function ServiceCard({
           {srv.tarifa_uf != null && (
             <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
               {srv.tarifa_uf.toFixed(4)} UF / {srv.unidad}
+            </Badge>
+          )}
+          {srv.categoria === "transporte" && (
+            <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-primary/40 text-primary">
+              Transporte
             </Badge>
           )}
         </div>

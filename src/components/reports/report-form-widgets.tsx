@@ -224,6 +224,9 @@ export function ServiciosSection({
       .select("id, nombre, unidad, tarifa_uf, tarifa_clp")
       .eq("cliente_id", clienteId)
       .eq("activo", true)
+      // Transporte se cobra por viaje en el módulo Transporte Incomex, no
+      // acá — mezclarlo acá arriesgaba cobrarlo dos veces en el HES.
+      .eq("categoria", "otro")
       .order("orden")
       .then(({ data, error }) => {
         if (error) console.error("[reports] error obteniendo servicios del cliente:", error)
