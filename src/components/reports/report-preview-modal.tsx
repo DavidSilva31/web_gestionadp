@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Download, X, Loader2, FileText } from "lucide-react"
+import { createClient } from "@/lib/supabase"
 import type { Report } from "@/types/database"
 
 interface Props {
@@ -37,7 +38,17 @@ export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
       try {
         const { pdf }       = await import("@react-pdf/renderer")
         const { ReportPDF } = await import("@/components/reports/report-pdf")
-        const blob  = await pdf(<ReportPDF report={report} />).toBlob()
+
+        let firmaUrl: string | null = null
+        if (report.firma_conductor_url) {
+          const { data, error } = await createClient().storage
+            .from("reports-firmados")
+            .createSignedUrl(report.firma_conductor_url, 3600)
+          if (error) console.error("[report-preview-modal] error generando URL de la firma:", error)
+          firmaUrl = data?.signedUrl ?? null
+        }
+
+        const blob  = await pdf(<ReportPDF report={report} firmaUrl={firmaUrl} />).toBlob()
         objectUrl   = URL.createObjectURL(blob)
         setUrl(objectUrl)
       } catch {

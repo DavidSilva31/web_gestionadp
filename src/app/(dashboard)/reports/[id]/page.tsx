@@ -24,7 +24,7 @@ import { dbToForm } from "@/components/reports/report-form-types"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
 import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
-import { ClienteCombobox, TarifaSelect, ProductoCombobox, ServiciosSection, FirmaCanvas, type InventarioItemOption, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
+import { ClienteCombobox, ProductoCombobox, FirmaCanvas, type InventarioItemOption, type ServicioSeleccionado, type TarifaOption } from "@/components/reports/report-form-widgets"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 
@@ -37,16 +37,28 @@ interface FormData extends ReportFormData {
 const ACCION_ICON: Record<string, React.ReactNode> = {
   "report.crear_borrador":     <FileText   className="h-4 w-4 text-gray-500"    />,
   "report.actualizar":         <FilePen    className="h-4 w-4 text-blue-500"    />,
+  "report.enviar_operaciones": <Send       className="h-4 w-4 text-orange-500"  />,
   "report.enviar_despacho":    <FileCheck2 className="h-4 w-4 text-amber-500"   />,
   "report.confirmar_despacho": <Truck      className="h-4 w-4 text-emerald-600" />,
   "report.despachar":          <ScanLine   className="h-4 w-4 text-emerald-600" />,
   "report.eliminar":           <Trash2     className="h-4 w-4 text-red-500"     />,
 }
 
+// La Clase IMO de un ítem de inventario es un valor suelto ("2.2", "8"...),
+// pero la de una tarifa/contrato agrupa varias en un solo texto libre ("Clases
+// 2.1, 2.2, 2.3 y 3", "Clase 8"...) — tokeniza ese texto y compara contra el
+// valor exacto del ítem en vez de un match literal de todo el string.
+function tarifaCubreClase(tarifaClase: string | null, itemClase: string | null): boolean {
+  if (!tarifaClase || !itemClase) return false
+  const tokens = tarifaClase.replace(/clases?/gi, "").split(/,| y /i).map(t => t.trim()).filter(Boolean)
+  return tokens.includes(itemClase.trim())
+}
+
 const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> = {
-  borrador:           { label: "Borrador",       className: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
-  pendiente_despacho: { label: "Pend. despacho", className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
-  despachado:         { label: "Despachado",     className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+  borrador:              { label: "Ingresado",         className: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
+  pendiente_operaciones: { label: "Pend. operaciones", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
+  pendiente_despacho:    { label: "Pend. despacho",    className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
+  despachado:            { label: "Despachado",        className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
 }
 
 export default function ReportDetailPage() {
@@ -57,7 +69,14 @@ export default function ReportDetailPage() {
 
   const [form,      setForm]     = useState<FormData | null>(null)
   const [estado,    setEstado]   = useState<ReportEstado>("borrador")
-  const [tarifasCount, setTarifasCount] = useState(0)
+  // Tarifa/Contrato ya no se elige a mano — se deriva sola comparando la
+  // Clase IMO del producto que Operaciones elige en Bodegaje contra la Clase
+  // IMO de cada contrato del cliente (ver ProductoCombobox.onSelect abajo).
+  const [tarifasCliente, setTarifasCliente] = useState<TarifaOption[]>([])
+  // servicioSeleccion/serviciosManual ya no tienen UI propia (se sacó del
+  // formulario) — se siguen cargando y reenviando tal cual en buildPayload
+  // para no perder lo que un report viejo ya tenía guardado; el HES sigue
+  // leyéndolos exactamente igual que antes.
   const [servicioSeleccion, setServicioSeleccion] = useState<ServicioSeleccionado[]>([])
   const [serviciosManual, setServiciosManual] = useState<string[]>([])
   const [numero,  setNumero]  = useState<number | null>(null)
@@ -111,6 +130,24 @@ export default function ReportDetailPage() {
   const previewUrl = useMemo(() => previewFile ? URL.createObjectURL(previewFile) : null, [previewFile])
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
+  // Contratos del cliente — se usan para derivar sola la tarifa al elegir un
+  // producto en Bodegaje (ver ProductoCombobox.onSelect), no para elegirla a mano.
+  useEffect(() => {
+    const clienteId = form?.cliente_id
+    setTarifasCliente([])
+    if (!clienteId) return
+    createClient()
+      .from("tarifas_cliente")
+      .select("id, clase_imo, cotizacion_numero")
+      .eq("cliente_id", clienteId)
+      .eq("activo", true)
+      .order("clase_imo")
+      .then(({ data, error }) => {
+        if (error) { console.error("[report] error obteniendo tarifas del cliente:", error); return }
+        setTarifasCliente((data as TarifaOption[]) ?? [])
+      })
+  }, [form?.cliente_id])
+
   function addSec2EvidenciaFiles(list: FileList | File[]) {
     setSec2EvidenciaFiles(prev => [...prev, ...Array.from(list)])
   }
@@ -138,7 +175,14 @@ export default function ReportDetailPage() {
   const [previewReport, setPreviewReport] = useState<import("@/types/database").Report | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
 
-  const readOnly = estado !== "borrador"
+  // El formulario ya no se bloquea todo junto: Recepción llena Antecedentes +
+  // Sección 1 mientras es "borrador"; al guardar pasa a "pendiente_operaciones"
+  // y esa mitad se congela mientras se habilita la Sección 2 + 3 para que
+  // Operaciones las complete. Servicios/Firma/Nombre operador quedan
+  // editables en ambas mitades (recién se congelan al entrar a despacho).
+  const leftReadOnly   = estado !== "borrador"
+  const rightReadOnly  = estado !== "pendiente_operaciones"
+  const sharedReadOnly = estado === "pendiente_despacho" || estado === "despachado"
 
   useEffect(() => {
     if (!historialOpen || logsLoaded) return
@@ -195,7 +239,7 @@ export default function ReportDetailPage() {
       setLoading(false)
 
       // El report solo guarda el nombre del cliente — resolver su id para que
-      // TarifaSelect/ProductoCombobox/ServiciosSection (que filtran por
+      // ProductoCombobox/ServiciosSection/tarifasCliente (que filtran por
       // cliente_id) funcionen igual que en reports/nuevo. Si el cliente fue
       // renombrado después de crear este report, el lookup por nombre no
       // encuentra nada y esos selectores quedarían vacíos en silencio —
@@ -231,10 +275,15 @@ export default function ReportDetailPage() {
       form.sec2_paletizado || form.sec2_etiquetado || form.sec2_otro ||
       form.sec2_hora_inicio || form.sec2_hora_termino || form.sec2_sigla_numero || form.sec2_observaciones
     )
+    // sec3_numero_guia/sec3_solicitado_por/sec3_cuyd_detalle quedaron fuera:
+    // ahora viven en Antecedentes (los llena Recepción en TODO report, incluso
+    // sin Bodegaje), así que ya no sirven como señal de que Bodegaje se usó.
     const sec3Activa = !!(
       form.sec3_producto || form.sec3_clase_imo || form.sec3_nu || form.sec3_hora_inicio ||
-      form.sec3_hora_termino || form.sec3_numero_bodega || form.sec3_numero_guia || form.sec3_tipo ||
-      form.sec3_numero_pallets || form.sec3_solicitado_por || form.sec3_cuyd_detalle || form.sec3_observaciones
+      form.sec3_hora_termino || form.sec3_numero_bodega || form.sec3_tipo ||
+      form.sec3_numero_pallets || form.sec3_numero_unidades ||
+      form.sec3_lote || form.sec3_cas || form.sec3_orden_compra ||
+      form.sec3_fecha_elaboracion || form.sec3_fecha_vencimiento || form.sec3_observaciones
     )
 
     return {
@@ -282,10 +331,17 @@ export default function ReportDetailPage() {
       sec3_nu:             form.sec3_nu             || null,
       sec3_tipo:           form.sec3_tipo           || null,
       sec3_numero_pallets: form.sec3_numero_pallets ? Number(form.sec3_numero_pallets) : null,
+      sec3_numero_unidades: form.sec3_numero_unidades ? Number(form.sec3_numero_unidades) : null,
       sec3_numero_guia:    form.sec3_numero_guia    || null,
       sec3_solicitado_por: form.sec3_solicitado_por || null,
       sec3_cuyd_detalle:   form.sec3_cuyd_detalle   || null,
+      sec3_lote:               form.sec3_lote              || null,
+      sec3_cas:                form.sec3_cas               || null,
+      sec3_orden_compra:       form.sec3_orden_compra      || null,
+      sec3_fecha_elaboracion:  form.sec3_fecha_elaboracion || null,
+      sec3_fecha_vencimiento:  form.sec3_fecha_vencimiento || null,
       sec3_observaciones:  form.sec3_observaciones  || null,
+      sec3_servicio_adicional: form.sec3_servicio_adicional,
       nombre_operador:     form.nombre_operador     || null,
       servicios_ids:       servicioSeleccion.flatMap(s => Array(s.cantidad).fill(s.id)),
       servicios_manual:    serviciosManual,
@@ -320,14 +376,14 @@ export default function ReportDetailPage() {
 
   async function handleSave(newEstado: ReportEstado) {
     if (!form) return
-    if (!form.cliente || !form.patente || !form.conductor) {
-      setError("Cliente, patente y conductor son obligatorios.")
+    if (!form.cliente || !form.patente || !form.conductor || !form.rut_conductor || !form.sec3_numero_guia) {
+      setError("Cliente, patente, conductor, RUT conductor y N° Guía son obligatorios.")
       return
     }
-    if (tarifasCount > 1 && !form.tarifa_cliente_id) {
-      setError("Este cliente tiene varios contratos — selecciona a cuál tarifa pertenece este report.")
-      return
-    }
+    // La tarifa/contrato se deriva sola de la Clase IMO del producto elegido
+    // en Bodegaje (ver ProductoCombobox.onSelect) — si no hay match, queda
+    // sin asignar y solo se avisa con el mensaje ámbar bajo Producto, sin
+    // bloquear el envío a despacho.
     setError(null)
     setSaving(true)
     const supabase = createClient()
@@ -438,19 +494,21 @@ export default function ReportDetailPage() {
     // Validación de pallets solo aplica al enviar a despacho — usa el
     // sec3_activa recién inferido en buildPayload, no form.sec3_activa (el
     // valor cargado de la BD al abrir, nunca refrescado si se activó/completó
-    // la sección durante esta misma edición).
-    if (newEstado === "pendiente_despacho" && estado === "borrador" &&
+    // la sección durante esta misma edición). Bodegaje (sec3) lo llena
+    // Operaciones en pendiente_operaciones, así que esta transición ahora
+    // sale de ahí en vez de "borrador".
+    if (newEstado === "pendiente_despacho" && estado === "pendiente_operaciones" &&
         payload.sec3_activa && payload.sec3_inventario_item_id && payload.sec3_tipo) {
       const delta = Number(payload.sec3_numero_pallets)
       if (!delta || delta <= 0) {
-        const { error: revertErr } = await supabase.from("reports").update({ estado: "borrador" }).eq("id", id)
+        const { error: revertErr } = await supabase.from("reports").update({ estado: "pendiente_operaciones" }).eq("id", id)
         if (revertErr) {
           console.error("[reports/id] error revirtiendo estado sin pallets:", revertErr)
           setError("Número de pallets requerido para enviar a despacho, y no se pudo revertir el estado guardado — revisa el report antes de continuar.")
           setSaving(false)
           return
         }
-        setEstado("borrador")
+        setEstado("pendiente_operaciones")
         setError("Número de pallets requerido para enviar a despacho.")
         setSaving(false)
         return
@@ -469,7 +527,9 @@ export default function ReportDetailPage() {
     logAudit({
       tabla:          "reports",
       registro_id:    id,
-      accion:         newEstado === "pendiente_despacho" ? "report.enviar_despacho" : "report.actualizar",
+      accion:         newEstado === "pendiente_despacho"    ? "report.enviar_despacho" :
+                      newEstado === "pendiente_operaciones" && estado === "borrador" ? "report.enviar_operaciones" :
+                      "report.actualizar",
       descripcion:    `Report #${numero} — ${form.cliente} (${form.patente})`,
       usuario_id:     user?.id,
       usuario_nombre: profile?.nombre ?? user?.email,
@@ -598,13 +658,20 @@ export default function ReportDetailPage() {
             <>
               <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" disabled={saving} onClick={() => handleSave("borrador")}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                Guardar borrador
+                Ingreso Report
               </Button>
-              <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => handleSave("pendiente_despacho")}>
+              <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => handleSave("pendiente_operaciones")}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                Enviar a despacho
+                Enviar a Operaciones
               </Button>
             </>
+          )}
+
+          {estado === "pendiente_operaciones" && (
+            <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving} onClick={() => handleSave("pendiente_despacho")}>
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              Enviar a despacho
+            </Button>
           )}
 
           {estado === "pendiente_despacho" && (
@@ -625,10 +692,10 @@ export default function ReportDetailPage() {
         </div>
       </div>
 
-      {readOnly && (
+      {(estado === "pendiente_despacho" || estado === "despachado") && (
         <div className="flex items-center gap-2 px-6 py-2 bg-amber-50 dark:bg-amber-900/20 border-b text-xs text-amber-700 dark:text-amber-400 flex-shrink-0">
           <Eye className="h-3.5 w-3.5 flex-shrink-0" />
-          Este report está en modo lectura — solo los borradores pueden editarse.
+          Este report está en modo lectura — solo se puede editar mientras Recepción u Operaciones lo están llenando.
         </div>
       )}
 
@@ -658,49 +725,65 @@ export default function ReportDetailPage() {
                       } : prev)
                       setServicioSeleccion([])
                     }}
-                    readOnly={readOnly}
+                    readOnly={leftReadOnly}
                   />
                 </Field>
-                <TarifaSelect
-                  clienteId={form.cliente_id}
-                  value={form.tarifa_cliente_id}
-                  onChange={cid => set("tarifa_cliente_id", cid)}
-                  onCountChange={setTarifasCount}
-                  readOnly={readOnly}
-                />
                 <Field label="Fecha">
-                  <Input type="date" value={form.fecha} onChange={e => set("fecha", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
+                  <Input type="date" value={form.fecha} onChange={e => set("fecha", e.target.value)} className="h-8 text-xs" disabled={leftReadOnly} />
                 </Field>
                 <Field label="Patente camión" required>
-                  <Input value={form.patente} onChange={e => set("patente", e.target.value.toUpperCase())} placeholder="XXXX-00" className="h-8 text-xs font-mono" readOnly={readOnly} />
+                  <Input value={form.patente} onChange={e => set("patente", e.target.value.toUpperCase())} placeholder="XXXX-00" className="h-8 text-xs font-mono" disabled={leftReadOnly} />
                 </Field>
                 <Field label="Conductor" required>
-                  <Input value={form.conductor} onChange={e => set("conductor", e.target.value.toUpperCase())} placeholder="Nombre completo" className="h-8 text-xs" readOnly={readOnly} />
+                  <Input value={form.conductor} onChange={e => set("conductor", e.target.value.toUpperCase())} placeholder="Nombre completo" className="h-8 text-xs" disabled={leftReadOnly} />
                 </Field>
-                <Field label="RUT conductor">
-                  <Input value={form.rut_conductor} onChange={e => set("rut_conductor", e.target.value)} placeholder="12.345.678-9" className="h-8 text-xs font-mono" readOnly={readOnly} />
+                <Field label="RUT conductor" required>
+                  <Input value={form.rut_conductor} onChange={e => set("rut_conductor", e.target.value)} placeholder="12.345.678-9" className="h-8 text-xs font-mono" disabled={leftReadOnly} />
+                </Field>
+                <Field label="N° Guía" required>
+                  <Input value={form.sec3_numero_guia} onChange={e => set("sec3_numero_guia", e.target.value.toUpperCase())} placeholder="Número de guía" className="h-8 text-xs" disabled={leftReadOnly} />
+                </Field>
+                <Field label="Solicitado por">
+                  <select value={form.sec3_solicitado_por}
+                    onChange={e => {
+                      set("sec3_solicitado_por", e.target.value as FormData["sec3_solicitado_por"])
+                      if (e.target.value !== "cuyd") set("sec3_cuyd_detalle", "")
+                    }}
+                    disabled={leftReadOnly}
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 disabled:cursor-default"
+                  >
+                    <option value="">Seleccionar...</option>
+                    <option value="clientes">Clientes</option>
+                    <option value="hds">HDS</option>
+                    <option value="operaciones">Operaciones</option>
+                    <option value="cuyd">CUyD</option>
+                  </select>
+                  {form.sec3_solicitado_por === "cuyd" && (
+                    <Input value={form.sec3_cuyd_detalle} onChange={e => set("sec3_cuyd_detalle", e.target.value.toUpperCase())}
+                      placeholder="Detalle CUyD..." className="h-7 text-xs mt-1.5 w-full" disabled={leftReadOnly} />
+                  )}
                 </Field>
                 <Field label="Transporte" className="col-span-1 sm:col-span-2">
                   <div className="h-8 flex items-center">
                     <RadioGroup
                       value={form.transporte_tipo}
                       onChange={v => {
-                        if (readOnly) return
+                        if (leftReadOnly) return
                         set("transporte_tipo", v)
                         if (v === "propio") set("empresa_transporte", "")
                       }}
                       options={[{ value: "propio", label: "Propio" }, { value: "externo", label: "Externo" }]}
-                      readOnly={readOnly}
+                      readOnly={leftReadOnly}
                     />
                   </div>
                 </Field>
                 {form.transporte_tipo === "externo" && (
                   <Field label="Empresa de transporte" className="col-span-1 sm:col-span-2">
-                    <Input value={form.empresa_transporte} onChange={e => set("empresa_transporte", e.target.value.toUpperCase())} placeholder="Razón social" className="h-8 text-xs" readOnly={readOnly} />
+                    <Input value={form.empresa_transporte} onChange={e => set("empresa_transporte", e.target.value.toUpperCase())} placeholder="Razón social" className="h-8 text-xs" disabled={leftReadOnly} />
                   </Field>
                 )}
                 <div className="col-span-1 sm:col-span-3 flex items-center gap-2">
-                  <Checkbox id="hds_header" checked={form.hds_header} onCheckedChange={v => !readOnly && set("hds_header", v === true)} className="h-3.5 w-3.5" disabled={readOnly} />
+                  <Checkbox id="hds_header" checked={form.hds_header} onCheckedChange={v => !leftReadOnly && set("hds_header", v === true)} className="h-3.5 w-3.5" disabled={leftReadOnly} />
                   <label htmlFor="hds_header" className="text-xs text-foreground/80 cursor-pointer">HDS (Hoja de datos de seguridad presente)</label>
                 </div>
                 {form.hds_header && (
@@ -713,7 +796,7 @@ export default function ReportDetailPage() {
                       </div>
                     )}
 
-                    {!readOnly && (
+                    {!leftReadOnly && (
                       <>
                         <input
                           ref={hdsFileRef}
@@ -769,7 +852,7 @@ export default function ReportDetailPage() {
 
             <div>
               <h2 className="text-[13px] font-bold text-foreground mb-1.5">1. Depósito de Contenedores</h2>
-              <Sec1Content form={form} set={set as unknown as FormSetter} readOnly={readOnly} toUpperCase hideActivation />
+              <Sec1Content form={form} set={set as unknown as FormSetter} readOnly={leftReadOnly} toUpperCase hideActivation />
             </div>
             </div>
 
@@ -778,7 +861,7 @@ export default function ReportDetailPage() {
 
             <div>
               <h2 className="text-[13px] font-bold text-foreground mb-1.5">2. Consolidado / Desconsolidado / Otros</h2>
-              <Sec2Content form={form} set={set as unknown as FormSetter} readOnly={readOnly} toUpperCase hideActivation />
+              <Sec2Content form={form} set={set as unknown as FormSetter} readOnly={rightReadOnly} toUpperCase hideActivation />
 
               {(form.sec2_consolidado || form.sec2_desconsolidado) && (
                 <div className="mt-2 flex flex-col gap-1.5">
@@ -792,7 +875,7 @@ export default function ReportDetailPage() {
                     </div>
                   )}
 
-                  {!readOnly && (
+                  {!rightReadOnly && (
                     <>
                       <input
                         ref={sec2EvidenciaFileRef}
@@ -850,7 +933,7 @@ export default function ReportDetailPage() {
               <Sec3Content
                 form={form}
                 set={set as unknown as FormSetter}
-                readOnly={readOnly}
+                readOnly={rightReadOnly}
                 toUpperCase
                 hideActivation
                 productoNode={
@@ -865,18 +948,28 @@ export default function ReportDetailPage() {
                         sec3_producto:           item.descripcion,
                         sec3_clase_imo:          item.clase_imo ?? "",
                         sec3_nu:                 item.nu        ?? "",
+                        // Tarifa/contrato ya no se elige a mano — se deriva sola
+                        // comparando la Clase IMO del producto contra la de cada
+                        // contrato del cliente (mismo valor, dos tablas distintas).
+                        tarifa_cliente_id: tarifasCliente.find(t => tarifaCubreClase(t.clase_imo, item.clase_imo))?.id ?? "",
                       }) : prev)}
                       onClear={() => setForm(prev => prev ? ({
                         ...prev,
                         sec3_inventario_item_id: "",
                         sec3_clase_imo:          "",
                         sec3_nu:                 "",
+                        tarifa_cliente_id:       "",
                       }) : prev)}
-                      readOnly={readOnly}
+                      readOnly={rightReadOnly}
                     />
                     {form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
                       <p className="text-[10px] text-amber-600 mt-1">
                         No vinculado al catálogo — este report no actualizará el stock.
+                      </p>
+                    )}
+                    {form.sec3_inventario_item_id && tarifasCliente.length > 1 && !form.tarifa_cliente_id && (
+                      <p className="text-[10px] text-amber-600 mt-1">
+                        Ningún contrato de este cliente coincide con la Clase IMO &quot;{form.sec3_clase_imo || "—"}&quot; — revisa antes de enviar a despacho.
                       </p>
                     )}
                   </>
@@ -886,21 +979,9 @@ export default function ReportDetailPage() {
             </div>
           </div>
 
-          {/* Servicios asociados al cliente */}
-          <div className="border-t mt-3 pt-3">
-            <ServiciosSection
-              clienteId={form.cliente_id}
-              selected={servicioSeleccion}
-              onToggle={sid => setServicioSeleccion(prev =>
-                prev.some(s => s.id === sid) ? prev.filter(s => s.id !== sid) : [...prev, { id: sid, cantidad: 1 }]
-              )}
-              onCantidadChange={(sid, cantidad) => setServicioSeleccion(prev => prev.map(s => s.id === sid ? { ...s, cantidad } : s))}
-              manual={serviciosManual}
-              onAddManual={nombre => setServiciosManual(prev => [...prev, nombre])}
-              onRemoveManual={index => setServiciosManual(prev => prev.filter((_, i) => i !== index))}
-              readOnly={readOnly}
-            />
-          </div>
+          {/* Servicios adicionales: ya no tiene sección propia — se registran
+              directamente en Observaciones de Sección 2 y/o Sección 3, que ya
+              existían. El módulo Servicios Adicionales lee esos campos. */}
 
           {/* Firma del conductor — tablet/lápiz óptico */}
           <div className="border-t mt-3 pt-3">
@@ -915,7 +996,7 @@ export default function ReportDetailPage() {
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   )}
                 </div>
-                {!readOnly && (
+                {!sharedReadOnly && (
                   <button
                     type="button"
                     onClick={() => { setReFirmando(true); setFirmaDataUrl(null) }}
@@ -926,7 +1007,7 @@ export default function ReportDetailPage() {
                 )}
               </div>
             ) : (
-              <FirmaCanvas onChange={setFirmaDataUrl} readOnly={readOnly} />
+              <FirmaCanvas onChange={setFirmaDataUrl} readOnly={sharedReadOnly} />
             )}
           </div>
 
@@ -938,7 +1019,7 @@ export default function ReportDetailPage() {
                   value={form.nombre_operador}
                   onChange={e => set("nombre_operador", e.target.value.toUpperCase())}
                   className="h-8 text-xs text-center"
-                  readOnly={readOnly}
+                  disabled={sharedReadOnly}
                 />
               </Field>
             </div>

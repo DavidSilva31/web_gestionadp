@@ -21,7 +21,7 @@ export async function exportReportsToExcel(reports: Report[], filename = "report
   const rows = reports.map(r => ({
     // ── Identificación ──────────────────────────────────────────
     "N° Report":            r.numero,
-    "Estado":               { borrador: "Borrador", pendiente_despacho: "Pendiente despacho", despachado: "Despachado" }[r.estado] ?? r.estado,
+    "Estado":               { borrador: "Ingresado", pendiente_operaciones: "Pendiente operaciones", pendiente_despacho: "Pendiente despacho", despachado: "Despachado" }[r.estado] ?? r.estado,
     "Fecha":                str(r.fecha),
     "Fecha despacho":       r.fecha_despacho ? new Date(r.fecha_despacho).toLocaleString("es-CL") : "",
 

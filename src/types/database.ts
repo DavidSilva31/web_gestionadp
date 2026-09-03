@@ -1,4 +1,4 @@
-export type ReportEstado = 'borrador' | 'pendiente_despacho' | 'despachado'
+export type ReportEstado = 'borrador' | 'pendiente_operaciones' | 'pendiente_despacho' | 'despachado'
 export type InventarioCategoria = 'Contenedor IMO' | 'Isotanque' | 'Residuo peligroso' | 'Carga general'
 export type InventarioArea = 'Bodega IMO' | 'Zona Isotanques' | 'Zona RESPEL' | 'Bodega General'
 export type MovimientoTipo = 'ingreso' | 'despacho'
@@ -66,10 +66,17 @@ export interface Report {
   sec3_nu: string | null
   sec3_tipo: TipoMovimiento | null
   sec3_numero_pallets: number | null
+  sec3_numero_unidades: number | null
   sec3_numero_guia: string | null
   sec3_solicitado_por: SolicitadoPor | null
   sec3_cuyd_detalle: string | null
+  sec3_lote: string | null
+  sec3_cas: string | null
+  sec3_orden_compra: string | null
+  sec3_fecha_elaboracion: string | null
+  sec3_fecha_vencimiento: string | null
   sec3_observaciones: string | null
+  sec3_servicio_adicional: boolean
 
   // Firmas
   firma_conductor_url: string | null
@@ -143,6 +150,10 @@ export interface InventarioItem {
   nu:            string | null
   unidad:        string
   stock_actual:  number
+  // Stock de unidades — dimensión aparte de stock_actual (que en la práctica
+  // trackea posiciones/pallets). Se mueve con sec3_numero_unidades igual que
+  // stock_actual se mueve con sec3_numero_pallets.
+  stock_unidades: number
   stock_minimo:  number
   observaciones: string | null
   activo:        boolean

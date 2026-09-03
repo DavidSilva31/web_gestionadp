@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase"
 import {
-  FileText, FilePen, FileCheck2, Truck, ScanLine, Trash2,
+  FileText, FilePen, FileCheck2, Truck, ScanLine, Trash2, Send,
   PackagePlus, PackageMinus, Boxes, Users, Wrench, Coins,
   UserPlus, UserMinus, UserCog, FileSpreadsheet, Mail, type LucideIcon,
 } from "lucide-react"
@@ -8,6 +8,7 @@ import {
 export type AuditAccion =
   | "report.crear_borrador"
   | "report.actualizar"
+  | "report.enviar_operaciones"
   | "report.enviar_despacho"
   | "report.confirmar_despacho"
   | "report.despachar"
@@ -45,8 +46,9 @@ export interface AuditLog {
 }
 
 const ACCION_LABEL: Record<AuditAccion, string> = {
-  "report.crear_borrador":       "Report creado como borrador",
+  "report.crear_borrador":       "Report ingresado",
   "report.actualizar":           "Report actualizado",
+  "report.enviar_operaciones":   "Recepción envió a Operaciones",
   "report.enviar_despacho":      "Enviado a cola de despacho",
   "report.confirmar_despacho":   "Despacho confirmado",
   "report.despachar":            "Despacho confirmado con documento firmado",
@@ -79,6 +81,7 @@ export function accionLabel(accion: string) {
 export const ACCION_STYLE: Record<string, { icon: LucideIcon; pill: string }> = {
   "report.crear_borrador":      { icon: FileText,      pill: "bg-gray-100    text-gray-600    dark:bg-gray-800     dark:text-gray-400"    },
   "report.actualizar":          { icon: FilePen,       pill: "bg-blue-100    text-blue-700    dark:bg-blue-900/30  dark:text-blue-400"    },
+  "report.enviar_operaciones":  { icon: Send,          pill: "bg-orange-100  text-orange-700  dark:bg-orange-900/30 dark:text-orange-400" },
   "report.enviar_despacho":     { icon: FileCheck2,    pill: "bg-amber-100   text-amber-700   dark:bg-amber-900/30 dark:text-amber-400"   },
   "report.confirmar_despacho":  { icon: Truck,         pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
   "report.despachar":           { icon: ScanLine,      pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
@@ -108,6 +111,7 @@ export const ACCION_STYLE: Record<string, { icon: LucideIcon; pill: string }> = 
 // pero no ameritan una notificación push.
 export const NOTIFY_ACCIONES: AuditAccion[] = [
   "report.crear_borrador",
+  "report.enviar_operaciones",
   "report.enviar_despacho",
   "report.despachar",
   "report.eliminar",

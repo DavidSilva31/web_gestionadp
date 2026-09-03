@@ -4,7 +4,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import { cn }       from "@/lib/utils"
-import type { ReportFormData, TipoMovimiento, TipoContenedor, SolicitadoPor } from "./report-form-types"
+import type { ReportFormData, TipoMovimiento, TipoContenedor } from "./report-form-types"
 
 // ── Setter type ────────────────────────────────────────────────────────────────
 
@@ -123,11 +123,11 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
           <div className="grid grid-cols-2 gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
             <Field label="Clase IMO">
               <Input value={form.sec1_clase_imo} onChange={str("sec1_clase_imo")}
-                placeholder="Ej: 3, 6.1, 8..." className="h-8 text-xs" readOnly={readOnly} />
+                placeholder="Ej: 3, 6.1, 8..." className="h-8 text-xs" disabled={readOnly} />
             </Field>
             <Field label="NU">
               <Input value={form.sec1_nu} onChange={str("sec1_nu")}
-                className="h-8 text-xs font-mono" readOnly={readOnly} />
+                className="h-8 text-xs font-mono" disabled={readOnly} />
             </Field>
           </div>
         )}
@@ -135,23 +135,23 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <Field label="Hora inicio">
             <Input type="time" value={form.sec1_hora_inicio}
-              onChange={e => set("sec1_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
+              onChange={e => set("sec1_hora_inicio", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="Hora término">
             <Input type="time" value={form.sec1_hora_termino}
-              onChange={e => set("sec1_hora_termino", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
+              onChange={e => set("sec1_hora_termino", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="Sigla">
             <Input value={form.sec1_sigla} onChange={str("sec1_sigla")}
-              placeholder="Sigla del contenedor" className="h-8 text-xs" readOnly={readOnly} />
+              placeholder="Sigla del contenedor" className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="N° Guía">
             <Input value={form.sec1_guia_numero} onChange={str("sec1_guia_numero")}
-              placeholder="Número de guía" className="h-8 text-xs" readOnly={readOnly} />
+              placeholder="Número de guía" className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="Interchange">
             <Input value={form.sec1_interchange} onChange={str("sec1_interchange")}
-              placeholder="N° Interchange" className="h-8 text-xs" readOnly={readOnly} />
+              placeholder="N° Interchange" className="h-8 text-xs" disabled={readOnly} />
           </Field>
         </div>
 
@@ -179,14 +179,37 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc, hideActivati
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       set(key, (uc ? e.target.value.toUpperCase() : e.target.value) as ReportFormData[typeof key])
 
-  const checkboxFields: [keyof ReportFormData, string][] = [
+  // Consolidado/Desconsolidado van en su propia fila para reforzar que son
+  // mutuamente excluyentes — el resto se combina libremente en la siguiente.
+  const exclusiveFields: [keyof ReportFormData, string][] = [
     ["sec2_consolidado",    "Consolidado"],
     ["sec2_desconsolidado", "Desconsolidado"],
-    ["sec2_picking",        "Picking"],
-    ["sec2_paletizado",     "Paletizado"],
-    ["sec2_etiquetado",     "Etiquetado"],
-    ["sec2_otro",           "Otro"],
   ]
+  const multiFields: [keyof ReportFormData, string][] = [
+    ["sec2_picking",    "Picking"],
+    ["sec2_paletizado", "Paletizado"],
+    ["sec2_etiquetado", "Etiquetado"],
+    ["sec2_otro",       "Otro"],
+  ]
+
+  function checkboxItem([key, label]: [keyof ReportFormData, string]) {
+    return (
+      <div key={key} className="flex items-center gap-2">
+        <Checkbox id={key} checked={form[key] as boolean}
+          onCheckedChange={v => {
+            if (readOnly) return
+            const checked = v === true
+            set(key, checked as ReportFormData[typeof key])
+            // Consolidado y Desconsolidado son mutuamente excluyentes — el
+            // resto de las opciones sí se pueden combinar libremente.
+            if (checked && key === "sec2_consolidado") set("sec2_desconsolidado", false)
+            if (checked && key === "sec2_desconsolidado") set("sec2_consolidado", false)
+          }}
+          className="h-3.5 w-3.5" disabled={readOnly} />
+        <label htmlFor={key} className="text-xs text-foreground/80 cursor-pointer">{label}</label>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-2">
@@ -202,34 +225,32 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc, hideActivati
       )}
 
       <div className={cn("space-y-2 transition-opacity", !hideActivation && !form.sec2_activa && "opacity-40 pointer-events-none")}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-muted/40 rounded-lg">
-          {checkboxFields.map(([key, label]) => (
-            <div key={key} className="flex items-center gap-2">
-              <Checkbox id={key} checked={form[key] as boolean}
-                onCheckedChange={v => !readOnly && set(key, v === true as ReportFormData[typeof key])}
-                className="h-3.5 w-3.5" disabled={readOnly} />
-              <label htmlFor={key} className="text-xs text-foreground/80 cursor-pointer">{label}</label>
-            </div>
-          ))}
+        <div className="space-y-1.5 p-3 bg-muted/40 rounded-lg">
+          <div className="flex items-center gap-4">
+            {exclusiveFields.map(checkboxItem)}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {multiFields.map(checkboxItem)}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <Field label="Hora inicio">
             <Input type="time" value={form.sec2_hora_inicio}
-              onChange={e => set("sec2_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
+              onChange={e => set("sec2_hora_inicio", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="Hora término">
             <Input type="time" value={form.sec2_hora_termino}
-              onChange={e => set("sec2_hora_termino", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
+              onChange={e => set("sec2_hora_termino", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="Sigla / N°" className="col-span-2">
             <Input value={form.sec2_sigla_numero} onChange={str("sec2_sigla_numero")}
-              placeholder="Sigla o número" className="h-8 text-xs" readOnly={readOnly} />
+              placeholder="Sigla o número" className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="Observaciones" className="col-span-2">
             <textarea value={form.sec2_observaciones} onChange={str("sec2_observaciones")}
-              placeholder="Observaciones adicionales..." rows={2} readOnly={readOnly}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
+              placeholder="Observaciones adicionales..." rows={2} disabled={readOnly}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50" />
           </Field>
         </div>
       </div>
@@ -272,29 +293,24 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode
           </Field>
           <Field label="Clase IMO">
             <Input value={form.sec3_clase_imo} onChange={str("sec3_clase_imo")}
-              placeholder="Clase IMO si aplica" className="h-8 text-xs" readOnly={readOnly} />
+              placeholder="Clase IMO si aplica" className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="NU">
             <Input value={form.sec3_nu} onChange={str("sec3_nu")}
-              className="h-8 text-xs font-mono" readOnly={readOnly} />
+              className="h-8 text-xs font-mono" disabled={readOnly} />
           </Field>
           <Field label="N° Bodega">
             <Input value={form.sec3_numero_bodega} onChange={str("sec3_numero_bodega")}
-              placeholder="Número de bodega" className="h-8 text-xs" readOnly={readOnly} />
+              placeholder="Número de bodega" className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="Hora inicio">
             <Input type="time" value={form.sec3_hora_inicio}
-              onChange={e => set("sec3_hora_inicio", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
+              onChange={e => set("sec3_hora_inicio", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label="Hora término">
             <Input type="time" value={form.sec3_hora_termino}
-              onChange={e => set("sec3_hora_termino", e.target.value)} className="h-8 text-xs" readOnly={readOnly} />
+              onChange={e => set("sec3_hora_termino", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
-          <Field label="N° Guía">
-            <Input value={form.sec3_numero_guia} onChange={str("sec3_numero_guia")}
-              placeholder="Número de guía" className="h-8 text-xs" readOnly={readOnly} />
-          </Field>
-
           <Field label="Tipo de movimiento">
             <RadioGroup<TipoMovimiento>
               value={form.sec3_tipo}
@@ -306,33 +322,47 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode
           <Field label="N° Pallets">
             <Input type="number" min={0} value={form.sec3_numero_pallets}
               onChange={e => set("sec3_numero_pallets", e.target.value)}
-              placeholder="0" className="h-8 text-xs" readOnly={readOnly} />
+              placeholder="0" className="h-8 text-xs" disabled={readOnly} />
           </Field>
-          <Field label="Solicitado por">
-            <select value={form.sec3_solicitado_por}
-              onChange={e => {
-                set("sec3_solicitado_por", e.target.value as SolicitadoPor)
-                if (e.target.value !== "cuyd") set("sec3_cuyd_detalle", "")
-              }}
-              disabled={readOnly}
-              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 disabled:cursor-default"
-            >
-              <option value="">Seleccionar...</option>
-              <option value="clientes">Clientes</option>
-              <option value="hds">HDS</option>
-              <option value="operaciones">Operaciones</option>
-              <option value="cuyd">CUyD</option>
-            </select>
-            {form.sec3_solicitado_por === "cuyd" && (
-              <Input value={form.sec3_cuyd_detalle} onChange={str("sec3_cuyd_detalle")}
-                placeholder="Detalle CUyD..." className="h-7 text-xs mt-1.5 w-full" readOnly={readOnly} />
-            )}
+          <Field label="N° Unidades">
+            <Input type="number" min={0} value={form.sec3_numero_unidades}
+              onChange={e => set("sec3_numero_unidades", e.target.value)}
+              placeholder="0" className="h-8 text-xs" disabled={readOnly} />
           </Field>
+          <Field label="Lote">
+            <Input value={form.sec3_lote} onChange={str("sec3_lote")}
+              placeholder="N° de lote" className="h-8 text-xs" disabled={readOnly} />
+          </Field>
+          <Field label="CAS">
+            <Input value={form.sec3_cas} onChange={str("sec3_cas")}
+              className="h-8 text-xs font-mono" disabled={readOnly} />
+          </Field>
+          <Field label="OC">
+            <Input value={form.sec3_orden_compra} onChange={str("sec3_orden_compra")}
+              placeholder="Orden de compra" className="h-8 text-xs" disabled={readOnly} />
+          </Field>
+          <Field label="Elab.">
+            <Input type="date" value={form.sec3_fecha_elaboracion}
+              onChange={e => set("sec3_fecha_elaboracion", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
+          </Field>
+          <Field label="Venc.">
+            <Input type="date" value={form.sec3_fecha_vencimiento}
+              onChange={e => set("sec3_fecha_vencimiento", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
+          </Field>
+
+          <div className="col-span-1 sm:col-span-3 flex items-center gap-2">
+            <Checkbox id="sec3_servicio_adicional" checked={form.sec3_servicio_adicional}
+              onCheckedChange={v => !readOnly && set("sec3_servicio_adicional", v === true)}
+              className="h-3.5 w-3.5" disabled={readOnly} />
+            <label htmlFor="sec3_servicio_adicional" className="text-xs font-medium text-foreground cursor-pointer">
+              Servicio Adicional
+            </label>
+          </div>
 
           <Field label="Observaciones" className="col-span-1 sm:col-span-3">
             <textarea value={form.sec3_observaciones} onChange={str("sec3_observaciones")}
-              placeholder="Observaciones adicionales..." rows={2} readOnly={readOnly}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
+              placeholder="Observaciones adicionales..." rows={2} disabled={readOnly}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50" />
           </Field>
         </div>
 

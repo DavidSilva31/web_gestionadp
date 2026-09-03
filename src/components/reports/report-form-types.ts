@@ -48,10 +48,17 @@ export interface ReportFormData {
   sec3_nu:             string
   sec3_tipo:           TipoMovimiento | ""
   sec3_numero_pallets: string
+  sec3_numero_unidades: string
   sec3_numero_guia:    string
   sec3_solicitado_por: SolicitadoPor | ""
   sec3_cuyd_detalle:   string
+  sec3_lote:               string
+  sec3_cas:                string
+  sec3_orden_compra:       string
+  sec3_fecha_elaboracion:  string
+  sec3_fecha_vencimiento:  string
   sec3_observaciones:  string
+  sec3_servicio_adicional: boolean
 
   nombre_operador: string
 }
@@ -86,9 +93,14 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
     sec3_numero_bodega: s(data.sec3_numero_bodega), sec3_nu: s(data.sec3_nu),
     sec3_tipo: s(data.sec3_tipo) as TipoMovimiento | "",
     sec3_numero_pallets: data.sec3_numero_pallets != null ? String(data.sec3_numero_pallets) : "",
+    sec3_numero_unidades: data.sec3_numero_unidades != null ? String(data.sec3_numero_unidades) : "",
     sec3_numero_guia: s(data.sec3_numero_guia),
     sec3_solicitado_por: s(data.sec3_solicitado_por) as SolicitadoPor | "",
-    sec3_cuyd_detalle: s(data.sec3_cuyd_detalle), sec3_observaciones: s(data.sec3_observaciones),
+    sec3_cuyd_detalle: s(data.sec3_cuyd_detalle),
+    sec3_lote: s(data.sec3_lote), sec3_cas: s(data.sec3_cas), sec3_orden_compra: s(data.sec3_orden_compra),
+    sec3_fecha_elaboracion: s(data.sec3_fecha_elaboracion), sec3_fecha_vencimiento: s(data.sec3_fecha_vencimiento),
+    sec3_observaciones: s(data.sec3_observaciones),
+    sec3_servicio_adicional: b(data.sec3_servicio_adicional),
     nombre_operador: s(data.nombre_operador),
   }
 }

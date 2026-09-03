@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Save, Send, Loader2, Paperclip, FileText, X, Camera } from "lucide-react"
+import { ArrowLeft, Save, Loader2, Paperclip, FileText, X, Camera } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,7 +14,7 @@ import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
-import { ClienteCombobox, TarifaSelect, ProductoCombobox, ServiciosSection, FirmaCanvas, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
+import { ClienteCombobox, ProductoCombobox } from "@/components/reports/report-form-widgets"
 
 interface FormData extends ReportFormData {
   cliente_id:              string
@@ -33,8 +33,9 @@ const INITIAL: FormData = {
   sec2_hora_termino: "", sec2_sigla_numero: "", sec2_observaciones: "",
   sec3_activa: false, sec3_inventario_item_id: "", sec3_producto: "", sec3_clase_imo: "",
   sec3_hora_inicio: "", sec3_hora_termino: "", sec3_numero_bodega: "", sec3_nu: "", sec3_tipo: "",
-  sec3_numero_pallets: "", sec3_numero_guia: "", sec3_solicitado_por: "", sec3_cuyd_detalle: "",
-  sec3_observaciones: "",
+  sec3_numero_pallets: "", sec3_numero_unidades: "", sec3_numero_guia: "", sec3_solicitado_por: "", sec3_cuyd_detalle: "",
+  sec3_lote: "", sec3_cas: "", sec3_orden_compra: "", sec3_fecha_elaboracion: "", sec3_fecha_vencimiento: "",
+  sec3_observaciones: "", sec3_servicio_adicional: false,
   nombre_operador: "",
 }
 
@@ -42,9 +43,6 @@ export default function NuevoReportPage() {
   const router = useRouter()
   const { user, profile } = useAuth()
   const [form,    setForm]    = useState<FormData>(INITIAL)
-  const [tarifasCount, setTarifasCount] = useState(0)
-  const [servicioSeleccion, setServicioSeleccion] = useState<ServicioSeleccionado[]>([])
-  const [serviciosManual,  setServiciosManual]  = useState<string[]>([])
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
   const [hdsFiles,    setHdsFiles]    = useState<File[]>([])
@@ -59,9 +57,6 @@ export default function NuevoReportPage() {
   const [sec2DragOver,       setSec2DragOver]       = useState(false)
   const sec2EvidenciaFileRef = useRef<HTMLInputElement>(null)
 
-  // Firma del conductor (canvas) — se convierte a Blob y se sube recién
-  // después de crear el report, mismo patrón de dos fases que HDS/evidencia.
-  const [firmaDataUrl, setFirmaDataUrl] = useState<string | null>(null)
 
   const previewUrl = useMemo(() => previewFile ? URL.createObjectURL(previewFile) : null, [previewFile])
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
@@ -112,7 +107,12 @@ export default function NuevoReportPage() {
 
   // Sin el checkbox "Activar Sección", se infiere sola: activa si algún campo
   // propio de esa sección quedó con contenido.
-  function buildPayload(estado: "borrador" | "pendiente_despacho") {
+  //
+  // Esta página solo ingresa el report como borrador — "Enviar a Operaciones"
+  // vive en reports/[id], al reabrirlo, para forzar un paso de revisión
+  // separado antes de destrabar la columna de Operaciones.
+  function buildPayload() {
+    const estado = "borrador" as const
     const sec1Activa = !!(
       form.sec1_tipo_movimiento || form.sec1_tipo_contenedor || form.sec1_carga_normal ||
       form.sec1_carga_imo || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
@@ -124,10 +124,15 @@ export default function NuevoReportPage() {
       form.sec2_paletizado || form.sec2_etiquetado || form.sec2_otro ||
       form.sec2_hora_inicio || form.sec2_hora_termino || form.sec2_sigla_numero || form.sec2_observaciones
     )
+    // sec3_numero_guia/sec3_solicitado_por/sec3_cuyd_detalle quedaron fuera:
+    // ahora viven en Antecedentes (los llena Recepción en TODO report, incluso
+    // sin Bodegaje), así que ya no sirven como señal de que Bodegaje se usó.
     const sec3Activa = !!(
       form.sec3_producto || form.sec3_clase_imo || form.sec3_nu || form.sec3_hora_inicio ||
-      form.sec3_hora_termino || form.sec3_numero_bodega || form.sec3_numero_guia || form.sec3_tipo ||
-      form.sec3_numero_pallets || form.sec3_solicitado_por || form.sec3_cuyd_detalle || form.sec3_observaciones
+      form.sec3_hora_termino || form.sec3_numero_bodega || form.sec3_tipo ||
+      form.sec3_numero_pallets || form.sec3_numero_unidades ||
+      form.sec3_lote || form.sec3_cas || form.sec3_orden_compra ||
+      form.sec3_fecha_elaboracion || form.sec3_fecha_vencimiento || form.sec3_observaciones
     )
 
     return {
@@ -178,35 +183,39 @@ export default function NuevoReportPage() {
       sec3_nu:             form.sec3_nu            || null,
       sec3_tipo:           form.sec3_tipo          || null,
       sec3_numero_pallets: form.sec3_numero_pallets ? Number(form.sec3_numero_pallets) : null,
+      sec3_numero_unidades: form.sec3_numero_unidades ? Number(form.sec3_numero_unidades) : null,
       sec3_numero_guia:    form.sec3_numero_guia   || null,
       sec3_solicitado_por: form.sec3_solicitado_por || null,
       sec3_cuyd_detalle:   form.sec3_cuyd_detalle  || null,
+      sec3_lote:               form.sec3_lote              || null,
+      sec3_cas:                form.sec3_cas               || null,
+      sec3_orden_compra:       form.sec3_orden_compra      || null,
+      sec3_fecha_elaboracion:  form.sec3_fecha_elaboracion || null,
+      sec3_fecha_vencimiento:  form.sec3_fecha_vencimiento || null,
       sec3_observaciones:  form.sec3_observaciones || null,
+      sec3_servicio_adicional: form.sec3_servicio_adicional,
       nombre_operador:     form.nombre_operador    || null,
       created_by:          user?.id ?? null,
-      // servicios_ids es un uuid[] plano — un servicio usado 2 veces se
-      // guarda repitiendo su id 2 veces (sin migrar el esquema para agregar
-      // cantidad por fila).
-      servicios_ids:       servicioSeleccion.flatMap(s => Array(s.cantidad).fill(s.id)),
-      servicios_manual:    serviciosManual,
+      // Servicios asociados y firma del conductor se completan al reabrir el
+      // report (son parte del trabajo del operador) — acá siempre van vacíos.
+      servicios_ids:       [],
+      servicios_manual:    [],
     }
   }
 
-  async function handleSave(estado: "borrador" | "pendiente_despacho") {
-    if (!form.cliente || !form.patente || !form.conductor) {
-      setError("Cliente, patente y conductor son obligatorios.")
+  async function handleSave() {
+    if (!form.cliente || !form.patente || !form.conductor || !form.rut_conductor || !form.sec3_numero_guia) {
+      setError("Cliente, patente, conductor, RUT conductor y N° Guía son obligatorios.")
       return
     }
-    if (tarifasCount > 1 && !form.tarifa_cliente_id) {
-      setError("Este cliente tiene varios contratos — selecciona a cuál tarifa pertenece este report.")
-      return
-    }
+    // La tarifa/contrato ahora la elige Operaciones (columna derecha, bloqueada
+    // acá) — no bloquear el guardado de Recepción por no tenerla todavía.
     setError(null)
     setSaving(true)
     const supabase = createClient()
 
     const { data: inserted, error: err } = await supabase
-      .from("reports").insert(buildPayload(estado)).select("id, numero").single()
+      .from("reports").insert(buildPayload()).select("id, numero").single()
 
     if (err) {
       setSaving(false)
@@ -292,58 +301,20 @@ export default function NuevoReportPage() {
       }
     }
 
-    // Subir la firma del conductor (canvas -> PNG), si se firmó.
-    let firmaFailed = false
-    if (firmaDataUrl) {
-      const blob = await fetch(firmaDataUrl).then(r => r.blob())
-      const path = `firma-${inserted.numero}-${inserted.id}.png`
-      const { error: firmaUploadErr } = await supabase.storage
-        .from("reports-firmados")
-        .upload(path, blob, { upsert: true, contentType: "image/png" })
-      if (firmaUploadErr) {
-        console.error("[reports/nuevo] error subiendo firma del conductor:", firmaUploadErr)
-        firmaFailed = true
-      } else {
-        const { error: firmaUpdateErr } = await supabase
-          .from("reports")
-          .update({ firma_conductor_url: path })
-          .eq("id", inserted.id)
-        if (firmaUpdateErr) {
-          console.error("[reports/nuevo] error guardando referencia de la firma:", firmaUpdateErr)
-          firmaFailed = true
-        }
-      }
-      if (firmaFailed) {
-        setError(`Report #${inserted.numero} guardado, pero no se pudo guardar la firma del conductor. Vuelve a la lista e ingresa al report para firmar de nuevo.`)
-      }
-    }
-
-    if (hdsFailed || evidenciaFailed || firmaFailed) {
+    // La firma del conductor se captura al reabrir el report (es parte del
+    // trabajo del operador) — nada que subir acá todavía.
+    if (hdsFailed || evidenciaFailed) {
       setSaving(false)
       return
     }
 
     // stock_actual solo lo mueve el trigger de BD reports_sync_inventario
-    // cuando el report queda en estado 'despachado' (no en esta creación como
-    // borrador/pendiente_despacho) — llamar update_stock acá duplicaría el
-    // ajuste. syncPesoTon igual corre siempre que haya ítem vinculado, para
-    // no dejar peso_ton desactualizado; el log de auditoría de stock se
-    // registra recién en la confirmación real de despacho (/reports/despacho).
-    if (estado === "pendiente_despacho" && form.sec3_inventario_item_id && form.sec3_tipo) {
-      const delta = Number(form.sec3_numero_pallets)
-      if (!delta || delta <= 0) {
-        const { error: delErr } = await supabase.from("reports").delete().eq("id", inserted.id)
-        if (delErr) {
-          console.error("[reports/nuevo] error revirtiendo report sin pallets:", delErr)
-          setError(`Número de pallets debe ser mayor a 0, pero el report #${inserted.numero} no se pudo revertir automáticamente. Elimínalo manualmente desde la lista.`)
-        } else {
-          setError("Número de pallets debe ser mayor a 0. El report no fue guardado.")
-        }
-        setSaving(false)
-        return
-      }
-    }
-
+    // cuando el report queda en estado 'despachado' — llamar update_stock acá
+    // duplicaría el ajuste. syncPesoTon igual corre siempre que haya ítem
+    // vinculado para no dejar peso_ton desactualizado. La Sección 3 (Bodegaje)
+    // está bloqueada en esta página (la llena Operaciones más adelante), así
+    // que la validación de pallets>0 corre recién al enviar a despacho desde
+    // reports/[id], no acá.
     if (form.sec3_inventario_item_id) {
       await syncPesoTon(supabase, form.sec3_inventario_item_id)
     }
@@ -352,7 +323,7 @@ export default function NuevoReportPage() {
     logAudit({
       tabla:          "reports",
       registro_id:    inserted.id,
-      accion:         estado === "borrador" ? "report.crear_borrador" : "report.enviar_despacho",
+      accion:         "report.crear_borrador",
       descripcion:    `Report #${inserted.numero} — ${form.cliente} (${form.patente})`,
       usuario_id:     user?.id,
       usuario_nombre: profile?.nombre ?? user?.email,
@@ -379,13 +350,9 @@ export default function NuevoReportPage() {
         </div>
         <div className="flex items-center gap-2">
           {error && <p className="text-xs text-red-500 max-w-xs truncate">{error}</p>}
-          <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" disabled={saving} onClick={() => handleSave("borrador")}>
+          <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving} onClick={() => handleSave()}>
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-            Guardar borrador
-          </Button>
-          <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => handleSave("pendiente_despacho")}>
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-            Enviar a despacho
+            Ingreso Report
           </Button>
         </div>
       </div>
@@ -415,16 +382,9 @@ export default function NuevoReportPage() {
                         sec3_clase_imo: "",
                         sec3_nu: "",
                       }))
-                      setServicioSeleccion([])
                     }}
                   />
                 </Field>
-                <TarifaSelect
-                  clienteId={form.cliente_id}
-                  value={form.tarifa_cliente_id}
-                  onChange={id => set("tarifa_cliente_id", id)}
-                  onCountChange={setTarifasCount}
-                />
                 <Field label="Fecha">
                   <Input type="date" value={form.fecha} onChange={e => set("fecha", e.target.value)} className="h-8 text-xs" />
                 </Field>
@@ -434,8 +394,30 @@ export default function NuevoReportPage() {
                 <Field label="Conductor" required>
                   <Input value={form.conductor} onChange={e => setUpper("conductor", e.target.value)} placeholder="Nombre completo" className="h-8 text-xs" />
                 </Field>
-                <Field label="RUT conductor">
+                <Field label="RUT conductor" required>
                   <Input value={form.rut_conductor} onChange={e => setRut(e.target.value)} placeholder="12.345.678-9" className="h-8 text-xs font-mono" />
+                </Field>
+                <Field label="N° Guía" required>
+                  <Input value={form.sec3_numero_guia} onChange={e => setUpper("sec3_numero_guia", e.target.value)} placeholder="Número de guía" className="h-8 text-xs" />
+                </Field>
+                <Field label="Solicitado por">
+                  <select value={form.sec3_solicitado_por}
+                    onChange={e => {
+                      set("sec3_solicitado_por", e.target.value as FormData["sec3_solicitado_por"])
+                      if (e.target.value !== "cuyd") set("sec3_cuyd_detalle", "")
+                    }}
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="">Seleccionar...</option>
+                    <option value="clientes">Clientes</option>
+                    <option value="hds">HDS</option>
+                    <option value="operaciones">Operaciones</option>
+                    <option value="cuyd">CUyD</option>
+                  </select>
+                  {form.sec3_solicitado_por === "cuyd" && (
+                    <Input value={form.sec3_cuyd_detalle} onChange={e => setUpper("sec3_cuyd_detalle", e.target.value)}
+                      placeholder="Detalle CUyD..." className="h-7 text-xs mt-1.5 w-full" />
+                  )}
                 </Field>
                 <Field label="Transporte" className="col-span-1 sm:col-span-2">
                   <div className="h-8 flex items-center">
@@ -534,10 +516,17 @@ export default function NuevoReportPage() {
             {/* Columna derecha: Sección 2 + Sección 3 */}
             <div className="flex-1 min-w-0 flex flex-col gap-y-3">
 
-            {/* Sección 2 */}
+            {/* Tarifa/Contrato ya no se pide acá: se deriva sola de la Clase IMO
+                del producto que Operaciones elija en Bodegaje (ver Sec3 más abajo
+                en reports/[id]) — en esta página ni siquiera hay producto que elegir. */}
+
+            {/* Sección 2 — bloqueada al crear: la completa Operaciones después de que Recepción guarde */}
             <div>
-              <h2 className="text-[13px] font-bold text-foreground mb-1.5">2. Consolidado / Desconsolidado / Otros</h2>
-              <Sec2Content form={form} set={set as unknown as FormSetter} readOnly={false} toUpperCase hideActivation />
+              <h2 className="text-[13px] font-bold text-foreground mb-1.5 flex items-center gap-1.5">
+                2. Consolidado / Desconsolidado / Otros
+                <span className="text-[10px] font-normal text-muted-foreground">— la completa Operaciones</span>
+              </h2>
+              <Sec2Content form={form} set={set as unknown as FormSetter} readOnly toUpperCase hideActivation />
 
               {(form.sec2_consolidado || form.sec2_desconsolidado) && (
                 <div className="mt-2 flex flex-col gap-1.5">
@@ -591,13 +580,16 @@ export default function NuevoReportPage() {
               )}
             </div>
 
-            {/* Sección 3 + Operador de carga */}
+            {/* Sección 3 — bloqueada al crear: la completa Operaciones después de que Recepción guarde */}
             <div>
-              <h2 className="text-[13px] font-bold text-foreground mb-1.5">3. Bodegaje</h2>
+              <h2 className="text-[13px] font-bold text-foreground mb-1.5 flex items-center gap-1.5">
+                3. Bodegaje
+                <span className="text-[10px] font-normal text-muted-foreground">— la completa Operaciones</span>
+              </h2>
               <Sec3Content
                 form={form}
                 set={set as unknown as FormSetter}
-                readOnly={false}
+                readOnly
                 toUpperCase
                 hideActivation
                 productoNode={
@@ -619,6 +611,7 @@ export default function NuevoReportPage() {
                         sec3_clase_imo:          "",
                         sec3_nu:                 "",
                       }))}
+                      readOnly
                     />
                     {form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
                       <p className="text-[10px] text-amber-600 mt-1">
@@ -631,40 +624,9 @@ export default function NuevoReportPage() {
             </div>
             </div>
           </div>
-
-          {/* Servicios asociados al cliente */}
-          <div className="border-t mt-3 pt-3">
-            <ServiciosSection
-              clienteId={form.cliente_id}
-              selected={servicioSeleccion}
-              onToggle={id => setServicioSeleccion(prev =>
-                prev.some(s => s.id === id) ? prev.filter(s => s.id !== id) : [...prev, { id, cantidad: 1 }]
-              )}
-              onCantidadChange={(id, cantidad) => setServicioSeleccion(prev => prev.map(s => s.id === id ? { ...s, cantidad } : s))}
-              manual={serviciosManual}
-              onAddManual={nombre => setServiciosManual(prev => [...prev, nombre])}
-              onRemoveManual={index => setServiciosManual(prev => prev.filter((_, i) => i !== index))}
-            />
-          </div>
-
-          {/* Firma del conductor — tablet/lápiz óptico */}
-          <div className="border-t mt-3 pt-3">
-            <h2 className="text-[13px] font-bold text-foreground mb-1.5">Firma del conductor</h2>
-            <FirmaCanvas onChange={setFirmaDataUrl} />
-          </div>
-
-          {/* Cierre del report — nombre del operador, centrado */}
-          <div className="border-t mt-3 pt-3 flex justify-center">
-            <div className="w-full max-w-xs">
-              <Field label="Nombre operador de carga" required className="text-center">
-                <Input
-                  value={form.nombre_operador}
-                  onChange={e => setUpper("nombre_operador", e.target.value)}
-                  className="h-8 text-xs text-center"
-                />
-              </Field>
-            </div>
-          </div>
+          {/* Servicios asociados, Firma del conductor y Nombre operador de
+              carga no se muestran acá — son parte del trabajo del operador
+              (Operaciones), se completan al reabrir el report ya ingresado. */}
         </div>
       </div>
 

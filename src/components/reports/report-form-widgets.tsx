@@ -8,7 +8,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
-import { Field } from "./report-form-sections"
 import { resolveEffectiveClienteId } from "@/lib/inventario"
 
 // Widgets compartidos entre reports/nuevo y reports/[id] — misma vista para
@@ -70,7 +69,7 @@ export function ClienteCombobox({ value, onChange, onChangeId, readOnly }: {
         placeholder="Seleccionar o escribir cliente"
         className="h-8 text-xs"
         autoComplete="off"
-        readOnly={readOnly}
+        disabled={readOnly}
       />
       {open && !readOnly && filtered.length > 0 && (
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
@@ -92,80 +91,12 @@ export function ClienteCombobox({ value, onChange, onChangeId, readOnly }: {
   )
 }
 
+// Tarifa/contrato: antes se elegía a mano acá (clientes con más de un
+// contrato en paralelo, ej. PROQUIMIN). Ahora se deriva sola en reports/[id]
+// comparando la Clase IMO del producto elegido en Bodegaje contra la Clase
+// IMO de cada tarifa del cliente — mismo dato, dos tablas — así que este
+// tipo solo queda para tipar esa lista, sin selector propio.
 export interface TarifaOption { id: string; clase_imo: string | null; cotizacion_numero: string }
-
-// Clientes con más de una tarifa en paralelo (ej. PROQUIMIN) deben elegir a
-// cuál pertenece este report — de lo contrario el movimiento auto-generado al
-// despachar quedaría sin saber a qué contrato facturarlo. Con una sola
-// tarifa activa se asigna sola, sin pedirle nada al operador.
-export function TarifaSelect({ clienteId, value, onChange, onCountChange, readOnly }: {
-  clienteId: string
-  value: string
-  onChange: (id: string) => void
-  onCountChange?: (count: number) => void
-  readOnly?: boolean
-}) {
-  const [tarifas, setTarifas] = useState<TarifaOption[]>([])
-  const [fetchError, setFetchError] = useState(false)
-
-  useEffect(() => {
-    setTarifas([])
-    setFetchError(false)
-    if (!clienteId) { onCountChange?.(0); return }
-    createClient()
-      .from("tarifas_cliente")
-      .select("id, clase_imo, cotizacion_numero")
-      .eq("cliente_id", clienteId)
-      .eq("activo", true)
-      .order("clase_imo")
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("[reports] error obteniendo tarifas del cliente:", error)
-          setFetchError(true)
-          return // no llamar onCountChange — mejor dejar el conteo previo que asumir 0
-        }
-        const list = (data as TarifaOption[]) ?? []
-        setTarifas(list)
-        onCountChange?.(list.length)
-      })
-  }, [clienteId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    // Solo auto-asignar si el report todavía no tiene tarifa elegida — si
-    // ya tenía una (ej. al abrir un report existente para editar) nunca
-    // reasignarla sola aunque el cliente haya quedado con una sola tarifa
-    // activa distinta, o se cambiaría en silencio a qué contrato factura.
-    if (!readOnly && !value && tarifas.length === 1) onChange(tarifas[0].id)
-  }, [tarifas]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (fetchError) {
-    return (
-      <Field label="Tarifa / Clase" className="col-span-1 sm:col-span-3">
-        <p className="text-[11px] text-destructive">
-          No se pudieron cargar las tarifas del cliente — verifica antes de enviar a despacho si tiene más de un contrato.
-        </p>
-      </Field>
-    )
-  }
-
-  if (tarifas.length <= 1) return null
-
-  return (
-    <Field label="Tarifa / Clase" required className="col-span-1 sm:col-span-3">
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        disabled={readOnly}
-        className="h-8 w-full rounded-md border border-amber-400 bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 disabled:cursor-default"
-      >
-        <option value="">Este cliente tiene {tarifas.length} contratos — selecciona a cuál pertenece</option>
-        {tarifas.map(t => (
-          <option key={t.id} value={t.id}>{t.clase_imo ?? t.cotizacion_numero}</option>
-        ))}
-      </select>
-    </Field>
-  )
-}
 
 export interface InventarioItemOption { id: string; descripcion: string; clase_imo: string | null; nu: string | null }
 
@@ -226,7 +157,7 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
         placeholder={clienteId ? "Buscar producto en inventario..." : "Selecciona un cliente primero"}
         className="h-8 text-xs"
         autoComplete="off"
-        readOnly={readOnly}
+        disabled={readOnly}
       />
       {open && !readOnly && filtered.length > 0 && (
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">

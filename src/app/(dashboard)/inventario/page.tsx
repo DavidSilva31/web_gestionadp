@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   Package, Plus, Search, RefreshCw, ChevronRight, ArrowLeft,
-  Loader2, Pencil, Warehouse, Trash2, Download, AlertCircle,
+  Loader2, Pencil, Warehouse, Trash2, Download, AlertCircle, Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
-import { exportToExcel } from "@/lib/excel"
+import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
 import { resolveEffectiveClienteId } from "@/lib/inventario"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
@@ -87,6 +87,7 @@ const EMPTY_FORM: InventarioItemInsert = {
   nu:            null,
   unidad:        "unidad",
   stock_actual:  0,
+  stock_unidades: 0,
   stock_minimo:  0,
   observaciones: null,
   activo:        true,
@@ -103,7 +104,7 @@ const KARDEX_TIPOS = ["ingreso", "despacho"] as const
 // cancela. `onSave` hace el update real y devuelve un mensaje de error (o
 // nada si quedó bien) — la celda no cambia de estado hasta confirmar éxito.
 function KardexCell({
-  value, kind, options, onSave, align = "left", placeholder = "—", labels,
+  value, kind, options, onSave, align = "left", placeholder = "—", labels, disabled = false,
 }: {
   value: string | number | null
   kind: "text" | "number" | "date" | "select"
@@ -112,6 +113,7 @@ function KardexCell({
   onSave: (v: string | number | null) => Promise<string | void>
   align?: "left" | "right"
   placeholder?: string
+  disabled?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value == null ? "" : String(value))
@@ -119,6 +121,7 @@ function KardexCell({
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => { if (!editing) setDraft(value == null ? "" : String(value)) }, [value, editing])
+  useEffect(() => { if (disabled) { setEditing(false); setErr(null) } }, [disabled])
 
   async function commit() {
     // disabled={saving} en el input hace que el navegador lo blurree apenas se
@@ -139,9 +142,20 @@ function KardexCell({
   function cancel() { setDraft(value == null ? "" : String(value)); setEditing(false); setErr(null) }
 
   if (!editing) {
+    // Ojo: NO usar el atributo `disabled` nativo acá — un <button disabled>
+    // deja de emitir mousedown/mouseover, así que el arrastre para mover la
+    // vista de Detalle (que escucha mousedown en el contenedor padre) nunca
+    // se entera del gesto sobre esas celdas. En vez de eso, el bloqueo se
+    // marca con data-kardex-locked y se ignora el click a mano.
     return (
-      <button type="button" onClick={() => setEditing(true)}
-        className={cn("block w-full whitespace-nowrap text-left px-2 py-1.5 hover:bg-primary/10 transition-colors", align === "right" && "text-right")}>
+      <button type="button" data-kardex-locked={disabled ? "true" : undefined}
+        onClick={() => { if (!disabled) setEditing(true) }}
+        style={disabled ? { cursor: "inherit" } : undefined}
+        className={cn(
+          "block w-full whitespace-nowrap text-left px-2 py-1.5 transition-colors",
+          disabled ? "" : "hover:bg-primary/10 cursor-pointer",
+          align === "right" && "text-right"
+        )}>
         {value == null || value === ""
           ? <span className="text-muted-foreground/40">{placeholder}</span>
           : (labels?.[String(value)] ?? String(value))}
@@ -188,14 +202,65 @@ function InventarioContent() {
   const [form,         setForm]         = useState<InventarioItemInsert>(EMPTY_FORM)
   const [deleting,     setDeleting]     = useState<InventarioItem | null>(null)
   const [deletingBusy, setDeletingBusy] = useState(false)
-  const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
+  const [exportPreview, setExportPreview] = useState<
+    | { kind: "resumen"; rows: Record<string, string | number>[]; filename: string }
+    | { kind: "kardex";  groups: KardexExportGroup[]; filename: string }
+    | null
+  >(null)
   const [exportError,  setExportError]  = useState<string | null>(null)
   const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
   const [vista,        setVista]        = useState<"resumen" | "kardex">("resumen")
   const [kardexProducto, setKardexProducto] = useState<string | null>(null)
+  const [kardexImoFiltro, setKardexImoFiltro] = useState<string | null>(null)
   const [kardexMovs,   setKardexMovs]   = useState<Record<string, (Movimiento & { reports: { numero: number } | null })[]>>({})
   const [loadingKardex, setLoadingKardex] = useState(false)
   const [kardexError,  setKardexError]  = useState<string | null>(null)
+  // Bloqueo de edición del Detalle: las celdas solo se pueden tocar tras
+  // presionar "Editar" — capa extra para que ningún valor cambie sin querer.
+  // Al confirmar un primer cambio el botón pasa a "Confirmar" para forzar un
+  // clic consciente que vuelva a bloquear la tabla.
+  const [kardexEditing, setKardexEditing] = useState(false)
+  const [kardexDirty,   setKardexDirty]   = useState(false)
+  // Arrastrar para mover la vista de Detalle (como un canvas): clic sostenido
+  // sobre una zona no interactiva y el cursor cambia a "mano" mientras
+  // desplaza el scroll vertical general y el horizontal de la tabla bajo el cursor.
+  const kardexScrollRef = useRef<HTMLDivElement>(null)
+  const [kardexPanning, setKardexPanning] = useState(false)
+
+  function handleKardexPanStart(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement
+    const interactive = target.closest<HTMLElement>("button, input, select, a, textarea")
+    // Las celdas del Kardex bloqueadas (ver KardexCell) se marcan con
+    // data-kardex-locked en vez de `disabled` para seguir recibiendo
+    // mousedown y permitir arrastrar la vista desde encima de un valor.
+    if (interactive && interactive.dataset.kardexLocked !== "true") return
+    const outer = kardexScrollRef.current
+    if (!outer) return
+    const inner = target.closest<HTMLElement>(".kardex-hscroll")
+    const startX = e.clientX
+    const startY = e.clientY
+    const startScrollTop = outer.scrollTop
+    const startScrollLeft = inner?.scrollLeft ?? 0
+    let dragging = false
+
+    function onMove(ev: MouseEvent) {
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      if (!dragging && Math.hypot(dx, dy) > 4) { dragging = true; setKardexPanning(true) }
+      if (dragging) {
+        outer!.scrollTop = startScrollTop - dy
+        if (inner) inner.scrollLeft = startScrollLeft - dx
+      }
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+      setKardexPanning(false)
+    }
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+  }
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)
@@ -266,6 +331,9 @@ function InventarioContent() {
     setSelected(c)
     setVista("resumen")
     setKardexProducto(null)
+    setKardexImoFiltro(null)
+    setKardexEditing(false)
+    setKardexDirty(false)
     if (!clienteItems[c.id]) {
       fetchItemsForCliente(c.id)
     }
@@ -323,7 +391,20 @@ function InventarioContent() {
     return [...counts.entries()].map(([carga, lotes]) => ({ carga, lotes })).sort((a, b) => a.carga.localeCompare(b.carga))
   }, [kardexGroups])
 
-  const kardexGroupsFiltered = kardexProducto ? kardexGroups.filter(g => g.carga === kardexProducto) : []
+  // IMOs distintos presentes en los movimientos del cliente — permite buscar
+  // por clase IMO en vez de por producto, mostrando todos los productos que
+  // comparten esa clase.
+  const kardexImos = useMemo(() => {
+    const set = new Set<string>()
+    for (const g of kardexGroups) for (const r of g.rows) if (r.imo) set.add(r.imo)
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }, [kardexGroups])
+
+  const kardexGroupsFiltered = kardexProducto
+    ? kardexGroups.filter(g => g.carga === kardexProducto)
+    : kardexImoFiltro
+    ? kardexGroups.filter(g => g.rows.some(r => r.imo === kardexImoFiltro))
+    : []
 
   // Edición inline de un valor del Kardex — el trigger de BD ya recalcula
   // stock_actual del ítem cuando cambian tipo/unidades, no hay que tocarlo acá.
@@ -336,6 +417,7 @@ function InventarioContent() {
       ...prev,
       [selected.id]: (prev[selected.id] ?? []).map(m => m.id === movId ? { ...m, [field]: value } : m),
     }))
+    setKardexDirty(true)
   }
 
   async function updateKardexReport(movId: string, raw: string | number | null) {
@@ -345,6 +427,7 @@ function InventarioContent() {
       const { error } = await supabase.from("movimientos").update({ report_id: null }).eq("id", movId)
       if (error) return error.message
       setKardexMovs(prev => ({ ...prev, [selected.id]: (prev[selected.id] ?? []).map(m => m.id === movId ? { ...m, report_id: null, reports: null } : m) }))
+      setKardexDirty(true)
       return
     }
     const numero = parseInt(String(raw), 10)
@@ -355,6 +438,7 @@ function InventarioContent() {
     const { error } = await supabase.from("movimientos").update({ report_id: rep.id }).eq("id", movId)
     if (error) return error.message
     setKardexMovs(prev => ({ ...prev, [selected.id]: (prev[selected.id] ?? []).map(m => m.id === movId ? { ...m, report_id: rep.id, reports: { numero: rep.numero } } : m) }))
+    setKardexDirty(true)
   }
 
   async function openNew() {
@@ -378,6 +462,7 @@ function InventarioContent() {
       nu:            item.nu,
       unidad:        item.unidad,
       stock_actual:  item.stock_actual,
+      stock_unidades: item.stock_unidades,
       stock_minimo:  item.stock_minimo,
       observaciones: item.observaciones,
       activo:        item.activo,
@@ -493,16 +578,60 @@ function InventarioContent() {
     return { rows, filename: `Inventario_${selected.nombre}_${today}` }
   }
 
+  // Excel del Detalle: SIEMPRE todos los productos del cliente (kardexGroups
+  // sin filtrar), sin importar si en pantalla hay un Producto o un IMO
+  // seleccionado — el filtro es solo para mirar, no para acotar la descarga.
+  function buildKardexExportRows() {
+    if (!selected || kardexGroups.length === 0) return null
+    const groups: KardexExportGroup[] = kardexGroups.map(g => ({
+      carga: g.carga,
+      subtitulo: [g.codigo && `Código ${g.codigo}`, g.lote && `Lote ${g.lote}`].filter(Boolean).join(" · ") || "Movimientos",
+      rows: g.rows.map(m => ({
+        "Fecha":               m.fecha.slice(0, 10),
+        "Tipo":                m.tipo === "ingreso" ? "Ingreso" : "Despacho",
+        "IMO":                 m.imo ?? "",
+        "N° UN":               m.un ?? "",
+        "Lote":                m.lote ?? "",
+        "N° CAS":              m.cas ?? "",
+        "N° Guía":             m.guia_numero ?? "",
+        "Orden de Compra":     m.orden_compra ?? "",
+        "Fecha Elaboración":   m.fecha_elaboracion ?? "",
+        "Fecha Vencimiento":   m.fecha_vencimiento ?? "",
+        "Peso Neto":           m.peso_envase ?? "",
+        "Envase":              m.tipo_envase ?? "",
+        "N° Report":           m.reports?.numero ?? "",
+        "Ingreso Posiciones":  m.tipo === "ingreso"  ? (m.posiciones ?? "") : "",
+        "Ingreso Unidades":    m.tipo === "ingreso"  ? (m.unidades ?? "")  : "",
+        "Despacho Posiciones": m.tipo === "despacho" ? (m.posiciones ?? "") : "",
+        "Despacho Unidades":   m.tipo === "despacho" ? (m.unidades ?? "")  : "",
+        "Stock Posiciones":    m.stockPos,
+        "Stock Unidades":      m.stockUnd,
+        "Bodega":              m.bodega ?? "",
+      })),
+    }))
+    const today = new Date().toLocaleDateString("es-CL").replace(/\//g, "-")
+    return { groups, filename: `Detalle_Inventario_${selected.nombre}_${today}` }
+  }
+
   function openExportPreview() {
-    const built = buildExportRows()
-    if (built) setExportPreview(built)
+    if (vista === "kardex") {
+      const built = buildKardexExportRows()
+      if (built) setExportPreview({ kind: "kardex", ...built })
+    } else {
+      const built = buildExportRows()
+      if (built) setExportPreview({ kind: "resumen", ...built })
+    }
   }
 
   async function handleDownloadExport() {
     if (!exportPreview) return
     setExportError(null)
     try {
-      await exportToExcel(exportPreview.rows, exportPreview.filename, "Inventario")
+      if (exportPreview.kind === "kardex") {
+        await exportKardexToExcel(exportPreview.groups, exportPreview.filename, selected?.nombre ?? "")
+      } else {
+        await exportInventarioResumenToExcel(exportPreview.rows, exportPreview.filename, selected?.nombre ?? "")
+      }
       setExportPreview(null)
     } catch (err) {
       console.error("[inventario] error exportando Excel:", err)
@@ -663,7 +792,7 @@ function InventarioContent() {
                     {selected.usa_vista_kardex && (
                       <div className="inline-flex rounded-md border border-border/50 overflow-hidden h-7">
                         {(["resumen", "kardex"] as const).map(v => (
-                          <button key={v} type="button" onClick={() => setVista(v)}
+                          <button key={v} type="button" onClick={() => { setVista(v); setKardexEditing(false); setKardexDirty(false); setKardexImoFiltro(null) }}
                             className={cn(
                               "px-2.5 text-[11px] font-medium transition-colors",
                               vista === v ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:text-foreground"
@@ -676,7 +805,7 @@ function InventarioContent() {
                     <Button
                       variant="outline" size="sm"
                       onClick={openExportPreview}
-                      disabled={items.length === 0}
+                      disabled={vista === "kardex" ? kardexGroups.length === 0 : items.length === 0}
                       className="gap-1.5 text-xs h-7"
                     >
                       <Download className="h-3 w-3" />
@@ -696,13 +825,50 @@ function InventarioContent() {
                 {vista === "kardex" && kardexProductos.length > 0 && (
                   <div className="px-6 py-2.5 border-b bg-muted/5 flex items-center gap-2 flex-shrink-0">
                     <Label className="text-[11px] text-muted-foreground font-medium">Producto</Label>
-                    <select value={kardexProducto ?? ""} onChange={e => setKardexProducto(e.target.value || null)}
+                    <select value={kardexProducto ?? ""}
+                      onChange={e => {
+                        setKardexProducto(e.target.value || null)
+                        setKardexImoFiltro(null)
+                        setKardexEditing(false); setKardexDirty(false)
+                      }}
                       className="h-8 flex-1 max-w-sm rounded-md border border-input bg-background px-2.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring">
                       <option value="">Selecciona un producto…</option>
                       {kardexProductos.map(p => (
                         <option key={p.carga} value={p.carga}>{p.carga}{p.lotes > 1 ? ` (${p.lotes} lotes)` : ""}</option>
                       ))}
                     </select>
+                    <Label className="text-[11px] text-muted-foreground font-medium">IMO</Label>
+                    <select value={kardexImoFiltro ?? ""}
+                      onChange={e => {
+                        setKardexImoFiltro(e.target.value || null)
+                        setKardexProducto(null)
+                        setKardexEditing(false); setKardexDirty(false)
+                      }}
+                      className="h-8 w-36 rounded-md border border-input bg-background px-2.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring">
+                      <option value="">Todos</option>
+                      {kardexImos.map(imo => (
+                        <option key={imo} value={imo}>{imo}</option>
+                      ))}
+                    </select>
+                    {(kardexProducto || kardexImoFiltro) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={kardexEditing ? undefined : "outline"}
+                        onClick={() => {
+                          if (kardexEditing) { setKardexEditing(false); setKardexDirty(false) }
+                          else setKardexEditing(true)
+                        }}
+                        className={cn(
+                          "ml-auto gap-1.5 text-xs h-7",
+                          kardexEditing && !kardexDirty && "bg-emerald-600 hover:bg-emerald-700 text-white border-0"
+                        )}
+                      >
+                        {kardexDirty
+                          ? <><Check className="h-3.5 w-3.5" />Confirmar</>
+                          : <><Pencil className="h-3.5 w-3.5" />Editar</>}
+                      </Button>
+                    )}
                   </div>
                 )}
 
@@ -726,14 +892,26 @@ function InventarioContent() {
                         <Package className="h-10 w-10 opacity-20" />
                         <p className="text-sm font-medium">Sin movimientos registrados</p>
                       </div>
-                    ) : !kardexProducto ? (
+                    ) : !kardexProducto && !kardexImoFiltro ? (
                       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                         <Package className="h-10 w-10 opacity-20" />
-                        <p className="text-sm font-medium">Selecciona un producto para ver su Detalle</p>
+                        <p className="text-sm font-medium">Selecciona un producto o un IMO para ver el Detalle</p>
                         <p className="text-xs">{kardexProductos.length} productos con movimientos</p>
                       </div>
+                    ) : kardexGroupsFiltered.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+                        <Package className="h-10 w-10 opacity-20" />
+                        <p className="text-sm font-medium">Sin productos para el IMO {kardexImoFiltro}</p>
+                      </div>
                     ) : (
-                      <div className="h-full overflow-y-auto overflow-x-auto p-4 space-y-5">
+                      <div
+                        ref={kardexScrollRef}
+                        onMouseDown={handleKardexPanStart}
+                        className={cn(
+                          "h-full overflow-y-auto overflow-x-auto p-4 space-y-5",
+                          kardexPanning ? "cursor-grabbing select-none" : "cursor-grab"
+                        )}
+                      >
                         {kardexGroupsFiltered.map(group => (
                           <div key={group.key} className="rounded-lg border border-border/40 overflow-hidden">
                             <div className="px-3 py-2 bg-muted/40 border-b border-border/30 flex items-baseline gap-2 flex-wrap">
@@ -742,7 +920,7 @@ function InventarioContent() {
                                 {[group.codigo && `Código ${group.codigo}`, group.lote && `Lote ${group.lote}`].filter(Boolean).join(" · ")}
                               </span>
                             </div>
-                            <div className="overflow-x-auto">
+                            <div className="kardex-hscroll overflow-x-auto">
                               <table className="text-[11px] min-w-[1400px] w-full">
                                 <thead className="bg-muted/20 border-b border-border/20">
                                   <tr className="text-left text-muted-foreground">
@@ -750,6 +928,7 @@ function InventarioContent() {
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Tipo</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">IMO</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">UN</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Lote</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">CAS</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Guía</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">OC</th>
@@ -773,7 +952,7 @@ function InventarioContent() {
                                     return (
                                       <tr key={m.id} className={cn("border-b border-border/10 last:border-0", i % 2 !== 0 && "bg-muted/10")}>
                                         <td className="p-0 whitespace-nowrap tabular-nums">
-                                          <KardexCell kind="date" value={m.fecha.slice(0, 10)}
+                                          <KardexCell kind="date" value={m.fecha.slice(0, 10)} disabled={!kardexEditing}
                                             onSave={async v => {
                                               if (!v) return "Requerido"
                                               const old = new Date(m.fecha)
@@ -783,65 +962,68 @@ function InventarioContent() {
                                             }} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap">
-                                          <KardexCell kind="select" value={m.tipo} options={KARDEX_TIPOS}
+                                          <KardexCell kind="select" value={m.tipo} options={KARDEX_TIPOS} disabled={!kardexEditing}
                                             labels={{ ingreso: "Ingreso", despacho: "Despacho" }}
                                             onSave={v => updateKardexField(m.id, "tipo", (v as Movimiento["tipo"]) ?? "ingreso")} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="text" value={m.imo} onSave={v => updateKardexField(m.id, "imo", v as string | null)} />
+                                          <KardexCell kind="text" value={m.imo} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "imo", v as string | null)} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="text" value={m.un} onSave={v => updateKardexField(m.id, "un", v as string | null)} />
+                                          <KardexCell kind="text" value={m.un} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "un", v as string | null)} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="text" value={m.cas} onSave={v => updateKardexField(m.id, "cas", v as string | null)} />
+                                          <KardexCell kind="text" value={m.lote} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "lote", v as string | null)} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="text" value={m.guia_numero} onSave={v => updateKardexField(m.id, "guia_numero", v as string | null)} />
+                                          <KardexCell kind="text" value={m.cas} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "cas", v as string | null)} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="text" value={m.orden_compra} onSave={v => updateKardexField(m.id, "orden_compra", v as string | null)} />
+                                          <KardexCell kind="text" value={m.guia_numero} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "guia_numero", v as string | null)} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="date" value={m.fecha_elaboracion} onSave={v => updateKardexField(m.id, "fecha_elaboracion", v as string | null)} />
+                                          <KardexCell kind="text" value={m.orden_compra} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "orden_compra", v as string | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="date" value={m.fecha_elaboracion} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "fecha_elaboracion", v as string | null)} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap">
-                                          <KardexCell kind="date" value={m.fecha_vencimiento} onSave={v => updateKardexField(m.id, "fecha_vencimiento", v as string | null)} />
+                                          <KardexCell kind="date" value={m.fecha_vencimiento} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "fecha_vencimiento", v as string | null)} />
                                           {vencido && <span className="text-[9px] text-destructive font-medium block px-1.5">Vencido</span>}
                                         </td>
                                         <td className="p-0 text-right whitespace-nowrap tabular-nums">
-                                          <KardexCell kind="number" align="right" value={m.peso_envase} onSave={v => updateKardexField(m.id, "peso_envase", v as number | null)} />
+                                          <KardexCell kind="number" align="right" value={m.peso_envase} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "peso_envase", v as number | null)} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="select" value={m.tipo_envase} options={KARDEX_ENVASES} onSave={v => updateKardexField(m.id, "tipo_envase", v as Movimiento["tipo_envase"])} />
+                                          <KardexCell kind="select" value={m.tipo_envase} options={KARDEX_ENVASES} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "tipo_envase", v as Movimiento["tipo_envase"])} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="text" value={m.reports?.numero ?? null} onSave={v => updateKardexReport(m.id, v)} />
+                                          <KardexCell kind="text" value={m.reports?.numero ?? null} disabled={!kardexEditing} onSave={v => updateKardexReport(m.id, v)} />
                                         </td>
                                         <td className="p-0 text-right whitespace-nowrap tabular-nums">
                                           {m.tipo === "ingreso"
-                                            ? <KardexCell kind="number" align="right" value={m.posiciones} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
+                                            ? <KardexCell kind="number" align="right" value={m.posiciones} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
                                             : ""}
                                         </td>
                                         <td className="p-0 text-right whitespace-nowrap tabular-nums">
                                           {m.tipo === "ingreso"
-                                            ? <KardexCell kind="number" align="right" value={m.unidades} onSave={v => updateKardexField(m.id, "unidades", v as number | null)} />
+                                            ? <KardexCell kind="number" align="right" value={m.unidades} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "unidades", v as number | null)} />
                                             : ""}
                                         </td>
                                         <td className="p-0 text-right whitespace-nowrap tabular-nums">
                                           {m.tipo === "despacho"
-                                            ? <KardexCell kind="number" align="right" value={m.posiciones} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
+                                            ? <KardexCell kind="number" align="right" value={m.posiciones} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
                                             : ""}
                                         </td>
                                         <td className="p-0 text-right whitespace-nowrap tabular-nums">
                                           {m.tipo === "despacho"
-                                            ? <KardexCell kind="number" align="right" value={m.unidades} onSave={v => updateKardexField(m.id, "unidades", v as number | null)} />
+                                            ? <KardexCell kind="number" align="right" value={m.unidades} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "unidades", v as number | null)} />
                                             : ""}
                                         </td>
                                         <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums font-semibold">{m.stockPos}</td>
                                         <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums font-semibold">{m.stockUnd}</td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="text" value={m.bodega} onSave={v => updateKardexField(m.id, "bodega", v as string | null)} />
+                                          <KardexCell kind="text" value={m.bodega} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "bodega", v as string | null)} />
                                         </td>
                                       </tr>
                                     )
@@ -1157,16 +1339,21 @@ function InventarioContent() {
 
       {/* ── Vista previa del Excel antes de descargar ── */}
       <Dialog open={exportPreview !== null} onOpenChange={open => { if (!open) { setExportPreview(null); setExportError(null) } }}>
-        <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogContent className={cn("max-h-[85vh] flex flex-col", exportPreview?.kind === "kardex" ? "sm:max-w-5xl" : "sm:max-w-3xl")}>
           <DialogHeader>
-            <DialogTitle>Vista previa del Excel — {selected?.nombre}</DialogTitle>
+            <DialogTitle>
+              Vista previa del Excel — {selected?.nombre}
+              {exportPreview?.kind === "kardex" && (
+                <span className="text-muted-foreground font-normal"> · Detalle, {new Set(exportPreview.groups.map(g => g.carga)).size} productos</span>
+              )}
+            </DialogTitle>
           </DialogHeader>
           {exportError && (
             <p className="text-xs text-destructive">{exportError}</p>
           )}
 
           <div className="flex-1 overflow-auto border rounded-lg">
-            {exportPreview && (
+            {exportPreview?.kind === "resumen" && (
               <table className="w-full text-xs border-collapse">
                 <thead className="sticky top-0 bg-muted">
                   <tr>
@@ -1187,6 +1374,38 @@ function InventarioContent() {
                   ))}
                 </tbody>
               </table>
+            )}
+            {exportPreview?.kind === "kardex" && (
+              <div className="divide-y">
+                {exportPreview.groups.map((group, gi) => (
+                  <div key={gi}>
+                    <div className="px-3 py-2 bg-[#0A4A7F] text-white text-[11px] font-bold sticky top-0">
+                      {group.carga}
+                      <span className="font-normal opacity-80"> — {group.subtitulo}</span>
+                    </div>
+                    <table className="w-full text-xs border-collapse">
+                      <thead className="bg-[#1A5276]/10">
+                        <tr>
+                          {Object.keys(group.rows[0] ?? {}).map(col => (
+                            <th key={col} className="text-left px-2.5 py-1.5 font-semibold text-[#1A5276] whitespace-nowrap border-b">
+                              {col}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.rows.map((row, i) => (
+                          <tr key={i} className="border-b last:border-0 hover:bg-muted/40">
+                            {Object.values(row).map((val, j) => (
+                              <td key={j} className="px-2.5 py-1.5 whitespace-nowrap">{String(val)}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 

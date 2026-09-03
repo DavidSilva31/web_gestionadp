@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Upload, X, Eye } from "lucide-react"
+import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Truck, X, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -16,7 +16,6 @@ import { exportReportsToExcel } from "@/lib/export-reports-excel"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
-import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
 
@@ -40,16 +39,18 @@ interface ReportRow {
 }
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-  { key: "todos",               label: "Todos",          icon: <FileText className="h-3.5 w-3.5" /> },
-  { key: "pendiente_despacho",  label: "Pend. despacho", icon: <Clock className="h-3.5 w-3.5" /> },
-  { key: "despachado",          label: "Despachados",    icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
-  { key: "borrador",            label: "Borradores",     icon: <Filter className="h-3.5 w-3.5" /> },
+  { key: "todos",                  label: "Todos",             icon: <FileText className="h-3.5 w-3.5" /> },
+  { key: "borrador",               label: "Ingresados",        icon: <Filter className="h-3.5 w-3.5" /> },
+  { key: "pendiente_operaciones",  label: "Pend. operaciones", icon: <Clock className="h-3.5 w-3.5" /> },
+  { key: "pendiente_despacho",     label: "Pend. despacho",    icon: <Clock className="h-3.5 w-3.5" /> },
+  { key: "despachado",             label: "Despachados",       icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
 ]
 
 const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> = {
-  borrador:           { label: "Borrador",       className: "badge-neutral" },
-  pendiente_despacho: { label: "Pend. despacho", className: "badge-warning" },
-  despachado:         { label: "Despachado",     className: "badge-success" },
+  borrador:              { label: "Ingresado",         className: "badge-neutral" },
+  pendiente_operaciones: { label: "Pend. operaciones", className: "badge-info" },
+  pendiente_despacho:    { label: "Pend. despacho",    className: "badge-warning" },
+  despachado:            { label: "Despachado",        className: "badge-success" },
 }
 
 function seccionesTag(r: ReportRow) {
@@ -75,12 +76,9 @@ export default function ReportsPage() {
 
   // Estado del modal de despacho
   const [dispatchFor,    setDispatchFor]    = useState<ReportRow | null>(null)
-  const [dispatchFile,   setDispatchFile]   = useState<File | null>(null)
   const [dispatchNombre, setDispatchNombre] = useState("")
   const [dispatchLoading, setDispatchLoading] = useState(false)
   const [dispatchError,  setDispatchError]  = useState<string | null>(null)
-  const [dragOver,       setDragOver]       = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
 
   const fetchReports = useCallback(async () => {
     setLoading(true)
@@ -101,11 +99,8 @@ export default function ReportsPage() {
 
   function closeDispatchModal() {
     setDispatchFor(null)
-    setDispatchFile(null)
     setDispatchNombre("")
     setDispatchError(null)
-    setDragOver(false)
-    if (fileRef.current) fileRef.current.value = ""
   }
 
   async function handleDownloadPDF(id: string) {
@@ -163,26 +158,12 @@ export default function ReportsPage() {
   }
 
   async function handleDispatch() {
-    if (!dispatchFor || !dispatchFile || !dispatchNombre.trim()) return
+    if (!dispatchFor || !dispatchNombre.trim()) return
     setDispatchError(null)
-    const invalido = validateUploadFile(dispatchFile)
-    if (invalido) { setDispatchError(invalido); return }
     setDispatchLoading(true)
 
     try {
       const supabase = createClient()
-      const ext  = sanitizeExt(dispatchFile.name)
-      const path = `${dispatchFor.numero}-${dispatchFor.id}.${ext}`
-
-      const { error: uploadErr } = await supabase.storage
-        .from("reports-firmados")
-        .upload(path, dispatchFile, { upsert: true })
-
-      if (uploadErr) {
-        setDispatchError("Error al subir el archivo: " + uploadErr.message)
-        return
-      }
-
       const now = new Date().toISOString()
       const { error: updateErr } = await supabase
         .from("reports")
@@ -191,13 +172,10 @@ export default function ReportsPage() {
           nombre_despachador:    dispatchNombre,
           fecha_despacho:        now,
           dispatched_by:         user?.id ?? null,
-          documento_firmado_url: path,
         })
         .eq("id", dispatchFor.id)
 
       if (updateErr) {
-        // Rollback: remove orphaned file so storage stays consistent
-        await supabase.storage.from("reports-firmados").remove([path])
         setDispatchError("Error al despachar: " + updateErr.message)
         return
       }
@@ -206,7 +184,7 @@ export default function ReportsPage() {
         tabla:          "reports",
         registro_id:    dispatchFor.id,
         accion:         "report.despachar",
-        descripcion:    `Vehículo despachado — ${dispatchFor.cliente} (${dispatchFor.patente}) · doc: ${path}`,
+        descripcion:    `Vehículo despachado — ${dispatchFor.cliente} (${dispatchFor.patente})`,
         usuario_id:     user?.id,
         usuario_nombre: profile?.nombre ?? dispatchNombre,
       })
@@ -251,10 +229,11 @@ export default function ReportsPage() {
   }), [reports, activeTab, search])
 
   const counts = useMemo(() => ({
-    todos:              reports.length,
-    pendiente_despacho: reports.filter(r => r.estado === "pendiente_despacho").length,
-    despachado:         reports.filter(r => r.estado === "despachado").length,
-    borrador:           reports.filter(r => r.estado === "borrador").length,
+    todos:                 reports.length,
+    pendiente_operaciones: reports.filter(r => r.estado === "pendiente_operaciones").length,
+    pendiente_despacho:    reports.filter(r => r.estado === "pendiente_despacho").length,
+    despachado:            reports.filter(r => r.estado === "despachado").length,
+    borrador:              reports.filter(r => r.estado === "borrador").length,
   }), [reports])
 
   return (
@@ -282,51 +261,6 @@ export default function ReportsPage() {
             </button>
           </div>
 
-          {/* Subida del documento firmado */}
-          <div>
-            <label className="block text-xs font-medium text-foreground/80 mb-1.5">
-              Report firmado por el conductor <span className="text-red-500">*</span>
-            </label>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*,application/pdf"
-              className="hidden"
-              onChange={e => { setDispatchFile(e.target.files?.[0] ?? null); setDispatchError(null) }}
-            />
-            {dispatchFile ? (
-              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                <FileText className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                <span className="text-xs text-emerald-700 font-medium truncate flex-1">{dispatchFile.name}</span>
-                <span className="text-[10px] text-muted-foreground/60 flex-shrink-0">{(dispatchFile.size / 1024).toFixed(0)} KB</span>
-                <button
-                  type="button"
-                  onClick={() => { setDispatchFile(null); if (fileRef.current) fileRef.current.value = "" }}
-                  className="text-muted-foreground hover:text-foreground flex-shrink-0"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              <div
-                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) { setDispatchFile(f); setDispatchError(null) } }}
-                onClick={() => fileRef.current?.click()}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-1.5 border-2 border-dashed rounded-lg px-4 py-6 cursor-pointer transition-colors select-none",
-                  dragOver
-                    ? "border-blue-400 bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"
-                    : "border-border hover:border-muted-foreground text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Upload className="h-5 w-5" />
-                <span className="text-xs font-medium">{dragOver ? "Suelta para adjuntar" : "Arrastra el archivo aquí"}</span>
-                <span className="text-[10px]">o haz clic para seleccionar · PDF, JPG, PNG</span>
-              </div>
-            )}
-          </div>
-
           {/* Nombre despachador */}
           <div>
             <label className="block text-xs font-medium text-foreground/80 mb-1.5">
@@ -350,7 +284,7 @@ export default function ReportsPage() {
               size="sm"
               className="flex-1 h-9 gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40"
               onClick={handleDispatch}
-              disabled={!dispatchFile || !dispatchNombre.trim() || dispatchLoading}
+              disabled={!dispatchNombre.trim() || dispatchLoading}
             >
               {dispatchLoading
                 ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Procesando...</>
@@ -512,16 +446,15 @@ export default function ReportsPage() {
                             <Button
                               variant="ghost" size="icon"
                               className="h-8 w-8 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
-                              title="Subir documento firmado y despachar"
+                              title="Despachar"
                               onClick={e => {
                                 e.stopPropagation()
                                 setDispatchFor(r)
-                                setDispatchFile(null)
                                 setDispatchNombre("")
                                 setDispatchError(null)
                               }}
                             >
-                              <Upload className="h-4 w-4" />
+                              <Truck className="h-4 w-4" />
                             </Button>
                           )}
                           <Button

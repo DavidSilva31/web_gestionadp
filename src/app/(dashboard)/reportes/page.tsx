@@ -188,7 +188,7 @@ export default function ReportesPage() {
     let borradores = 0, pendientes = 0, despachados = 0
     for (const r of reportsData ?? []) {
       if (r.estado === "borrador")             borradores++
-      else if (r.estado === "pendiente_despacho") pendientes++
+      else if (r.estado === "pendiente_operaciones" || r.estado === "pendiente_despacho") pendientes++
       else if (r.estado === "despachado")      despachados++
     }
 
@@ -614,7 +614,7 @@ export default function ReportesPage() {
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Reports</p>
                       <div className="flex flex-col gap-2.5 flex-1">
                         {([
-                          { label: "Borradores",  value: reportsFunnel.borradores,  barCls: "bg-muted-foreground/40", txtCls: "text-muted-foreground"               },
+                          { label: "Ingresados",  value: reportsFunnel.borradores,  barCls: "bg-muted-foreground/40", txtCls: "text-muted-foreground"               },
                           { label: "Pendientes",  value: reportsFunnel.pendientes,  barCls: "bg-amber-400",           txtCls: "text-amber-500 dark:text-amber-400"   },
                           { label: "Despachados", value: reportsFunnel.despachados, barCls: "bg-emerald-500",         txtCls: "text-emerald-600 dark:text-emerald-400"},
                         ] as const).map(({ label, value, barCls, txtCls }) => {
@@ -781,7 +781,7 @@ export default function ReportesPage() {
                       { label: "Normal",      value: stockStatus.normal,        barCls: "bg-emerald-500"          },
                       { label: "Bajo",        value: stockStatus.bajo,          barCls: "bg-amber-400"            },
                       { label: "Crítico",     value: stockStatus.critico,       barCls: "bg-rose-500"             },
-                      { label: "Borradores",  value: reportsFunnel.borradores,  barCls: "bg-muted-foreground/40"  },
+                      { label: "Ingresados",  value: reportsFunnel.borradores,  barCls: "bg-muted-foreground/40"  },
                       { label: "Pendientes",  value: reportsFunnel.pendientes,  barCls: "bg-amber-400"            },
                       { label: "Despachados", value: reportsFunnel.despachados, barCls: "bg-emerald-500"          },
                     ] as const).map(({ label, value, barCls }, i) => {

@@ -55,6 +55,9 @@ const s = StyleSheet.create({
   },
   stampText: { fontSize: 14, fontFamily: "Helvetica-Bold", color: "#e53e3e", letterSpacing: 2 },
   stampSub: { fontSize: 7, color: "#e53e3e" },
+
+  // Firma del conductor (imagen capturada en el canvas)
+  firmaImg: { height: 55, maxWidth: 260, objectFit: "contain", marginTop: 2 },
 })
 
 function CB({ checked }: { checked: boolean }) {
@@ -83,7 +86,7 @@ function CbItem({ checked, label }: { checked: boolean; label: string }) {
   )
 }
 
-export function ReportPDF({ report }: { report: Report }) {
+export function ReportPDF({ report, firmaUrl }: { report: Report; firmaUrl?: string | null }) {
   const isDespachado = report.estado === "despachado"
 
   return (
@@ -119,6 +122,17 @@ export function ReportPDF({ report }: { report: Report }) {
             <View style={s.cbRow}>
               <CB checked={report.hds_header} />
               <Text style={s.cbLabel}>HDS.</Text>
+            </View>
+          </View>
+          <View style={s.row}>
+            <Field label="N° Guía:" value={report.sec3_numero_guia} med />
+            <Text style={[s.cbLabel, { marginRight: 4 }]}>Solicitado por:</Text>
+            <CbItem checked={report.sec3_solicitado_por === "clientes"}    label="Clientes" />
+            <CbItem checked={report.sec3_solicitado_por === "hds"}        label="HDS." />
+            <CbItem checked={report.sec3_solicitado_por === "operaciones"} label="Operaciones" />
+            <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
+              <Text style={s.cbLabel}>CUyD </Text>
+              <Text style={[s.fVal, s.fValShort]}>{report.sec3_cuyd_detalle ?? ""}</Text>
             </View>
           </View>
         </View>
@@ -225,20 +239,28 @@ export function ReportPDF({ report }: { report: Report }) {
             <Field label="NU:" value={report.sec3_nu} short />
             <Field label="H. Termino:" value={report.sec3_hora_termino} short />
           </View>
+          <View style={[s.row, { marginTop: 2 }]}>
+            <Field label="Lote:" value={report.sec3_lote} short />
+            <Field label="CAS:" value={report.sec3_cas} short />
+            <Field label="OC:" value={report.sec3_orden_compra} short />
+          </View>
+          <View style={[s.row, { marginTop: 2 }]}>
+            <Field label="Elab.:" value={report.sec3_fecha_elaboracion} short />
+            <Field label="Venc.:" value={report.sec3_fecha_vencimiento} short />
+          </View>
 
           <View style={[s.row, { marginTop: 4 }]}>
-            {/* Left col: movement + pallets */}
+            {/* Left col: movement + pallets/unidades */}
             <View style={{ flex: 1.2 }}>
               <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2 }}>
                 <CbItem checked={report.sec3_tipo === "ingreso"} label="3.1  Ingreso" />
-                <Field label="N° de Pallets" value={report.sec3_tipo === "ingreso" ? String(report.sec3_numero_pallets ?? "") : ""} short />
+                <Field label="N° Pallets" value={report.sec3_tipo === "ingreso" ? String(report.sec3_numero_pallets ?? "") : ""} short />
+                <Field label="N° Unidades" value={report.sec3_tipo === "ingreso" ? String(report.sec3_numero_unidades ?? "") : ""} short />
               </View>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <CbItem checked={report.sec3_tipo === "despacho"} label="3.2  Despacho" />
-                <Field label="N° de Pallets" value={report.sec3_tipo === "despacho" ? String(report.sec3_numero_pallets ?? "") : ""} short />
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
-                <Field label="N° de Guía" value={report.sec3_numero_guia} med />
+                <Field label="N° Pallets" value={report.sec3_tipo === "despacho" ? String(report.sec3_numero_pallets ?? "") : ""} short />
+                <Field label="N° Unidades" value={report.sec3_tipo === "despacho" ? String(report.sec3_numero_unidades ?? "") : ""} short />
               </View>
             </View>
 
@@ -248,39 +270,26 @@ export function ReportPDF({ report }: { report: Report }) {
               <Text style={s.obsText}>{report.sec3_observaciones ?? ""}</Text>
             </View>
           </View>
-
-          {/* Solicitado por */}
-          <View style={[s.row, { marginTop: 5 }]}>
-            <Text style={[s.cbLabel, { marginRight: 6 }]}>3.3  Mov. Interno solicitado por:</Text>
-          </View>
-          <View style={[s.row, { marginLeft: 10 }]}>
-            <CbItem checked={report.sec3_solicitado_por === "clientes"} label="Clientes" />
-            <CbItem checked={report.sec3_solicitado_por === "hds"}      label="HDS." />
-            <CbItem checked={report.sec3_solicitado_por === "operaciones"} label="Operaciones" />
-            <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
-              <Text style={s.cbLabel}>CUyD </Text>
-              <Text style={[s.fVal, s.fValShort]}>{report.sec3_cuyd_detalle ?? ""}</Text>
-            </View>
-          </View>
         </View>
 
         {/* ── Firmas ── */}
+        {/* Chofer (conductor, firma digital) y operador de carga son dos
+            personas distintas — cada uno con su lado, sin mezclar nombres. */}
         <View style={s.sigRow}>
           <View style={{ flex: 1, marginRight: 20 }}>
-            <Text style={[s.cbLabel, { marginBottom: 4 }]}>Nombre:</Text>
-            <View style={s.sigLine} />
-            <Text style={[s.cbLabel, { marginTop: 8, marginBottom: 4 }]}>Firma:</Text>
-            <View style={s.sigLine} />
-            <Text style={[s.sigLabel, { marginTop: 2 }]}>{report.nombre_operador ?? ""}</Text>
+            <Text style={[s.cbLabel, { marginBottom: 4 }]}>Chofer:</Text>
+            <Text style={[s.sigLabel, { fontFamily: "Helvetica-Bold", marginBottom: 4 }]}>{report.conductor ?? ""}</Text>
+            <Text style={[s.cbLabel, { marginTop: 4, marginBottom: 4 }]}>Firma:</Text>
+            {firmaUrl
+              ? <Image style={s.firmaImg} src={firmaUrl} />
+              : <View style={s.sigLine} />
+            }
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[s.cbLabel, { marginBottom: 4 }]}>Nombre:</Text>
+            <Text style={[s.cbLabel, { marginBottom: 4 }]}>Operador de carga:</Text>
+            <Text style={[s.sigLabel, { fontFamily: "Helvetica-Bold", marginBottom: 4 }]}>{report.nombre_operador ?? ""}</Text>
+            <Text style={[s.cbLabel, { marginTop: 4, marginBottom: 4 }]}>Firma:</Text>
             <View style={s.sigLine} />
-            <Text style={[s.cbLabel, { marginTop: 8, marginBottom: 4 }]}>Firma:</Text>
-            <View style={s.sigLine} />
-            {isDespachado && (
-              <Text style={[s.sigLabel, { marginTop: 2 }]}>{report.nombre_despachador ?? ""}</Text>
-            )}
           </View>
         </View>
 

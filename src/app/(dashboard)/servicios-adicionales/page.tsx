@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
-import { Truck, Search, FileText, Clock, CheckCircle2, Loader2, RefreshCw, Download, Eye } from "lucide-react"
+import { Wrench, Search, FileText, Clock, CheckCircle2, Loader2, RefreshCw, Download, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -16,20 +16,26 @@ import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 type Tab = "todos" | ReportEstado
 
 interface ReportRow {
-  id:          string
-  numero:      number
-  estado:      ReportEstado
-  cliente:     string
-  fecha:       string
-  patente:     string
-  conductor:   string
-  sec1_activa: boolean
-  sec2_activa: boolean
-  sec3_activa: boolean
+  id:      string
+  numero:  number
+  estado:  ReportEstado
+  cliente: string
+  fecha:   string
+  patente: string
+  conductor: string
+  sec2_observaciones: string | null
+  sec3_observaciones: string | null
+}
+
+// El report se marca con el check "Servicio Adicional" de Sección 3
+// (sec3_servicio_adicional) — este helper solo junta las Observaciones de
+// Sección 2 y/o 3 para mostrar una descripción del servicio en la tabla.
+function servicioTexto(r: ReportRow) {
+  return [r.sec2_observaciones, r.sec3_observaciones].filter(t => t?.trim()).join(" · ")
 }
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-  { key: "todos",                 label: "Todos",             icon: <Truck className="h-3.5 w-3.5" /> },
+  { key: "todos",                 label: "Todos",             icon: <Wrench className="h-3.5 w-3.5" /> },
   { key: "borrador",              label: "Ingresados",        icon: <FileText className="h-3.5 w-3.5" /> },
   { key: "pendiente_operaciones", label: "Pend. operaciones", icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "pendiente_despacho",    label: "Pend. despacho",    icon: <Clock className="h-3.5 w-3.5" /> },
@@ -43,15 +49,7 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   despachado:            { label: "Despachado",        className: "badge-success" },
 }
 
-function seccionesTag(r: ReportRow) {
-  const tags = []
-  if (r.sec1_activa) tags.push("Dep. Contenedores")
-  if (r.sec2_activa) tags.push("Consolidado/Otros")
-  if (r.sec3_activa) tags.push("Bodegaje")
-  return tags
-}
-
-export default function TransportePage() {
+export default function ServiciosAdicionalesPage() {
   const router = useRouter()
   const [reports,      setReports]      = useState<ReportRow[]>([])
   const [loading,      setLoading]      = useState(true)
@@ -68,12 +66,12 @@ export default function TransportePage() {
     const supabase = createClient()
     const { data, error: err } = await supabase
       .from("reports")
-      .select("id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa")
-      .eq("transporte_tipo", "propio")
+      .select("id, numero, estado, cliente, fecha, patente, conductor, sec2_observaciones, sec3_observaciones")
+      .eq("sec3_servicio_adicional", true)
       .order("numero", { ascending: false })
 
     if (err) { setFetchError(err.message); setLoading(false); return }
-    if (data) setReports(data as ReportRow[])
+    setReports((data as ReportRow[]) ?? [])
     setLoading(false)
   }, [])
 
@@ -88,7 +86,7 @@ export default function TransportePage() {
       if (error) throw error
       if (data) await downloadReportPDF(data as Report)
     } catch (err) {
-      console.error("[transporte] error descargando PDF:", err)
+      console.error("[servicios-adicionales] error descargando PDF:", err)
       setActionError("No se pudo descargar el PDF. Intenta de nuevo.")
     } finally {
       setPdfLoading(null)
@@ -104,7 +102,7 @@ export default function TransportePage() {
       if (error) throw error
       if (data) setPreviewReport(data as Report)
     } catch (err) {
-      console.error("[transporte] error generando vista previa:", err)
+      console.error("[servicios-adicionales] error generando vista previa:", err)
       setActionError("No se pudo generar la vista previa. Intenta de nuevo.")
     } finally {
       setPdfLoading(null)
@@ -118,6 +116,7 @@ export default function TransportePage() {
       return r.patente.toLowerCase().includes(q) ||
              r.cliente.toLowerCase().includes(q) ||
              r.conductor.toLowerCase().includes(q) ||
+             servicioTexto(r).toLowerCase().includes(q) ||
              String(r.numero).includes(q)
     }
     return true
@@ -142,7 +141,7 @@ export default function TransportePage() {
     )}
 
     <div className="flex flex-col h-full overflow-hidden">
-      <PageHeader title="Transporte" subtitle="Reports con transporte propio">
+      <PageHeader title="Servicios Adicionales" subtitle="Reports con servicios adicionales registrados">
         <Button variant="ghost" size="sm" onClick={fetchReports} disabled={loading} className="h-10 w-10 p-0 text-muted-foreground">
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
@@ -160,25 +159,8 @@ export default function TransportePage() {
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 px-4 sm:px-6 pt-4 pb-3 flex-shrink-0">
-        {[
-          { icon: <Truck className="h-4 w-4 text-primary" />, bg: "bg-primary/10", count: counts.todos,              label: "Total"          },
-          { icon: <Clock className="h-4 w-4 text-amber-600" />,               bg: "bg-amber-50 dark:bg-amber-900/20", count: counts.pendiente_despacho, label: "Pendientes" },
-          { icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,      bg: "bg-emerald-50 dark:bg-emerald-900/20", count: counts.despachado,  label: "Despachados"    },
-        ].map(s => (
-          <div key={s.label} className="bg-card rounded-lg border p-2.5 sm:p-3 flex items-center gap-2 sm:gap-3">
-            <div className={cn("h-8 w-8 sm:h-10 sm:w-10 rounded-lg flex items-center justify-center flex-shrink-0", s.bg)}>{s.icon}</div>
-            <div className="min-w-0">
-              <p className="text-base sm:text-lg font-bold text-foreground leading-none">{loading ? "—" : s.count}</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 truncate">{s.label}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-6 pb-3 flex-shrink-0">
+      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-6 pt-4 pb-3 flex-shrink-0">
         <div className="flex gap-1 bg-muted rounded-lg p-0.5 flex-shrink-0">
           {TABS.map(tab => (
             <button
@@ -202,7 +184,7 @@ export default function TransportePage() {
         </div>
         <div className="relative flex-1 min-w-[140px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input placeholder="Buscar patente, cliente, N°..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs w-full" />
+          <Input placeholder="Buscar patente, cliente, servicio, N°..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs w-full" />
         </div>
       </div>
 
@@ -215,15 +197,14 @@ export default function TransportePage() {
             </div>
           ) : (
             <div className="overflow-auto flex-1">
-              <table className="w-full text-sm table-fixed min-w-[720px]">
+              <table className="w-full text-sm table-fixed min-w-[760px]">
                 <colgroup>
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "8%" }}  />
+                  <col style={{ width: "31%" }} />
+                  <col style={{ width: "10%" }} />
                   <col style={{ width: "12%" }} />
-                  <col style={{ width: "19%" }} />
-                  <col style={{ width: "9%" }}  />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "10%" }} />
                   <col style={{ width: "8%" }}  />
                 </colgroup>
                 <thead className="sticky top-0 bg-muted/60 border-b z-10">
@@ -231,8 +212,7 @@ export default function TransportePage() {
                     <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs whitespace-nowrap">Report</th>
                     <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Cliente</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Patente</th>
-                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Conductor</th>
-                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Secciones</th>
+                    <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Servicio</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Fecha</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Estado</th>
                     <th />
@@ -252,15 +232,8 @@ export default function TransportePage() {
                       <td className="px-4 py-4 text-center overflow-hidden">
                         <span className="font-mono bg-muted px-2 py-0.5 rounded text-foreground">{r.patente}</span>
                       </td>
-                      <td className="px-4 py-4 text-center text-muted-foreground overflow-hidden">
-                        <span className="block truncate">{r.conductor}</span>
-                      </td>
-                      <td className="px-4 py-4 text-center overflow-hidden">
-                        <div className="flex gap-1 flex-wrap justify-center">
-                          {seccionesTag(r).map(t => (
-                            <span key={t} className="bg-[var(--color-status-info-bg)] text-[var(--color-status-info-text)] px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap">{t}</span>
-                          ))}
-                        </div>
+                      <td className="px-4 py-4 text-muted-foreground overflow-hidden">
+                        <span className="block truncate" title={servicioTexto(r)}>{servicioTexto(r)}</span>
                       </td>
                       <td className="px-4 py-4 text-center text-muted-foreground">{r.fecha}</td>
                       <td className="px-4 py-4 text-center">
@@ -297,8 +270,8 @@ export default function TransportePage() {
                   ))}
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground text-sm">
-                        Sin reports de transporte propio
+                      <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground text-sm">
+                        Sin reports con servicios adicionales
                       </td>
                     </tr>
                   )}

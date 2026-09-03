@@ -334,7 +334,7 @@ export function AnaliticaPDF({ data }: { data: AnaliticaPDFData }) {
                   <Text style={s.miniCardTitle}>Reports del período</Text>
                 </View>
                 {([
-                  { label: "Borradores",  value: data.reportsFunnel.borradores,  color: "#94A3B8" },
+                  { label: "Ingresados",  value: data.reportsFunnel.borradores,  color: "#94A3B8" },
                   { label: "Pendientes",  value: data.reportsFunnel.pendientes,  color: AMBER    },
                   { label: "Despachados", value: data.reportsFunnel.despachados, color: EMERALD  },
                 ] as const).map(({ label, value, color }, i) => {
