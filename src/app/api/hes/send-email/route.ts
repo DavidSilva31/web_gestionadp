@@ -46,7 +46,11 @@ async function handleSendEmail(req: NextRequest) {
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   if (userError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
 
-  const { data: callerProfile } = await supabase.from("profiles").select("role, nombre, activo").eq("id", user.id).single()
+  const { data: callerProfile, error: profileErr } = await supabase.from("profiles").select("role, nombre, activo").eq("id", user.id).single()
+  if (profileErr) {
+    console.error("[hes/send-email] error obteniendo perfil:", profileErr)
+    return NextResponse.json({ error: "No se pudo verificar el perfil." }, { status: 500 })
+  }
   if (!callerProfile?.activo) return NextResponse.json({ error: "Cuenta desactivada" }, { status: 403 })
 
   if (!process.env.RESEND_API_KEY)
@@ -160,13 +164,20 @@ async function handleSendEmail(req: NextRequest) {
     html: wrapBrandedEmail(bodyHtml),
     attachments,
   })
-  if (sendError)
-    return NextResponse.json({ error: `No se pudo enviar el correo: ${sendError.message}` }, { status: 502 })
+  if (sendError) {
+    console.error("[hes/send-email] Resend devolvió error:", sendError)
+    return NextResponse.json({ error: "No se pudo enviar el correo. Intenta de nuevo." }, { status: 502 })
+  }
 
+  // El correo ya salió al cliente real en este punto — una falla de acá en
+  // adelante no debe volver un 500 (el frontend lo interpretaría como que
+  // el envío falló y podría reintentar, duplicando el correo con los
+  // adjuntos financieros).
   if (folioId) {
-    await supabase.from("hes_folios")
+    const { error: updFolioErr } = await supabase.from("hes_folios")
       .update({ enviado_a: destino, enviado_at: new Date().toISOString() })
       .eq("id", folioId)
+    if (updFolioErr) console.error("[hes/send-email] error marcando folio como enviado:", updFolioErr)
   }
 
   await logAuditServer({
@@ -176,7 +187,7 @@ async function handleSendEmail(req: NextRequest) {
     descripcion:    `HES${folioNumero != null ? ` N° HES-${String(folioNumero).padStart(6, "0")}` : ""} enviado por correo a ${destino.join(", ")} — ${cliente.nombre} — ${periodoLabel}`,
     usuario_id:     user.id,
     usuario_nombre: callerProfile?.nombre ?? user.email,
-  })
+  }).catch(err => console.error("[hes/send-email] error registrando auditoría:", err))
 
   return NextResponse.json({ success: true, enviadoA: destino })
 }

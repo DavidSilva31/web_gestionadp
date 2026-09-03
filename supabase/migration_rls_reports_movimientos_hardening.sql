@@ -30,10 +30,17 @@ BEGIN
     RAISE EXCEPTION 'No se puede despachar un report sin documento firmado';
   END IF;
 
-  IF NEW.estado <> 'borrador' AND v_old_estado = 'borrador'
+  -- Nota histórica: esto originalmente comparaba contra v_old_estado =
+  -- 'borrador' (único estado "activo" que existía en ese momento). El
+  -- rediseño en dos fases (migration_reports_pendiente_operaciones.sql)
+  -- movió la transición real que necesita bodegaje completo a
+  -- pendiente_operaciones -> pendiente_despacho — ver
+  -- migration_fix_validate_report_transition_pendiente_operaciones.sql.
+  -- Se deja acá ya actualizado para que un ambiente nuevo no necesite el fix.
+  IF NEW.estado = 'pendiente_despacho' AND v_old_estado <> 'pendiente_despacho'
      AND COALESCE(NEW.sec3_activa, FALSE)
      AND (NEW.sec3_numero_pallets IS NULL OR NEW.sec3_numero_pallets <= 0) THEN
-    RAISE EXCEPTION 'Bodegaje activo requiere sec3_numero_pallets > 0 al salir de borrador';
+    RAISE EXCEPTION 'Bodegaje activo requiere sec3_numero_pallets > 0 antes de enviar a despacho';
   END IF;
 
   RETURN NEW;

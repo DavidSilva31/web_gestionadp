@@ -30,12 +30,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchProfile = useCallback(async (userId: string) => {
     const supabase = createClient()
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single()
-    if (error) console.error('[auth] error obteniendo perfil:', error)
+    if (error) {
+      console.error('[auth] error obteniendo perfil:', error)
+      // El layout del dashboard ya validó server-side que el perfil existe y
+      // está activo hace instantes — esto casi siempre es un blip transitorio
+      // del lado cliente, no una cuenta realmente sin perfil. Un reintento
+      // evita quedar con profile=null (y todo lo que depende del rol roto)
+      // por una falla momentánea; si vuelve a fallar, la próxima navegación
+      // pasa de nuevo por el chequeo server-side del layout.
+      await new Promise(r => setTimeout(r, 800));
+      ({ data, error } = await supabase.from('profiles').select('*').eq('id', userId).single())
+      if (error) { console.error('[auth] error obteniendo perfil (reintento):', error); return }
+    }
     setProfile(data ?? null)
     document.documentElement.setAttribute('data-accent', data?.accent_color || 'celeste')
   }, [])

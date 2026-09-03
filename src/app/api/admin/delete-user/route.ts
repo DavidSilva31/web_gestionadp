@@ -36,16 +36,24 @@ export async function DELETE(req: NextRequest) {
       .from("profiles").select("email, nombre, role").eq("id", targetId).single()
     if (targetError) console.error("[admin/delete-user] error obteniendo perfil objetivo:", targetError)
 
-    // Eliminar primero de Auth para evitar dejar un perfil huérfano si falla la segunda operación
-    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(targetId)
-    if (authError) {
-      console.error("[admin/delete-user] error eliminando usuario de Auth:", authError)
+    // Perfil primero, Auth después: si el segundo paso falla, queda un
+    // usuario de Auth sin perfil — inerte en la app (todo depende de
+    // profiles para rol/permisos, no puede hacer nada útil). El orden
+    // inverso (que tenía esto antes) dejaba justo lo que el comentario
+    // decía evitar: un perfil huérfano apuntando a un auth.users borrado.
+    const { error: deleteProfileError } = await supabaseAdmin.from("profiles").delete().eq("id", targetId)
+    if (deleteProfileError) {
+      console.error("[admin/delete-user] error eliminando perfil:", deleteProfileError)
       return NextResponse.json({ error: "No se pudo eliminar el usuario." }, { status: 500 })
     }
 
-    const { error: deleteProfileError } = await supabaseAdmin.from("profiles").delete().eq("id", targetId)
-    if (deleteProfileError)
-      console.error("[admin/delete-user] error eliminando perfil (usuario ya eliminado de Auth):", deleteProfileError)
+    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(targetId)
+    if (authError) {
+      console.error("[admin/delete-user] error eliminando usuario de Auth (perfil ya eliminado):", authError)
+      return NextResponse.json({
+        error: "El perfil se eliminó, pero no se pudo eliminar la cuenta de autenticación. Contacta soporte si el problema persiste.",
+      }, { status: 500 })
+    }
 
     await logAuditServer({
       tabla:          "profiles",

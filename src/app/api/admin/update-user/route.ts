@@ -54,12 +54,20 @@ export async function PATCH(req: NextRequest) {
 
     // Al desactivar: banear en Auth para que no pueda volver a autenticarse ni
     // refrescar su sesión ya abierta (además del corte inmediato en proxy.ts
-    // en su próxima navegación). Al reactivar, se remueve el ban.
+    // y en cada ruta /api/* que valida profiles.activo por su cuenta). Al
+    // reactivar, se remueve el ban. profiles.activo ya quedó en false arriba
+    // de todas formas — si esto falla, el usuario queda igual bloqueado por
+    // esos otros chequeos, pero avisamos al admin para que no crea que el
+    // baneo de Auth se aplicó cuando no fue así.
+    let banWarning = false
     if (activo !== undefined) {
       const { error: banErr } = await supabaseAdmin.auth.admin.updateUserById(id, {
         ban_duration: activo ? "none" : "876000h",
       })
-      if (banErr) console.error("[admin/update-user] error actualizando ban de Auth:", banErr)
+      if (banErr) {
+        console.error("[admin/update-user] error actualizando ban de Auth:", banErr)
+        banWarning = true
+      }
     }
 
     const cambios = Object.entries(updates)
@@ -75,7 +83,7 @@ export async function PATCH(req: NextRequest) {
       usuario_nombre: adminProfile?.nombre ?? user.email,
     }).catch(err => console.error("[admin/update-user] error registrando auditoría:", err))
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, banWarning })
   } catch (err) {
     console.error("[admin/update-user] error inesperado:", err)
     return NextResponse.json({ error: "Error inesperado del servidor." }, { status: 500 })

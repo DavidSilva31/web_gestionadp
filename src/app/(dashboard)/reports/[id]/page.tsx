@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useRouter, useParams } from "next/navigation"
-import { ArrowLeft, Save, Send, Loader2, Eye, Clock, CheckCircle2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ScanLine, ChevronDown, ChevronUp, Camera, X, Paperclip } from "lucide-react"
+import { ArrowLeft, Save, Send, Loader2, Eye, Clock, CheckCircle2, History, FilePen, FileCheck2, Truck, FileText, Trash2, ScanLine, ChevronDown, ChevronUp, Camera, X, Paperclip, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -115,17 +115,24 @@ export default function ReportDetailPage() {
   // recién ahora, que se sube al guardar.
   const [firmaPath,      setFirmaPath]      = useState<string | null>(null)
   const [firmaSignedUrl, setFirmaSignedUrl] = useState<string | null>(null)
+  const [firmaUrlError,  setFirmaUrlError]  = useState(false)
+  const [firmaRetryKey,  setFirmaRetryKey]  = useState(0)
   const [firmaDataUrl,   setFirmaDataUrl]   = useState<string | null>(null)
   const [reFirmando,     setReFirmando]     = useState(false)
 
   useEffect(() => {
     if (!firmaPath) return
+    let cancelled = false
     createClient().storage.from("reports-firmados").createSignedUrl(firmaPath, 3600)
       .then(({ data, error }) => {
-        if (error) console.error("[report] error generando URL de la firma:", error)
+        if (cancelled) return
+        // Antes, si fallaba, quedaba girando el spinner para siempre.
+        if (error) { console.error("[report] error generando URL de la firma:", error); setFirmaUrlError(true); return }
         if (data?.signedUrl) setFirmaSignedUrl(data.signedUrl)
+        else setFirmaUrlError(true)
       })
-  }, [firmaPath])
+    return () => { cancelled = true }
+  }, [firmaPath, firmaRetryKey])
 
   const previewUrl = useMemo(() => previewFile ? URL.createObjectURL(previewFile) : null, [previewFile])
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
@@ -351,27 +358,33 @@ export default function ReportDetailPage() {
 
   async function handleDelete() {
     setDeleting(true)
-    const supabase = createClient()
-    const { error: delErr } = await supabase.from("reports").delete().eq("id", id)
-    if (delErr) {
-      setError(`No se pudo eliminar: ${delErr.message}`)
+    try {
+      const supabase = createClient()
+      const { error: delErr } = await supabase.from("reports").delete().eq("id", id)
+      if (delErr) {
+        setError(`No se pudo eliminar: ${delErr.message}`)
+        return
+      }
+      // El trigger reports_sync_inventario revierte el stock del ítem de sec3 al
+      // borrar el report — sincronizar peso_ton para que no quede desactualizado.
+      if (form?.sec3_activa && form.sec3_inventario_item_id) {
+        await syncPesoTon(supabase, form.sec3_inventario_item_id)
+      }
+      logAudit({
+        tabla:          "reports",
+        registro_id:    id,
+        accion:         "report.eliminar",
+        descripcion:    `Report #${numero} — ${form?.cliente} (${form?.patente}) eliminado`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
+      router.push("/reports")
+    } catch (err) {
+      console.error("[reports/id] error inesperado al eliminar:", err)
+      setError("No se pudo conectar con el servidor. Intenta de nuevo.")
+    } finally {
       setDeleting(false)
-      return
     }
-    // El trigger reports_sync_inventario revierte el stock del ítem de sec3 al
-    // borrar el report — sincronizar peso_ton para que no quede desactualizado.
-    if (form?.sec3_activa && form.sec3_inventario_item_id) {
-      await syncPesoTon(supabase, form.sec3_inventario_item_id)
-    }
-    logAudit({
-      tabla:          "reports",
-      registro_id:    id,
-      accion:         "report.eliminar",
-      descripcion:    `Report #${numero} — ${form?.cliente} (${form?.patente}) eliminado`,
-      usuario_id:     user?.id,
-      usuario_nombre: profile?.nombre ?? user?.email,
-    })
-    router.push("/reports")
   }
 
   async function handleSave(newEstado: ReportEstado) {
@@ -386,12 +399,14 @@ export default function ReportDetailPage() {
     // bloquear el envío a despacho.
     setError(null)
     setSaving(true)
+    // try/finally envolviendo todo: antes, una excepción real (no un error
+    // devuelto por Supabase) dejaba "saving" en true para siempre.
+    try {
     const supabase = createClient()
     const payload = buildPayload(newEstado)
     const { error: err } = await supabase.from("reports").update(payload).eq("id", id)
     if (err) {
       setError(err.message)
-      setSaving(false)
       return
     }
 
@@ -427,7 +442,6 @@ export default function ReportDetailPage() {
       }
       if (hdsFailed) {
         setError("No se pudo subir el documento HDS. Vuelve a intentarlo antes de guardar.")
-        setSaving(false)
         return
       }
     }
@@ -464,7 +478,6 @@ export default function ReportDetailPage() {
       }
       if (evidenciaFailed) {
         setError("No se pudo subir la evidencia fotográfica. Vuelve a intentarlo antes de guardar.")
-        setSaving(false)
         return
       }
     }
@@ -479,14 +492,12 @@ export default function ReportDetailPage() {
       if (firmaUploadErr) {
         console.error("[reports/id] error subiendo firma del conductor:", firmaUploadErr)
         setError("El report se guardó, pero no se pudo guardar la firma del conductor. Vuelve a firmar.")
-        setSaving(false)
         return
       }
       const { error: firmaUpdateErr } = await supabase.from("reports").update({ firma_conductor_url: path }).eq("id", id)
       if (firmaUpdateErr) {
         console.error("[reports/id] error guardando referencia de la firma:", firmaUpdateErr)
         setError("El report se guardó, pero no se pudo asociar la firma del conductor. Vuelve a firmar.")
-        setSaving(false)
         return
       }
     }
@@ -505,12 +516,10 @@ export default function ReportDetailPage() {
         if (revertErr) {
           console.error("[reports/id] error revirtiendo estado sin pallets:", revertErr)
           setError("Número de pallets requerido para enviar a despacho, y no se pudo revertir el estado guardado — revisa el report antes de continuar.")
-          setSaving(false)
-          return
+            return
         }
         setEstado("pendiente_operaciones")
         setError("Número de pallets requerido para enviar a despacho.")
-        setSaving(false)
         return
       }
     }
@@ -534,8 +543,13 @@ export default function ReportDetailPage() {
       usuario_id:     user?.id,
       usuario_nombre: profile?.nombre ?? user?.email,
     })
-    setSaving(false)
     router.push("/reports")
+    } catch (err) {
+      console.error("[reports/id] error inesperado al guardar:", err)
+      setError("No se pudo conectar con el servidor. Intenta de nuevo.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loading) {
@@ -992,6 +1006,15 @@ export default function ReportDetailPage() {
                   {firmaSignedUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={firmaSignedUrl} alt="Firma del conductor" className="max-w-full max-h-full object-contain" />
+                  ) : firmaUrlError ? (
+                    <button
+                      type="button"
+                      onClick={() => { setFirmaUrlError(false); setFirmaRetryKey(k => k + 1) }}
+                      className="flex flex-col items-center gap-1 text-[11px] text-destructive hover:underline"
+                    >
+                      <AlertTriangle className="h-4 w-4" />
+                      No se pudo cargar — reintentar
+                    </button>
                   ) : (
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   )}
@@ -1177,22 +1200,35 @@ export default function ReportDetailPage() {
 // firmado de más arriba en esta misma página.
 function EvidenciaExistenteLink({ path, index, label = "Evidencia" }: { path: string; index: number; label?: string }) {
   const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
   useEffect(() => {
+    let cancelled = false
     createClient().storage.from("reports-firmados").createSignedUrl(path, 3600)
-      .then(({ data }) => { if (data) setUrl(data.signedUrl) })
-  }, [path])
+      .then(({ data, error }) => {
+        if (cancelled) return
+        // Antes, si esto fallaba, el link quedaba con cursor-wait para
+        // siempre — indistinguible de "todavía está cargando".
+        if (error) { console.error("[reports/id] error generando URL firmada:", error); setFailed(true); return }
+        if (data) setUrl(data.signedUrl)
+        else setFailed(true)
+      })
+    return () => { cancelled = true }
+  }, [path, retryKey])
   return (
     <a
-      href={url ?? "#"}
+      href={failed ? "#" : url ?? "#"}
       target="_blank"
       rel="noopener noreferrer"
+      title={failed ? "No se pudo cargar el archivo — clic para reintentar" : undefined}
+      onClick={failed ? (e) => { e.preventDefault(); setFailed(false); setUrl(null); setRetryKey(k => k + 1) } : undefined}
       className={cn(
         "flex items-center gap-2 bg-muted/40 border border-border/40 rounded-lg px-2.5 py-1.5 text-xs",
-        url ? "hover:bg-muted/60 cursor-pointer" : "opacity-60 cursor-wait pointer-events-none"
+        url ? "hover:bg-muted/60 cursor-pointer" : failed ? "opacity-80 cursor-pointer hover:bg-muted/60 text-destructive" : "opacity-60 cursor-wait pointer-events-none"
       )}
     >
       <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-      <span className="truncate flex-1">{label} {index + 1}</span>
+      <span className="truncate flex-1">{label} {index + 1}{failed && " — no se pudo cargar, clic para reintentar"}</span>
     </a>
   )
 }

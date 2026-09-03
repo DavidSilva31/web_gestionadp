@@ -26,6 +26,14 @@ export async function POST(req: NextRequest) {
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
 
+    // proxy.ts excluye /api/* del chequeo de activo — cada ruta lo hace sola.
+    const { data: profile, error: profileErr } = await supabase.from("profiles").select("nombre, activo").eq("id", user.id).single()
+    if (profileErr) {
+      console.error("[hes/folio] error obteniendo perfil:", profileErr)
+      return NextResponse.json({ error: "No se pudo verificar el perfil." }, { status: 500 })
+    }
+    if (!profile?.activo) return NextResponse.json({ error: "Cuenta desactivada" }, { status: 403 })
+
     let body: ReqBody
     try {
       body = await req.json() as ReqBody
@@ -44,10 +52,7 @@ export async function POST(req: NextRequest) {
     if (!periodStart || !periodEnd)
       return NextResponse.json({ error: "Período no especificado" }, { status: 400 })
 
-    const [{ data: profile }, { data: cliente }] = await Promise.all([
-      supabase.from("profiles").select("nombre").eq("id", user.id).single(),
-      supabase.from("clientes").select("nombre").eq("id", clienteId).single(),
-    ])
+    const { data: cliente } = await supabase.from("clientes").select("nombre").eq("id", clienteId).single()
 
     const { data, error } = await supabase
       .from("hes_folios")
@@ -70,6 +75,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No se pudo asignar el folio." }, { status: 500 })
     }
 
+    // El folio ya quedó insertado arriba — si esto falla no debe tumbar la
+    // respuesta ni hacer creer al cliente que el folio no se asignó (un
+    // reintento suyo generaría un segundo folio correlativo para el mismo HES).
     await logAuditServer({
       tabla:          "hes_folios",
       registro_id:    data.id,
@@ -77,7 +85,7 @@ export async function POST(req: NextRequest) {
       descripcion:    `HES N° HES-${String(data.numero).padStart(6, "0")} generado — ${cliente?.nombre ?? clienteId} — ${MESES[mes]} ${anio}`,
       usuario_id:     user.id,
       usuario_nombre: profile?.nombre ?? user.email,
-    })
+    }).catch(err => console.error("[hes/folio] error registrando auditoría:", err))
 
     return NextResponse.json({ id: data.id, numero: data.numero })
   } catch (err) {

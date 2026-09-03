@@ -98,10 +98,12 @@ export default function MovimientosPage() {
   const [error,         setError]         = useState<string | null>(null)
   const [fetchError,    setFetchError]    = useState<string | null>(null)
   const [actionError,   setActionError]   = useState<string | null>(null)
+  const [marcandoIds,   setMarcandoIds]   = useState<Set<string>>(new Set())
   const [dialog,        setDialog]        = useState<null | MovimientoTipo | Movimiento>(null)
   const [form,          setForm]          = useState<MovimientoInsert>(EMPTY_FORM("ingreso"))
   const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
   const [exportError,   setExportError]   = useState<string | null>(null)
+  const [exportingExcel, setExportingExcel] = useState(false)
   const [manifiestoOpen, setManifiestoOpen] = useState(false)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
@@ -248,11 +250,20 @@ export default function MovimientosPage() {
   }
 
   async function marcarCompletado(m: Movimiento) {
+    if (marcandoIds.has(m.id)) return
     setActionError(null)
-    const supabase = createClient()
-    const { error } = await supabase.from("movimientos").update({ estado: "completado" }).eq("id", m.id)
-    if (error) { setActionError("Error al actualizar estado: " + error.message); return }
-    fetchMovimientos()
+    setMarcandoIds(prev => new Set(prev).add(m.id))
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.from("movimientos").update({ estado: "completado" }).eq("id", m.id)
+      if (error) { setActionError("Error al actualizar estado: " + error.message); return }
+      await fetchMovimientos()
+    } catch (err) {
+      console.error("[movimientos] error inesperado marcando completado:", err)
+      setActionError("No se pudo conectar con el servidor.")
+    } finally {
+      setMarcandoIds(prev => { const n = new Set(prev); n.delete(m.id); return n })
+    }
   }
 
   async function handleSave() {
@@ -364,14 +375,17 @@ export default function MovimientosPage() {
   }
 
   async function handleDownloadExport() {
-    if (!exportPreview) return
+    if (!exportPreview || exportingExcel) return
     setExportError(null)
+    setExportingExcel(true)
     try {
       await exportToExcel(exportPreview.rows, exportPreview.filename, "Movimientos")
       setExportPreview(null)
     } catch (err) {
       console.error("[movimientos] error exportando Excel:", err)
       setExportError("No se pudo generar el archivo Excel.")
+    } finally {
+      setExportingExcel(false)
     }
   }
 
@@ -571,10 +585,11 @@ export default function MovimientosPage() {
                           ) : (
                             <button
                               onClick={() => marcarCompletado(m)}
-                              className="badge-warning inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full hover:opacity-80 transition-opacity"
+                              disabled={marcandoIds.has(m.id)}
+                              className="badge-warning inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full hover:opacity-80 transition-opacity disabled:opacity-50 disabled:pointer-events-none"
                               title="Clic para marcar como completado"
                             >
-                              <Clock className="h-3 w-3" />
+                              {marcandoIds.has(m.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Clock className="h-3 w-3" />}
                               <span className="hidden sm:inline">En proceso</span>
                             </button>
                           )}
@@ -1006,8 +1021,8 @@ export default function MovimientosPage() {
             <Button variant="outline" size="sm" onClick={() => setExportPreview(null)}>
               Cancelar
             </Button>
-            <Button size="sm" onClick={handleDownloadExport} className="gap-1.5">
-              <Download className="h-3.5 w-3.5" />
+            <Button size="sm" onClick={handleDownloadExport} disabled={exportingExcel} className="gap-1.5">
+              {exportingExcel ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               Descargar Excel
             </Button>
           </DialogFooter>

@@ -133,11 +133,20 @@ function KardexCell({
     const parsed: string | number | null = kind === "number" ? (raw === "" ? null : parseFloat(raw)) : (raw || null)
     if (parsed === (value ?? null)) { setEditing(false); return }
     setSaving(true)
-    const error = await onSave(parsed)
-    setSaving(false)
-    if (error) { setErr(error); return }
-    setErr(null)
-    setEditing(false)
+    // Antes, si onSave tiraba una excepción real (no un mensaje de error
+    // devuelto), setSaving(false) nunca corría — la celda quedaba con el
+    // input/select deshabilitado para siempre, inutilizable sin refrescar.
+    try {
+      const error = await onSave(parsed)
+      if (error) { setErr(error); return }
+      setErr(null)
+      setEditing(false)
+    } catch (err) {
+      console.error("[inventario] error inesperado guardando celda:", err)
+      setErr("No se pudo conectar con el servidor.")
+    } finally {
+      setSaving(false)
+    }
   }
   function cancel() { setDraft(value == null ? "" : String(value)); setEditing(false); setErr(null) }
 
@@ -208,6 +217,7 @@ function InventarioContent() {
     | null
   >(null)
   const [exportError,  setExportError]  = useState<string | null>(null)
+  const [exportingExcel, setExportingExcel] = useState(false)
   const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
   const [vista,        setVista]        = useState<"resumen" | "kardex">("resumen")
   const [kardexProducto, setKardexProducto] = useState<string | null>(null)
@@ -624,8 +634,9 @@ function InventarioContent() {
   }
 
   async function handleDownloadExport() {
-    if (!exportPreview) return
+    if (!exportPreview || exportingExcel) return
     setExportError(null)
+    setExportingExcel(true)
     try {
       if (exportPreview.kind === "kardex") {
         await exportKardexToExcel(exportPreview.groups, exportPreview.filename, selected?.nombre ?? "")
@@ -636,6 +647,8 @@ function InventarioContent() {
     } catch (err) {
       console.error("[inventario] error exportando Excel:", err)
       setExportError("No se pudo generar el archivo Excel.")
+    } finally {
+      setExportingExcel(false)
     }
   }
 
@@ -1413,8 +1426,8 @@ function InventarioContent() {
             <Button variant="outline" size="sm" onClick={() => setExportPreview(null)}>
               Cancelar
             </Button>
-            <Button size="sm" onClick={handleDownloadExport} className="gap-1.5">
-              <Download className="h-3.5 w-3.5" />
+            <Button size="sm" onClick={handleDownloadExport} disabled={exportingExcel} className="gap-1.5">
+              {exportingExcel ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               Descargar Excel
             </Button>
           </DialogFooter>

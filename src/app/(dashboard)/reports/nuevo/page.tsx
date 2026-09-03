@@ -212,13 +212,17 @@ export default function NuevoReportPage() {
     // acá) — no bloquear el guardado de Recepción por no tenerla todavía.
     setError(null)
     setSaving(true)
+    // try/finally envolviendo todo: antes, una excepción real (no un error
+    // devuelto por Supabase, ej. un corte de red a mitad de los uploads)
+    // dejaba "saving" en true para siempre — botón pegado sin mensaje ni
+    // forma de reintentar salvo recargar la página.
+    try {
     const supabase = createClient()
 
     const { data: inserted, error: err } = await supabase
       .from("reports").insert(buildPayload()).select("id, numero").single()
 
     if (err) {
-      setSaving(false)
       setError(err.message)
       return
     }
@@ -304,7 +308,6 @@ export default function NuevoReportPage() {
     // La firma del conductor se captura al reabrir el report (es parte del
     // trabajo del operador) — nada que subir acá todavía.
     if (hdsFailed || evidenciaFailed) {
-      setSaving(false)
       return
     }
 
@@ -329,8 +332,13 @@ export default function NuevoReportPage() {
       usuario_nombre: profile?.nombre ?? user?.email,
     })
 
-    setSaving(false)
     router.push("/reports")
+    } catch (err) {
+      console.error("[reports/nuevo] error inesperado al guardar:", err)
+      setError("No se pudo conectar con el servidor. Intenta de nuevo.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (

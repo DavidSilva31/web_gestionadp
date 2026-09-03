@@ -714,14 +714,15 @@ function EnviarHesDialog({ clienteNombre, emails, onClose, onSend, onSent }: {
   clienteNombre: string
   emails: string[]
   onClose: () => void
-  onSend: (adjuntos: { resumen: boolean; detalle: boolean }) => Promise<{ success: boolean; error?: string; enviadoA?: string[] }>
-  onSent: (enviadoA: string[]) => void
+  onSend: (adjuntos: { resumen: boolean; detalle: boolean }) => Promise<{ success: boolean; error?: string; enviadoA?: string[]; folioWarning?: boolean }>
+  onSent: (enviadoA: string[], folioWarning?: boolean) => void
 }) {
   const [resumen, setResumen] = useState(true)
   const [detalle, setDetalle] = useState(true)
   const [sending, setSending] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
   const [sentTo,  setSentTo]  = useState<string[] | null>(null)
+  const [sentFolioWarning, setSentFolioWarning] = useState(false)
 
   async function handleSend() {
     setSending(true); setError(null)
@@ -729,7 +730,8 @@ function EnviarHesDialog({ clienteNombre, emails, onClose, onSend, onSent }: {
     setSending(false)
     if (res.success) {
       setSentTo(res.enviadoA ?? emails)
-      onSent(res.enviadoA ?? emails)
+      setSentFolioWarning(!!res.folioWarning)
+      onSent(res.enviadoA ?? emails, res.folioWarning)
     } else {
       setError(res.error ?? "No se pudo enviar el correo.")
     }
@@ -749,8 +751,11 @@ function EnviarHesDialog({ clienteNombre, emails, onClose, onSend, onSent }: {
 
         {sentTo ? (
           <div className="p-6 flex flex-col items-center gap-2 text-center">
-            <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+            {sentFolioWarning ? <AlertTriangle className="h-8 w-8 text-amber-500" /> : <CheckCircle2 className="h-8 w-8 text-emerald-500" />}
             <p className="text-[12px]">Correo enviado a {sentTo.join(", ")}.</p>
+            {sentFolioWarning && (
+              <p className="text-[11px] text-amber-600">El folio no se pudo asignar — este envío no quedó registrado en el sistema, reintenta más tarde.</p>
+            )}
           </div>
         ) : (
           <div className="p-5 space-y-3">
@@ -937,6 +942,7 @@ export default function HesPage() {
   const [serviciosOpen,    setServiciosOpen]    = useState(true)
   const [srvCantidades,    setSrvCantidades]    = useState<Record<string, number>>({})
   const [movs,             setMovs]             = useState<MovRaw[]>([])
+  const [movimientosError, setMovimientosError] = useState<string | null>(null)
   const [selectedMonth,    setSelectedMonth]    = useState(CURRENT_MONTH)
   const [selectedYear,     setSelectedYear]     = useState(CURRENT_YEAR)
   const [ufValue,          setUfValue]          = useState<string>("")
@@ -954,6 +960,7 @@ export default function HesPage() {
   // (ServiciosSection en el formulario de report) y todavía no están en el
   // catálogo del cliente — se ofrecen acá para ponerles tarifa recién ahora.
   const [pendingManuales,  setPendingManuales]  = useState<{ nombre: string; cantidad: number }[]>([])
+  const [pendingManualesError, setPendingManualesError] = useState<string | null>(null)
   const [manualPrefill,    setManualPrefill]    = useState<{ nombre: string; cantidad: number } | null>(null)
   const [loading,          setLoading]          = useState(false)
   const [tarifasLoading,   setTarifasLoading]   = useState(false)
@@ -961,11 +968,15 @@ export default function HesPage() {
   const ensureFolioPromiseRef = useRef<Promise<{ numero: number; id: string } | null> | null>(null)
   const [showPreview,      setShowPreview]      = useState(false)
   const [showSendDialog,   setShowSendDialog]   = useState(false)
-  const [toast,            setToast]            = useState<string | null>(null)
+  const [toast,            setToast]            = useState<{ text: string; variant: "success" | "warning" } | null>(null)
+  function showToast(text: string, variant: "success" | "warning" = "success") { setToast({ text, variant }) }
 
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(() => setToast(null), 3500)
+    // Las advertencias (ej. documento descargado sin folio asignado) se
+    // quedan más tiempo en pantalla — es información que importa leer, no
+    // solo una confirmación de "listo".
+    const t = setTimeout(() => setToast(null), toast.variant === "warning" ? 7000 : 3500)
     return () => clearTimeout(t)
   }, [toast])
   const [folioNumero,      setFolioNumero]      = useState<number | null>(null)
@@ -1194,6 +1205,7 @@ export default function HesPage() {
     if (!selectedId || !tarifa) { setMovs([]); return }
     setLoading(true)
     setMovs([])  // reset to prevent stale prior-client data during fetch
+    setMovimientosError(null)
     const supabase = createClient()
     // Use first instant of the day after the period's last day with .lt() to
     // include the entire last day (el período puede no coincidir con el mes
@@ -1212,7 +1224,16 @@ export default function HesPage() {
     query = tarifas.length > 1
       ? query.eq("tarifa_cliente_id", tarifa.id)
       : query.or(`tarifa_cliente_id.eq.${tarifa.id},tarifa_cliente_id.is.null`)
-    const { data } = await query.order("fecha")
+    const { data, error } = await query.order("fecha")
+    // Antes no chequeaba esto — una falla acá dejaba movs en [] y la
+    // pantalla se veía igual que "sin movimientos este mes" (un período
+    // real sin actividad), sin forma de distinguir un error de un mes vacío.
+    if (error) {
+      console.error("[hes] error cargando movimientos:", error)
+      setMovimientosError("No se pudieron cargar los movimientos de este período: " + error.message)
+      setLoading(false)
+      return
+    }
     setMovs((data as unknown as MovRaw[]) ?? [])
     setLoading(false)
   }, [selectedId, periodo, tarifa, tarifas.length])
@@ -1306,6 +1327,7 @@ export default function HesPage() {
   // por nombre que ya usa reports/[id]/page.tsx para resolver el cliente.
   const loadPendingManuales = useCallback(async () => {
     setPendingManuales([])
+    setPendingManualesError(null)
     if (!selectedId || !selectedCliente) return
     const supabase = createClient()
     const { data, error } = await supabase
@@ -1314,7 +1336,15 @@ export default function HesPage() {
       .eq("cliente", selectedCliente.nombre)
       .gte("fecha", periodo.start)
       .lte("fecha", periodo.end)
-    if (error) { console.error("[hes] error cargando servicios manuales pendientes:", error); return }
+    if (error) {
+      // Antes solo quedaba en consola — si fallaba, la lista de pendientes se
+      // veía igual que "no hay nada pendiente", y se podía generar/enviar el
+      // HES creyendo que todo estaba cubierto cuando en realidad no se pudo
+      // ni consultar.
+      console.error("[hes] error cargando servicios manuales pendientes:", error)
+      setPendingManualesError("No se pudieron cargar los servicios manuales pendientes de este período.")
+      return
+    }
     const counts = new Map<string, number>()
     for (const r of data ?? []) {
       for (const nombre of (r.servicios_manual as string[] | null) ?? []) {
@@ -1502,7 +1532,9 @@ export default function HesPage() {
       const json = await res.json()
       if (!res.ok) return { success: false, error: json.error ?? "No se pudo enviar el correo." }
       loadExistingFolios() // refresca para reflejar el enviado_a/enviado_at
-      return { success: true, enviadoA: json.enviadoA as string[] }
+      // Igual que en la descarga: si ensureFolio() falló arriba, el correo
+      // se manda igual pero sin folio persistido — avisar en vez de callar.
+      return { success: true, enviadoA: json.enviadoA as string[], folioWarning: !folio }
     } catch {
       return { success: false, error: "No se pudo enviar el correo." }
     }
@@ -1739,10 +1771,14 @@ export default function HesPage() {
   // una vez conocido el folio antes de disparar la descarga.
   async function handleDownloadFromPreview() {
     if (!selectedCliente) return
-    if (!(parseFloat(ufValue) > 0)) { setToast("Falta un valor de UF válido para generar el HES."); return }
+    if (!(parseFloat(ufValue) > 0)) { showToast("Falta un valor de UF válido para generar el HES.", "warning"); return }
     setExporting(true)
     try {
       const folio = await ensureFolio()
+      // Antes seguía descargando igual sin avisar — el documento salía con
+      // folio provisorio, nunca quedaba registrado en hes_folios, y el
+      // toast decía "descargado correctamente" como si nada hubiera pasado.
+      const folioWarning = !folio ? " (sin folio asignado — no quedó registrado, reintenta más tarde)" : ""
       const suffix = isUnificado ? "_UNIFICADO" : ""
       const filenameBase = `HES_${selectedCliente.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[selectedMonth].toUpperCase()}_${selectedYear}${suffix}`
       if (previewTab === "resumen") {
@@ -1750,14 +1786,14 @@ export default function HesPage() {
         if (!blob) return
         triggerBlobDownload(blob, `${filenameBase}_Resumen.pdf`)
         closePreview()
-        setToast("PDF descargado correctamente.")
+        showToast(`PDF descargado correctamente.${folioWarning}`, folio ? "success" : "warning")
         return
       }
       const blob = await generateDetalle(folio?.numero ?? null)
       if (!blob) return
       triggerBlobDownload(blob, `${filenameBase}.xlsx`)
       closePreview()
-      setToast("Excel descargado correctamente.")
+      showToast(`Excel descargado correctamente.${folioWarning}`, folio ? "success" : "warning")
     } finally {
       setExporting(false)
     }
@@ -1849,17 +1885,21 @@ export default function HesPage() {
           emails={selectedCliente.emails}
           onClose={() => setShowSendDialog(false)}
           onSend={handleSendEmail}
-          onSent={enviadoA => {
+          onSent={(enviadoA, folioWarning) => {
             closePreview()
-            setToast(`Correo enviado a ${enviadoA.join(", ")}.`)
+            const suffix = folioWarning ? " (sin folio asignado — no quedó registrado, reintenta más tarde)" : ""
+            showToast(`Correo enviado a ${enviadoA.join(", ")}.${suffix}`, folioWarning ? "warning" : "success")
           }}
         />
       )}
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-emerald-600 text-white text-[12px] px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-          {toast}
+        <div className={cn(
+          "fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] text-white text-[12px] px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 max-w-md",
+          toast.variant === "warning" ? "bg-amber-600" : "bg-emerald-600"
+        )}>
+          {toast.variant === "warning" ? <AlertTriangle className="h-4 w-4 flex-shrink-0" /> : <CheckCircle2 className="h-4 w-4 flex-shrink-0" />}
+          {toast.text}
         </div>
       )}
 
@@ -1998,7 +2038,7 @@ export default function HesPage() {
                       onClick={openPreview}
                       disabled={isUnificado
                         ? (unifiedLoading || unifiedResults.length === 0 || !(parseFloat(ufValue) > 0))
-                        : (exporting || resumenLoading || !tarifa || (!billing && transporteOps.length === 0) || !(parseFloat(ufValue) > 0))}
+                        : (exporting || resumenLoading || !tarifa || (!billing && transporteOps.length === 0) || !(parseFloat(ufValue) > 0) || !!movimientosError)}
                       className="h-8 sm:h-7 gap-1.5 text-[12px] sm:text-[11px] flex-1 sm:flex-initial justify-center
                         bg-emerald-600 hover:bg-emerald-700 text-white border-0
                         dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:text-white dark:border-0
@@ -2039,6 +2079,13 @@ export default function HesPage() {
                       <h1 className="text-lg font-bold mt-1">HES {selectedCliente.nombre.toUpperCase()} · Todas las tarifas ({tarifas.length})</h1>
                       <p className="text-sm text-muted-foreground mt-0.5">{MESES[selectedMonth]} {selectedYear}</p>
                     </div>
+
+                    {pendingManualesError && (
+                      <div className="px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] flex items-center justify-between gap-2">
+                        {pendingManualesError}
+                        <Button variant="ghost" size="sm" onClick={loadPendingManuales} className="h-6 text-[10px] px-2">Reintentar</Button>
+                      </div>
+                    )}
 
                     {/* ── Servicios manuales de reports sin tarifa aún ── */}
                     {pendingManuales.length > 0 && (
@@ -2158,6 +2205,13 @@ export default function HesPage() {
                         <div className="min-w-0"><p className="text-[10px] text-muted-foreground">Contacto</p><p className="text-[12px] font-medium truncate">{selectedCliente.contacto ?? "—"}</p></div>
                       </div>
                     </div>
+
+                    {pendingManualesError && (
+                      <div className="px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] flex items-center justify-between gap-2">
+                        {pendingManualesError}
+                        <Button variant="ghost" size="sm" onClick={loadPendingManuales} className="h-6 text-[10px] px-2">Reintentar</Button>
+                      </div>
+                    )}
 
                     {/* ── Servicios manuales de reports sin tarifa aún ── */}
                     {pendingManuales.length > 0 && (
@@ -2305,6 +2359,13 @@ export default function HesPage() {
                       <div className="px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] flex items-center justify-between gap-2">
                         {transporteError}
                         <Button variant="ghost" size="sm" onClick={loadTransporteOps} className="h-6 text-[10px] px-2">Reintentar</Button>
+                      </div>
+                    )}
+
+                    {movimientosError && (
+                      <div className="px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-[11px] flex items-center justify-between gap-2">
+                        {movimientosError}
+                        <Button variant="ghost" size="sm" onClick={loadMovimientos} className="h-6 text-[10px] px-2">Reintentar</Button>
                       </div>
                     )}
 

@@ -53,8 +53,16 @@ function fmtFecha(iso: string | null) {
 export async function GET() {
   try {
     const supabase = await createServerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+
+    // proxy.ts excluye /api/* del chequeo de activo — cada ruta lo hace sola.
+    const { data: callerProfile, error: profileErr } = await supabase.from("profiles").select("activo").eq("id", user.id).single()
+    if (profileErr) {
+      console.error("[instalaciones/export] error obteniendo perfil:", profileErr)
+      return NextResponse.json({ error: "No se pudo verificar el perfil." }, { status: 500 })
+    }
+    if (!callerProfile?.activo) return NextResponse.json({ error: "Cuenta desactivada" }, { status: 403 })
 
     const [{ data: instalaciones, error: e1 }, { data: items, error: e2 }] = await Promise.all([
       supabase.from("instalaciones_almacenamiento").select("*").eq("activo", true).order("orden").order("codigo"),

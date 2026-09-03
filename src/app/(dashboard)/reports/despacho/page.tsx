@@ -82,29 +82,31 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
     setDispatching(true)
     setUploading(true)
 
-    const ext  = sanitizeExt(file.name)
-    const path = `${report.numero}-${report.id}.${ext}`
-    const supabase = createClient()
+    try {
+      const ext  = sanitizeExt(file.name)
+      const path = `${report.numero}-${report.id}.${ext}`
+      const supabase = createClient()
 
-    const { error: uploadErr } = await supabase.storage
-      .from("reports-firmados")
-      .upload(path, file, { upsert: true })
+      const { error: uploadErr } = await supabase.storage
+        .from("reports-firmados")
+        .upload(path, file, { upsert: true })
 
-    setUploading(false)
+      setUploading(false)
 
-    if (uploadErr) {
-      setUploadError("Error al subir el archivo: " + uploadErr.message)
+      if (uploadErr) {
+        setUploadError("Error al subir el archivo: " + uploadErr.message)
+        return
+      }
+
+      const dispatchErr = await onDispatch(report.id, nombre, path)
+      if (dispatchErr) setUploadError(dispatchErr)
+    } catch (err) {
+      console.error("[reports/despacho] error inesperado al confirmar:", err)
+      setUploadError("No se pudo conectar con el servidor. Intenta de nuevo.")
+    } finally {
+      setUploading(false)
       setDispatching(false)
-      return
     }
-
-    const dispatchErr = await onDispatch(report.id, nombre, path)
-    if (dispatchErr) {
-      setUploadError(dispatchErr)
-      setDispatching(false)
-      return
-    }
-    setDispatching(false)
   }
 
   const mins = minutosEsperando(report.created_at)
@@ -324,61 +326,70 @@ export default function DespachoPage() {
   useEffect(() => { fetchAll() }, [fetchAll])
 
   async function handleDispatch(id: string, nombre: string, docPath: string): Promise<string | null> {
-    const supabase = createClient()
-    const now = new Date().toISOString()
-    const { error } = await supabase
-      .from("reports")
-      .update({
-        estado:                 "despachado",
-        nombre_despachador:     nombre,
-        fecha_despacho:         now,
-        dispatched_by:          user?.id ?? null,
-        documento_firmado_url:  docPath,
-      })
-      .eq("id", id)
+    // Sin try/catch acá, una excepción real (no un error devuelto por
+    // Supabase) dejaba el botón de "Confirmando..." pegado para siempre en
+    // ReportCard.handleConfirm, sin mensaje y sin forma de reintentar salvo
+    // recargar la página — bloqueando la salida física del camión.
+    try {
+      const supabase = createClient()
+      const now = new Date().toISOString()
+      const { error } = await supabase
+        .from("reports")
+        .update({
+          estado:                 "despachado",
+          nombre_despachador:     nombre,
+          fecha_despacho:         now,
+          dispatched_by:          user?.id ?? null,
+          documento_firmado_url:  docPath,
+        })
+        .eq("id", id)
 
-    if (error) return "Error al registrar el despacho: " + error.message
+      if (error) return "Error al registrar el despacho: " + error.message
 
-    const r = pending.find(x => x.id === id)
-    if (r) {
-      setDispatched(prev => [{
-        id:                 r.id,
-        numero:             r.numero,
-        cliente:            r.cliente,
-        patente:            r.patente,
-        conductor:          r.conductor,
-        fecha_despacho:     now,
-        nombre_despachador: nombre,
-      }, ...prev])
-    }
-    // fire-and-forget — siempre registrar aunque r no esté en memoria
-    logAudit({
-      tabla:          "reports",
-      registro_id:    id,
-      accion:         "report.despachar",
-      descripcion:    `Vehículo despachado${r ? ` — ${r.cliente} (${r.patente})` : ""} · doc: ${docPath}`,
-      usuario_id:     user?.id,
-      usuario_nombre: nombre,
-    })
-    // El stock recién se mueve acá (trigger reports_sync_inventario en la
-    // transición a 'despachado') — el log de auditoría de stock va en el
-    // mismo momento, no al crear/editar el report.
-    if (r?.sec3_activa && r.sec3_inventario_item_id && r.sec3_tipo) {
-      const delta     = Number(r.sec3_numero_pallets) || 0
-      const invAccion = r.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
-      const invDesc   = `Stock ${r.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${r.sec3_producto ?? ""}`
+      const r = pending.find(x => x.id === id)
+      if (r) {
+        setDispatched(prev => [{
+          id:                 r.id,
+          numero:             r.numero,
+          cliente:            r.cliente,
+          patente:            r.patente,
+          conductor:          r.conductor,
+          fecha_despacho:     now,
+          nombre_despachador: nombre,
+        }, ...prev])
+      }
+      // fire-and-forget — siempre registrar aunque r no esté en memoria
       logAudit({
-        tabla:          "inventario_items",
-        registro_id:    r.sec3_inventario_item_id,
-        accion:         invAccion,
-        descripcion:    `${invDesc} via Report #${r.numero}`,
+        tabla:          "reports",
+        registro_id:    id,
+        accion:         "report.despachar",
+        descripcion:    `Vehículo despachado${r ? ` — ${r.cliente} (${r.patente})` : ""} · doc: ${docPath}`,
         usuario_id:     user?.id,
         usuario_nombre: nombre,
       })
-      await syncPesoTon(supabase, r.sec3_inventario_item_id)
+      // El stock recién se mueve acá (trigger reports_sync_inventario en la
+      // transición a 'despachado') — el log de auditoría de stock va en el
+      // mismo momento, no al crear/editar el report.
+      if (r?.sec3_activa && r.sec3_inventario_item_id && r.sec3_tipo) {
+        const delta     = Number(r.sec3_numero_pallets) || 0
+        const invAccion = r.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
+        const invDesc   = `Stock ${r.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${r.sec3_producto ?? ""}`
+        logAudit({
+          tabla:          "inventario_items",
+          registro_id:    r.sec3_inventario_item_id,
+          accion:         invAccion,
+          descripcion:    `${invDesc} via Report #${r.numero}`,
+          usuario_id:     user?.id,
+          usuario_nombre: nombre,
+        })
+        await syncPesoTon(supabase, r.sec3_inventario_item_id)
+      }
+      setPending(prev => prev.filter(x => x.id !== id))
+      return null
+    } catch (err) {
+      console.error("[reports/despacho] error inesperado al despachar:", err)
+      return "No se pudo conectar con el servidor. Intenta de nuevo."
     }
-    setPending(prev => prev.filter(x => x.id !== id))
-    return null
   }
 
   const filtered = pending.filter(r => {

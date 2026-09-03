@@ -259,15 +259,18 @@ export default function ConfiguracionPage() {
         setPassMsg({ ok: false, text: error.message })
         return
       }
+      // La contraseña ya cambió en este punto (línea de arriba) — si lo que
+      // sigue falla, no hay que dar a entender que el cambio de contraseña
+      // en sí no funcionó, solo que quedó pendiente el aviso/desbloqueo.
+      setNewPass("")
+      setConfirmPass("")
       const flagRes  = await fetch("/api/auth/clear-password-flag", { method: "POST" })
       const flagJson = await flagRes.json()
       if (!flagRes.ok) {
-        setPassMsg({ ok: false, text: `Error al actualizar: ${flagJson.error ?? flagRes.status}` })
+        setPassMsg({ ok: false, text: `Tu contraseña se actualizó correctamente, pero no se pudo desbloquear el acceso (${flagJson.error ?? flagRes.status}). Recarga la página o contacta a soporte.` })
         return
       }
       setPassMsg({ ok: true, text: "Contraseña actualizada" })
-      setNewPass("")
-      setConfirmPass("")
     } catch (err) {
       console.error("[configuracion] error cambiando contraseña:", err)
       setPassMsg({ ok: false, text: "No se pudo conectar con el servidor." })
@@ -336,7 +339,11 @@ export default function ConfiguracionPage() {
         body:    JSON.stringify({ id: u.id, activo: !u.activo }),
       })
       if (res.ok) {
+        const json = await res.json()
         setUsers(prev => prev.map(x => x.id === u.id ? { ...x, activo: !u.activo } : x))
+        if (json.banWarning) {
+          setUsersError("El estado se cambió, pero no se pudo revocar la sesión en el sistema de autenticación — igual queda bloqueado en la app, pero avisa si el problema persiste.")
+        }
       } else {
         const json = await res.json()
         setUsersError(json.error ?? "Error al cambiar el estado del usuario.")

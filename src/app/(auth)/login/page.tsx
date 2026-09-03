@@ -39,6 +39,7 @@ function LoginForm() {
     setError(null)
     setLoading(true)
 
+    try {
     const supabase = createClient()
     const { data: { session }, error: authError } = await supabase.auth.signInWithPassword({ email, password })
 
@@ -81,6 +82,13 @@ function LoginForm() {
 
     // Mantener spinner durante la navegación — el componente se desmontará al llegar
     router.push(safePath ?? DEFAULT_ROUTE[role])
+    } catch (err) {
+      // Una excepción real (no un error devuelto por Supabase, ej. un corte
+      // de red) dejaba el botón "Ingresando..." pegado para siempre.
+      console.error("[login] error inesperado:", err)
+      setError("No se pudo conectar con el servidor. Intenta de nuevo.")
+      setLoading(false)
+    }
   }
 
   async function handleForgot(e: React.FormEvent) {

@@ -103,7 +103,13 @@ export async function loadTarifaData(
   movsQuery = tarifasCount > 1
     ? movsQuery.eq("tarifa_cliente_id", tarifaId)
     : movsQuery.or(`tarifa_cliente_id.eq.${tarifaId},tarifa_cliente_id.is.null`)
-  const { data: movsRaw } = await movsQuery.order("fecha")
+  // Antes no revisaba este error — una falla transitoria de la consulta
+  // hacía que movs quedara en [] en silencio, generando (y pudiendo
+  // descargar/enviar al cliente) un HES con 0 pallet-días y $0 de cobro en
+  // vez de fallar. Tirar acá deja que el try/catch de la ruta API
+  // (handleExport/handleSendEmail) responda 500 en vez de un documento mal.
+  const { data: movsRaw, error: movsErr } = await movsQuery.order("fecha")
+  if (movsErr) throw new Error(`No se pudieron obtener los movimientos: ${movsErr.message}`)
 
   const movs = (movsRaw ?? []) as unknown as MovRaw[]
   const tarifaAlmacenaje = tarifa.moneda === "CLP" ? (tarifa.tarifa_almacenaje_clp ?? 0) : (tarifa.tarifa_almacenaje_uf ?? 0)
@@ -119,7 +125,7 @@ export async function loadTarifaData(
 export async function loadTransporteOperaciones(
   supabase: SupabaseSrv, clienteId: string, period: { start: string; end: string }
 ): Promise<TransporteIncomex[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("transporte_incomex")
     .select("*")
     .eq("cliente_id", clienteId)
@@ -127,6 +133,9 @@ export async function loadTransporteOperaciones(
     .gte("fecha", period.start)
     .lte("fecha", period.end)
     .order("fecha")
+  // Igual que loadTarifaData: sin este chequeo, una falla acá borra en
+  // silencio los cargos de transporte del HES en vez de fallar la generación.
+  if (error) throw new Error(`No se pudieron obtener los viajes de transporte: ${error.message}`)
   return (data ?? []) as TransporteIncomex[]
 }
 

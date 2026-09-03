@@ -40,6 +40,14 @@ async function handleExport(req: NextRequest) {
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   if (userError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
 
+  // proxy.ts excluye /api/* del chequeo de activo — cada ruta lo hace sola.
+  const { data: callerProfile, error: profileErr } = await supabase.from("profiles").select("activo").eq("id", user.id).single()
+  if (profileErr) {
+    console.error("[hes/export] error obteniendo perfil:", profileErr)
+    return NextResponse.json({ error: "No se pudo verificar el perfil." }, { status: 500 })
+  }
+  if (!callerProfile?.activo) return NextResponse.json({ error: "Cuenta desactivada" }, { status: 403 })
+
   let body: ReqBody
   try {
     body = await req.json() as ReqBody
