@@ -772,7 +772,7 @@ export default function ReportDetailPage() {
                         set("transporte_tipo", v)
                         if (v === "propio") set("empresa_transporte", "")
                       }}
-                      options={[{ value: "propio", label: "Propio" }, { value: "externo", label: "Externo" }]}
+                      options={[{ value: "propio", label: "Transporte ADP" }, { value: "externo", label: "Transporte Cliente" }]}
                       readOnly={leftReadOnly}
                     />
                   </div>

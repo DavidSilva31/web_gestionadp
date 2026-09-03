@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { Truck, Plus, Search, Loader2, RefreshCw, Pencil } from "lucide-react"
+import Link from "next/link"
+import { Truck, Plus, Search, Loader2, RefreshCw, Pencil, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,7 +16,14 @@ const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto"
 function fmtUF(v: number | null) { return v == null ? "—" : v.toFixed(4) }
 function fmtFecha(iso: string) { return iso.split("-").reverse().join("/") }
 
+// Fila generada sola por el trigger de reports (transporte_tipo='propio')
+// trae el N° del report vía join — para mostrar de dónde salió.
+interface TransporteIncomexRow extends TransporteIncomex {
+  reports: { numero: number } | null
+}
+
 const EMPTY_FORM: TransporteIncomexInsert = {
+  report_id: null,
   cliente_id: null,
   empresa_texto: "",
   fecha: new Date().toISOString().slice(0, 10),
@@ -36,7 +44,7 @@ const EMPTY_FORM: TransporteIncomexInsert = {
 }
 
 export default function TransporteIncomexPage() {
-  const [ops,           setOps]           = useState<TransporteIncomex[]>([])
+  const [ops,           setOps]           = useState<TransporteIncomexRow[]>([])
   const [clientes,      setClientes]      = useState<Cliente[]>([])
   const [loading,       setLoading]       = useState(true)
   const currentYear = new Date().getFullYear()
@@ -55,13 +63,13 @@ export default function TransporteIncomexPage() {
     const supabase = createClient()
     const { data, error: err } = await supabase
       .from("transporte_incomex")
-      .select("*")
+      .select("*, reports(numero)")
       .eq("activo", true)
       .gte("fecha", `${yearFilter}-01-01`)
       .lt("fecha",  `${yearFilter + 1}-01-01`)
       .order("fecha", { ascending: false })
     if (err) { setFetchError(err.message); setLoading(false); return }
-    if (data) setOps(data as TransporteIncomex[])
+    if (data) setOps(data as unknown as TransporteIncomexRow[])
     setLoading(false)
   }, [yearFilter])
 
@@ -83,6 +91,7 @@ export default function TransporteIncomexPage() {
 
   function openEdit(op: TransporteIncomex) {
     setForm({
+      report_id: op.report_id,
       cliente_id: op.cliente_id, empresa_texto: op.empresa_texto, fecha: op.fecha,
       guia_numero: op.guia_numero, tipo_movimiento: op.tipo_movimiento, origen_destino: op.origen_destino,
       detalle_carga: op.detalle_carga, sigla_contenedor: op.sigla_contenedor,
@@ -197,7 +206,19 @@ export default function TransporteIncomexPage() {
                   ) : filtered.map((o, idx) => (
                     <tr key={o.id} className={idx % 2 !== 0 ? "bg-muted/10 border-b last:border-0" : "border-b last:border-0"}>
                       <td className="px-4 py-2.5 text-xs">{fmtFecha(o.fecha)}</td>
-                      <td className="px-4 py-2.5 text-xs font-medium">{o.empresa_texto}</td>
+                      <td className="px-4 py-2.5 text-xs font-medium">
+                        {o.empresa_texto}
+                        {o.reports && (
+                          <Link
+                            href={`/reports/${o.report_id}`}
+                            onClick={e => e.stopPropagation()}
+                            className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-normal text-muted-foreground hover:text-primary"
+                            title="Generado automáticamente desde este report"
+                          >
+                            <FileText className="h-3 w-3" /> #{o.reports.numero}
+                          </Link>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 text-xs text-muted-foreground">{o.tipo_movimiento ?? "—"}</td>
                       <td className="hidden md:table-cell px-4 py-2.5 text-xs">{o.transportista ?? "—"}</td>
                       <td className="hidden lg:table-cell px-4 py-2.5 text-xs font-mono text-muted-foreground">{o.guia_numero ?? "—"}</td>

@@ -10,10 +10,12 @@
 --   select count(*) from movimientos;
 --   select count(*) from tarifas_cliente;
 --   select count(*) from hes_folios;
+--   select count(*) from transporte_incomex;
 
-ALTER SEQUENCE report_number_seq  RESTART WITH 1;
-ALTER SEQUENCE cliente_number_seq RESTART WITH 1;
-ALTER SEQUENCE inventario_seq     RESTART WITH 1;
-ALTER SEQUENCE movimiento_seq     RESTART WITH 1;
-ALTER SEQUENCE cotizacion_seq     RESTART WITH 1;
-ALTER SEQUENCE hes_folio_seq      RESTART WITH 1;
+ALTER SEQUENCE report_number_seq        RESTART WITH 1;
+ALTER SEQUENCE cliente_number_seq       RESTART WITH 1;
+ALTER SEQUENCE inventario_seq           RESTART WITH 1;
+ALTER SEQUENCE movimiento_seq           RESTART WITH 1;
+ALTER SEQUENCE cotizacion_seq           RESTART WITH 1;
+ALTER SEQUENCE hes_folio_seq            RESTART WITH 1;
+ALTER SEQUENCE transporte_incomex_seq   RESTART WITH 1;

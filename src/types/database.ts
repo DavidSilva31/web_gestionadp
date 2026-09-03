@@ -208,6 +208,10 @@ export type MovimientoInsert = Omit<Movimiento, 'id' | 'numero' | 'created_at' |
 export interface TransporteIncomex {
   id:                     string
   numero:                 number
+  // Set solo si la fila la generó automáticamente el trigger de reports
+  // (transporte_tipo='propio', "Transporte ADP") — null si se creó a mano
+  // desde /transporte-incomex.
+  report_id:              string | null
   cliente_id:             string | null
   empresa_texto:          string
   fecha:                  string
