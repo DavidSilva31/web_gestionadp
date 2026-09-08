@@ -17,6 +17,7 @@ import { AVATAR_ICONS, AVATAR_ICON_KEYS } from "@/lib/avatar-icons"
 import { ACCENT_COLORS, ACCENT_COLOR_KEYS } from "@/lib/accent-colors"
 import { ROLE_LABELS } from "@/types/auth"
 import { cn } from "@/lib/utils"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { UserRole } from "@/types/auth"
 
 type Tab = "perfil" | "usuarios"
@@ -56,7 +57,7 @@ const MODULE_OPTIONS = [
   { href: "/reports",             label: "Reports",            group: "Servicio almacenamiento" },
   { href: "/reports/despacho",    label: "Despacho",           group: "Servicio almacenamiento" },
   { href: "/transporte",          label: "Transporte",         group: "Servicio almacenamiento" },
-  { href: "/transporte-incomex",  label: "Transporte Incomex", group: "Servicio almacenamiento" },
+  { href: "/transporte-incomex",  label: "Transporte ADP", group: "Servicio almacenamiento" },
   { href: "/auditoria",           label: "Auditoría",          group: "Administración"          },
 ]
 
@@ -305,6 +306,10 @@ export default function ConfiguracionPage() {
   /* ── Editar permisos ── */
   const [permisosUser,   setPermisosUser]   = useState<ProfileRow | null>(null)
   const [editPermisos,   setEditPermisos]   = useState<string[]>([])
+
+  useCloseOnBack(createOpen, () => { setCreateOpen(false); setInvitedEmail(null); setCreateMsg(null) })
+  useCloseOnBack(!!deleteTarget, () => setDeleteTarget(null))
+  useCloseOnBack(!!permisosUser, () => setPermisosUser(null))
   const [savingPermisos, setSavingPermisos] = useState(false)
   const [permisosMsg,    setPermisosMsg]    = useState<{ ok: boolean; text: string } | null>(null)
 

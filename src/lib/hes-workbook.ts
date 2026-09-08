@@ -575,7 +575,7 @@ function addTarifaSheet(
     const r = ws.addRow([])
     r.height = 14
     spacerA(r)
-    r.getCell("B").value = "Transporte Incomex (ver hoja Transporte)"
+    r.getCell("B").value = "Transporte ADP (ver hoja Transporte)"
     r.getCell("F").value = transporteTotalUF
     r.getCell("G").value = transporteTotalCLP
     st(r.getCell("B"), { size: 9, wrap: true })

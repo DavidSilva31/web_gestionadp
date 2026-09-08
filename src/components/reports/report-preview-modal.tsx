@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Download, X, Loader2, FileText } from "lucide-react"
 import { createClient } from "@/lib/supabase"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { Report } from "@/types/database"
 
 interface Props {
@@ -18,6 +19,12 @@ export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
   const [error,         setError]        = useState(false)
   const [downloading,   setDownloading]  = useState(false)
   const [downloadError, setDownloadError] = useState(false)
+
+  // Este componente solo existe montado mientras el modal está abierto (el
+  // padre lo desmonta al cerrar) — así que "open" es simplemente "true"
+  // mientras exista, y el back del navegador lo cierra en vez de salir del
+  // módulo.
+  useCloseOnBack(true, onClose)
 
   async function handleDownloadClick() {
     setDownloading(true)

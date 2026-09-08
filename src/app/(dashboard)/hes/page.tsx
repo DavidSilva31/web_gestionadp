@@ -6,6 +6,7 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import { logAudit } from "@/lib/audit"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -196,6 +197,7 @@ function TarifaDialog({
   onSaved: (t: TarifaCliente) => void
 }) {
   const { user, profile } = useAuth()
+  useCloseOnBack(true, onClose)
   const [saving,    setSaving]    = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<TarifaClienteInsert>>({
@@ -386,6 +388,7 @@ function ServicioDialog({
   onDeleted?: (id: string) => void
 }) {
   const { user, profile } = useAuth()
+  useCloseOnBack(true, onClose)
   const [saving,    setSaving]    = useState(false)
   const [deleting,  setDeleting]  = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -571,6 +574,8 @@ function PreviewDialog({
     ? (!resumenLoading && !!resumenUrl)
     : (!loading && !!activeSheet)
 
+  useCloseOnBack(true, onClose)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="bg-background rounded-xl border border-border/60 shadow-xl w-[95vw] max-w-6xl h-[88vh] flex flex-col">
@@ -724,6 +729,7 @@ function EnviarHesDialog({ clienteNombre, emails, onClose, onSend, onSent }: {
   const [error,   setError]   = useState<string | null>(null)
   const [sentTo,  setSentTo]  = useState<string[] | null>(null)
   const [sentFolioWarning, setSentFolioWarning] = useState(false)
+  useCloseOnBack(true, onClose)
 
   async function handleSend() {
     setSending(true); setError(null)
@@ -904,7 +910,7 @@ function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transpo
       {transporteOps.length > 0 && (
         <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border/30 bg-muted/20 flex items-center justify-between">
-            <span className="text-[12px] font-semibold">Transporte (Incomex)</span>
+            <span className="text-[12px] font-semibold">Transporte (ADP)</span>
             <span className="text-[11px] text-muted-foreground">{transporteOps.length} viajes</span>
           </div>
           <table className="w-full text-[12px]">
@@ -1063,10 +1069,18 @@ export default function HesPage() {
     const [y, m, d] = ufDate.split("-")
     const mindicadorUrl = `https://mindicador.cl/api/uf/${d}-${m}-${y}`
 
+    // El componente puede desmontarse (o este efecto reiniciarse) mientras un
+    // fetch sigue en curso — el cleanup de abajo cancela ese fetch a propósito.
+    // Esa cancelación no es un error real: se detecta acá para no loguearla
+    // como falla ni pasar a los respaldos (mindicador -> reintento -> gael.cloud).
+    function isAbort(err: unknown): boolean {
+      return err instanceof DOMException && err.name === "AbortError"
+    }
+
     async function fetchFromMindicador(): Promise<number> {
       const controller = new AbortController()
       activeController = controller
-      const timeout = setTimeout(() => controller.abort(), 8000)
+      const timeout = setTimeout(() => controller.abort(new DOMException("timeout", "AbortError")), 8000)
       try {
         const r = await fetch(mindicadorUrl, { signal: controller.signal })
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -1082,7 +1096,7 @@ export default function HesPage() {
     async function fetchFromGaelCloud(): Promise<number> {
       const controller = new AbortController()
       activeController = controller
-      const timeout = setTimeout(() => controller.abort(), 8000)
+      const timeout = setTimeout(() => controller.abort(new DOMException("timeout", "AbortError")), 8000)
       try {
         const r = await fetch("https://api.gael.cloud/general/public/monedas", { signal: controller.signal })
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -1117,8 +1131,8 @@ export default function HesPage() {
           setUfValue(val.toFixed(2))
           cacheValue(val)
           return
-        } catch {
-          if (cancelled) return
+        } catch (err) {
+          if (cancelled || isAbort(err)) return
           await new Promise(res => setTimeout(res, 1500))
           if (cancelled) return
           try {
@@ -1127,8 +1141,9 @@ export default function HesPage() {
             setUfValue(val.toFixed(2))
             cacheValue(val)
             return
-          } catch (err) {
-            console.error("[hes] error obteniendo UF de mindicador.cl:", err)
+          } catch (err2) {
+            if (cancelled || isAbort(err2)) return
+            console.error("[hes] error obteniendo UF de mindicador.cl:", err2)
           }
         }
 
@@ -1140,6 +1155,7 @@ export default function HesPage() {
             cacheValue(val)
             return
           } catch (err) {
+            if (cancelled || isAbort(err)) return
             console.error("[hes] error obteniendo UF de gael.cloud:", err)
           }
         }
@@ -1150,9 +1166,11 @@ export default function HesPage() {
       }
     }
 
-    run()
+    run().catch(err => {
+      if (!isAbort(err)) console.error("[hes] error inesperado obteniendo UF:", err)
+    })
 
-    return () => { cancelled = true; activeController?.abort() }
+    return () => { cancelled = true; activeController?.abort(new DOMException("cleanup", "AbortError")) }
   }, [ufDate, ufRetryTick])
 
   function openUfDatePicker() {
@@ -2506,7 +2524,7 @@ export default function HesPage() {
                     {!billing && transporteOps.length > 0 && (
                       <div className="bg-background rounded-xl border border-border/40 shadow-sm overflow-hidden">
                         <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/30 bg-muted/20">
-                          <span className="text-[12px] font-semibold">Transporte (Incomex) — {MESES[selectedMonth]} {selectedYear}</span>
+                          <span className="text-[12px] font-semibold">Transporte (ADP) — {MESES[selectedMonth]} {selectedYear}</span>
                           <span className="text-[11px] text-muted-foreground">{transporteOps.length} viajes</span>
                         </div>
                         <table className="w-full text-[12px]">

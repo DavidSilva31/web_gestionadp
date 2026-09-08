@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { Cliente, ClienteInsert } from "@/types/database"
 
 const SECTORES = ["Marítimo", "Importación", "Industrial", "Minería", "Industria química", "Logística", "Otro"]
@@ -52,6 +53,8 @@ export default function ClientesPage() {
   // Dialog: null = cerrado, "new" = nuevo, Cliente = editar
   const [dialog,     setDialog]     = useState<null | "new" | Cliente>(null)
   const [form,       setForm]       = useState<ClienteInsert>(EMPTY)
+
+  useCloseOnBack(dialog !== null, () => setDialog(null))
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)

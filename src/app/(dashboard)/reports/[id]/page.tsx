@@ -27,6 +27,7 @@ import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
 import { ClienteCombobox, ProductoCombobox, FirmaCanvas, type InventarioItemOption, type ServicioSeleccionado, type TarifaOption } from "@/components/reports/report-form-widgets"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 
 interface FormData extends ReportFormData {
   cliente_id:              string
@@ -181,6 +182,9 @@ export default function ReportDetailPage() {
   const [showPreview,   setShowPreview]   = useState(false)
   const [previewReport, setPreviewReport] = useState<import("@/types/database").Report | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+
+  useCloseOnBack(confirmDelete, () => setConfirmDelete(false))
+  useCloseOnBack(previewFile !== null, () => setPreviewFile(null))
 
   // El formulario ya no se bloquea todo junto: Recepción llena Antecedentes +
   // Sección 1 mientras es "borrador"; al guardar pasa a "pendiente_operaciones"

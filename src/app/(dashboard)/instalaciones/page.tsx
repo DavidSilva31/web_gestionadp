@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { InstalacionAlmacenamiento, InstalacionAlmacenamientoInsert, InstalacionSustancia } from "@/types/database"
 
 interface SustanciaRow { id?: string; sustancia: string; clase_imo: string }
@@ -57,6 +58,10 @@ export default function InstalacionesPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const [viewDetail, setViewDetail] = useState<InstalacionAlmacenamiento | null>(null)
+
+  useCloseOnBack(dialog !== null, () => setDialog(null))
+  useCloseOnBack(viewDetail !== null, () => setViewDetail(null))
+  useCloseOnBack(deleting !== null, () => { setDeleting(null); setDeleteError(null) })
 
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)

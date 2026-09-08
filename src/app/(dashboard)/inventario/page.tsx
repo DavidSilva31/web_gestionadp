@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase"
 import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
 import { resolveEffectiveClienteId } from "@/lib/inventario"
 import { cn } from "@/lib/utils"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import type {
@@ -225,6 +226,10 @@ function InventarioContent() {
   const [kardexMovs,   setKardexMovs]   = useState<Record<string, (Movimiento & { reports: { numero: number } | null })[]>>({})
   const [loadingKardex, setLoadingKardex] = useState(false)
   const [kardexError,  setKardexError]  = useState<string | null>(null)
+
+  useCloseOnBack(dialog !== null, () => setDialog(null))
+  useCloseOnBack(exportPreview !== null, () => { setExportPreview(null); setExportError(null) })
+  useCloseOnBack(deleting !== null, () => { setDeleting(null); setError(null) })
   // Bloqueo de edición del Detalle: las celdas solo se pueden tocar tras
   // presionar "Editar" — capa extra para que ningún valor cambie sin querer.
   // Al confirmar un primer cambio el botón pasa a "Confirmar" para forzar un

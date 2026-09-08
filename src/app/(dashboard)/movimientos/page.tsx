@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase"
 import { exportToExcel } from "@/lib/excel"
 import { syncPesoTon, resolveEffectiveClienteId } from "@/lib/inventario"
 import { cn } from "@/lib/utils"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type {
   Movimiento, MovimientoInsert, MovimientoTipo, MovimientoServicio,
   Cliente, InventarioItem, InventarioArea, TipoEnvase, TarifaCliente,
@@ -104,6 +105,9 @@ export default function MovimientosPage() {
   const [exportPreview, setExportPreview] = useState<{ rows: Record<string, string | number>[]; filename: string } | null>(null)
   const [exportError,   setExportError]   = useState<string | null>(null)
   const [exportingExcel, setExportingExcel] = useState(false)
+
+  useCloseOnBack(dialog !== null, () => setDialog(null))
+  useCloseOnBack(exportPreview !== null, () => { setExportPreview(null); setExportError(null) })
   const [manifiestoOpen, setManifiestoOpen] = useState(false)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────

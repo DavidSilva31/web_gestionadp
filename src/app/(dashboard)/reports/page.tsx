@@ -18,6 +18,7 @@ import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 
 type Tab = "todos" | ReportEstado
 
@@ -96,6 +97,8 @@ export default function ReportsPage() {
   }, [])
 
   useEffect(() => { fetchReports() }, [fetchReports])
+
+  useCloseOnBack(dispatchFor !== null, () => closeDispatchModal())
 
   function closeDispatchModal() {
     setDispatchFor(null)

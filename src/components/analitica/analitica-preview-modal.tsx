@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Download, X, Loader2, FileText } from "lucide-react"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { AnaliticaPDFData } from "@/components/analitica/analitica-pdf"
 
 interface Props {
@@ -15,6 +16,8 @@ export function AnaliticaPreviewModal({ data, onClose, onDownload }: Props) {
   const [url,     setUrl]     = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(false)
+
+  useCloseOnBack(true, onClose)
 
   useEffect(() => {
     let objectUrl: string

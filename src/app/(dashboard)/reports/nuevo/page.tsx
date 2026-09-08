@@ -15,6 +15,7 @@ import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
 import { ClienteCombobox, ProductoCombobox } from "@/components/reports/report-form-widgets"
+import { useCloseOnBack } from "@/hooks/use-close-on-back"
 
 interface FormData extends ReportFormData {
   cliente_id:              string
@@ -49,6 +50,8 @@ export default function NuevoReportPage() {
   const [dragOver,    setDragOver]    = useState(false)
   const [previewFile, setPreviewFile] = useState<File | null>(null)
   const hdsFileRef = useRef<HTMLInputElement>(null)
+
+  useCloseOnBack(previewFile !== null, () => setPreviewFile(null))
 
   // Evidencia fotográfica de consolidado/desconsolidado — mismo patrón que
   // los archivos HDS (se suben recién después de crear el report, porque

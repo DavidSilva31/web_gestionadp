@@ -117,7 +117,7 @@ function ServiceForm({
                 onChange={() => setForm(prev => ({ ...prev, categoria: c }))}
                 className="h-3 w-3 accent-primary"
               />
-              {c === "transporte" ? "Transporte (aparece en Transporte Incomex)" : "Otro (aparece en Servicios Adicionales)"}
+              {c === "transporte" ? "Transporte (aparece en Transporte ADP)" : "Otro (aparece en Servicios Adicionales)"}
             </label>
           ))}
         </div>
