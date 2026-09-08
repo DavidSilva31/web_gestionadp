@@ -914,6 +914,13 @@ function UnifiedResumenCards({ results, serviciosBilling, transporteOps, transpo
             <span className="text-[11px] text-muted-foreground">{transporteOps.length} viajes</span>
           </div>
           <table className="w-full text-[12px]">
+            <thead>
+              <tr className="border-b border-border/20">
+                <th className="px-4 py-1 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide"></th>
+                <th className="text-right px-3 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Orden de despacho</th>
+                <th className="text-right px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide"></th>
+              </tr>
+            </thead>
             <tbody>
               {transporteOps.map(op => (
                 <tr key={op.id} className="border-b border-border/20">
@@ -2528,6 +2535,13 @@ export default function HesPage() {
                           <span className="text-[11px] text-muted-foreground">{transporteOps.length} viajes</span>
                         </div>
                         <table className="w-full text-[12px]">
+                          <thead>
+                            <tr className="border-b border-border/20">
+                              <th className="px-4 py-1 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wide"></th>
+                              <th className="text-right px-3 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Orden de despacho</th>
+                              <th className="text-right px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide"></th>
+                            </tr>
+                          </thead>
                           <tbody>
                             {transporteOps.map(op => (
                               <tr key={op.id} className="border-b border-border/20">
