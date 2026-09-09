@@ -14,7 +14,7 @@ import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
-import { ClienteCombobox, ProductoCombobox } from "@/components/reports/report-form-widgets"
+import { ClienteCombobox, ProductoCombobox, ServiciosSection, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 
 interface FormData extends ReportFormData {
@@ -50,6 +50,26 @@ export default function NuevoReportPage() {
   const [dragOver,    setDragOver]    = useState(false)
   const [previewFile, setPreviewFile] = useState<File | null>(null)
   const hdsFileRef = useRef<HTMLInputElement>(null)
+
+  // Servicios del catálogo del cliente elegidos ya al ingresar el report —
+  // se muestran arriba de "Servicio Adicional" en Bodegaje (serviciosNode).
+  const [servicioSeleccion, setServicioSeleccion] = useState<ServicioSeleccionado[]>([])
+  const [serviciosManual, setServiciosManual] = useState<string[]>([])
+
+  function toggleServicio(id: string) {
+    setServicioSeleccion(prev =>
+      prev.some(s => s.id === id) ? prev.filter(s => s.id !== id) : [...prev, { id, cantidad: 1 }]
+    )
+  }
+  function cambiarCantidadServicio(id: string, cantidad: number) {
+    setServicioSeleccion(prev => prev.map(s => s.id === id ? { ...s, cantidad } : s))
+  }
+  function agregarServicioManual(nombre: string) {
+    setServiciosManual(prev => [...prev, nombre])
+  }
+  function quitarServicioManual(index: number) {
+    setServiciosManual(prev => prev.filter((_, i) => i !== index))
+  }
 
   useCloseOnBack(previewFile !== null, () => setPreviewFile(null))
 
@@ -202,10 +222,13 @@ export default function NuevoReportPage() {
       sec3_servicio_adicional: form.sec3_servicio_adicional,
       nombre_operador:     form.nombre_operador    || null,
       created_by:          user?.id ?? null,
-      // Servicios asociados y firma del conductor se completan al reabrir el
-      // report (son parte del trabajo del operador) — acá siempre van vacíos.
-      servicios_ids:       [],
-      servicios_manual:    [],
+      // Firma del conductor se completa al reabrir el report — Servicios
+      // asociados en cambio ya se puede elegir acá mismo (Recepción a veces
+      // ya sabe qué servicio adicional pidió el cliente al ingresar).
+      // servicios_ids repite el id tantas veces como la cantidad elegida —
+      // el HES cuenta esas repeticiones.
+      servicios_ids:       servicioSeleccion.flatMap(s => Array(s.cantidad).fill(s.id)),
+      servicios_manual:    serviciosManual,
     }
   }
 
@@ -396,6 +419,7 @@ export default function NuevoReportPage() {
                         sec3_clase_imo: "",
                         sec3_nu: "",
                       }))
+                      setServicioSeleccion([])
                     }}
                   />
                 </Field>
@@ -625,13 +649,24 @@ export default function NuevoReportPage() {
                     )}
                   </>
                 }
+                serviciosNode={
+                  <ServiciosSection
+                    clienteId={form.cliente_id}
+                    selected={servicioSeleccion}
+                    onToggle={toggleServicio}
+                    onCantidadChange={cambiarCantidadServicio}
+                    manual={serviciosManual}
+                    onAddManual={agregarServicioManual}
+                    onRemoveManual={quitarServicioManual}
+                  />
+                }
               />
             </div>
             </div>
           </div>
-          {/* Servicios asociados, Firma del conductor y Nombre operador de
-              carga no se muestran acá — son parte del trabajo del operador
-              (Operaciones), se completan al reabrir el report ya ingresado. */}
+          {/* Firma del conductor y Nombre operador de carga no se muestran
+              acá — son parte del trabajo de Operaciones, se completan al
+              reabrir el report ya ingresado. */}
         </div>
       </div>
 
