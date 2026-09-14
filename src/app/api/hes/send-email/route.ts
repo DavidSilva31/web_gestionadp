@@ -9,6 +9,7 @@ import {
 import { renderResumenPdfBuffer, renderResumenUnificadoPdfBuffer } from "@/lib/hes-pdf-server"
 import { logAuditServer } from "@/lib/audit"
 import { wrapBrandedEmail, emailColors } from "@/lib/email-brand"
+import { escapeHtml } from "@/lib/sanitize"
 
 interface ReqBody {
   clienteId:  string
@@ -62,7 +63,7 @@ async function handleSendEmail(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Cuerpo de la solicitud inválido." }, { status: 400 })
   }
-  const { clienteId, tarifaId, tarifaIds, mes, anio, ufValue, ufDate, servicioSeleccion = {}, adjuntos, destinatarios, periodStart, periodEnd, folioNumero, folioId } = body
+  const { clienteId, tarifaId, tarifaIds, mes, anio, ufValue, ufDate, servicioSeleccion = {}, adjuntos, destinatarios, periodStart, periodEnd, folioId } = body
 
   if (!clienteId || (!tarifaId && !tarifaIds?.length))
     return NextResponse.json({ error: "Cliente o tarifa no especificados" }, { status: 400 })
@@ -96,6 +97,28 @@ async function handleSendEmail(req: NextRequest) {
   const ufNum  = parseFloat(ufValue)
   const ufSafe = Number.isFinite(ufNum) && ufNum > 0 ? ufNum : 0
 
+  // El folioNumero que llega del body es solo lo que /api/hes/folio le
+  // devolvió al cliente al abrir la vista previa — no una fuente de verdad.
+  // Sin este chequeo, cualquier operador podía pedir el envío con un
+  // folioNumero arbitrario o repetido, rompiendo la garantía de correlativo
+  // único en un documento financiero real. Se resuelve siempre desde BD por
+  // folioId, y se verifica que ese folio sea del mismo cliente.
+  let verifiedFolioNumero: number | null = null
+  if (folioId) {
+    const { data: folioRow, error: folioErr } = await supabase
+      .from("hes_folios")
+      .select("numero, cliente_id")
+      .eq("id", folioId)
+      .single()
+    if (folioErr || !folioRow) {
+      return NextResponse.json({ error: "El folio indicado no existe." }, { status: 400 })
+    }
+    if (folioRow.cliente_id !== clienteId) {
+      return NextResponse.json({ error: "El folio indicado no corresponde a este cliente." }, { status: 400 })
+    }
+    verifiedFolioNumero = folioRow.numero
+  }
+
   const built = await buildHesData(supabase, clienteId, { tarifaId, tarifaIds }, period, ufSafe, servicioSeleccion)
   if (!built.ok)
     return NextResponse.json({ error: built.error }, { status: built.status })
@@ -104,7 +127,7 @@ async function handleSendEmail(req: NextRequest) {
   const attachments: { filename: string; content: Buffer }[] = []
 
   if (adjuntos.detalle) {
-    const wb = buildWorkbook(cliente, mes, anio, period, ufSafe, built, servicioSeleccion, folioNumero)
+    const wb = buildWorkbook(cliente, mes, anio, period, ufSafe, built, servicioSeleccion, verifiedFolioNumero)
     attachments.push({ filename: excelFilename(cliente.nombre, mes, anio), content: await excelBuffer(wb) })
   }
 
@@ -125,13 +148,13 @@ async function handleSendEmail(req: NextRequest) {
       }
       const totalUF  = built.results.reduce((s, r) => s + r.billing.finalUF, 0) + built.srvBilling.finalUF
       const totalCLP = built.results.reduce((s, r) => s + r.billing.finalCLP, 0) + built.srvBilling.finalCLP
-      pdfBuffer = await renderResumenUnificadoPdfBuffer({ cliente: clienteData, filas, totalUF, totalCLP, mes, anio, ufValue, ufDate, folioNumero })
+      pdfBuffer = await renderResumenUnificadoPdfBuffer({ cliente: clienteData, filas, totalUF, totalCLP, mes, anio, ufValue, ufDate, folioNumero: verifiedFolioNumero })
     } else {
       const r = built.results[0]
       pdfBuffer = await renderResumenPdfBuffer({
         cliente: clienteData,
         tarifa: { cotizacion_numero: r.tarifa.cotizacion_numero, clase_imo: r.tarifa.clase_imo },
-        billing: r.billing, mes, anio, ufValue, ufDate, folioNumero,
+        billing: r.billing, mes, anio, ufValue, ufDate, folioNumero: verifiedFolioNumero,
       })
     }
     attachments.push({ filename: `HES_${cliente.nombre.replace(/[^a-zA-Z0-9]/g, "_")}_${MESES[mes]}_${anio}_Resumen.pdf`, content: pdfBuffer })
@@ -141,7 +164,11 @@ async function handleSendEmail(req: NextRequest) {
   const periodoLabel = `${MESES[mes]} ${anio}`
   const fromAddress = process.env.RESEND_FROM_EMAIL || "HES Altos del Puerto <onboarding@resend.dev>"
 
-  const saludo = cliente.contacto_comercial_nombre ?? cliente.contacto ?? "cliente"
+  // Texto libre editable por cualquier operador en /clientes — sin escapar
+  // acá, un <a>/<img onerror=...> guardado en "nombre"/"contacto" salía
+  // crudo en un correo real al cliente externo (phishing con marca de ADP).
+  const saludo = escapeHtml(cliente.contacto_comercial_nombre ?? cliente.contacto ?? "cliente")
+  const clienteNombreSafe = escapeHtml(cliente.nombre)
   const bodyHtml = `
     <h1 style="margin:0 0 6px;font-size:20px;color:${emailColors.text};">Hoja de Estado de Servicio</h1>
     <p style="margin:0 0 20px;font-size:14px;color:${emailColors.muted};line-height:1.6;">Estimado(a) ${saludo}, adjuntamos la Hoja de Estado de Servicio (HES) correspondiente al período indicado abajo.</p>
@@ -149,7 +176,7 @@ async function handleSendEmail(req: NextRequest) {
       <tr>
         <td style="padding:14px 18px;background:${emailColors.celesteLight};border:1px solid ${emailColors.celeste};border-radius:8px;">
           <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Cliente</p>
-          <p style="margin:0 0 12px;font-size:14px;color:${emailColors.text};">${cliente.nombre}</p>
+          <p style="margin:0 0 12px;font-size:14px;color:${emailColors.text};">${clienteNombreSafe}</p>
           <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Período</p>
           <p style="margin:0;font-size:14px;color:${emailColors.text};">${periodoLabel}</p>
         </td>
@@ -184,7 +211,7 @@ async function handleSendEmail(req: NextRequest) {
     tabla:          "hes_folios",
     registro_id:    folioId ?? clienteId,
     accion:         "hes.enviar",
-    descripcion:    `HES${folioNumero != null ? ` N° HES-${String(folioNumero).padStart(6, "0")}` : ""} enviado por correo a ${destino.join(", ")} — ${cliente.nombre} — ${periodoLabel}`,
+    descripcion:    `HES${verifiedFolioNumero != null ? ` N° HES-${String(verifiedFolioNumero).padStart(6, "0")}` : ""} enviado por correo a ${destino.join(", ")} — ${cliente.nombre} — ${periodoLabel}`,
     usuario_id:     user.id,
     usuario_nombre: callerProfile?.nombre ?? user.email,
   }).catch(err => console.error("[hes/send-email] error registrando auditoría:", err))

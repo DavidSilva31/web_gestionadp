@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs"
 import type { Report } from "@/types/database"
+import { sanitizeSpreadsheetCell } from "@/lib/sanitize"
 
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -15,7 +16,11 @@ const TIPO_CONT: Record<string, string> = { "20ft": "20 ft", "40ft": "40 ft", is
 const SOL_POR: Record<string, string> = { clientes: "Clientes", hds: "HDS", operaciones: "Operaciones", cuyd: "CUyD" }
 
 const yn = (v: boolean | null | undefined) => (v ? "Sí" : "No")
-const str = (v: string | number | null | undefined) => v ?? ""
+// Neutraliza CSV/Excel formula injection en todo texto libre de operador/
+// operador_carga (Observaciones, Conductor, etc.) antes de escribirlo en
+// una celda — ver src/lib/sanitize.ts.
+const str = (v: string | number | null | undefined) =>
+  typeof v === "string" ? sanitizeSpreadsheetCell(v) : v ?? ""
 
 export async function exportReportsToExcel(reports: Report[], filename = "reports_adp") {
   const rows = reports.map(r => ({

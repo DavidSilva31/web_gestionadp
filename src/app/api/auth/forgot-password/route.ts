@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin"
 import { resolveSiteUrl } from "@/lib/site-url"
 import { generateTempPassword } from "@/lib/temp-password"
 import { wrapBrandedEmail, brandButton, emailColors } from "@/lib/email-brand"
+import { escapeHtml } from "@/lib/sanitize"
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,11 +25,23 @@ export async function POST(req: NextRequest) {
     // enumerar qué correos tienen cuenta en el sistema.
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("id, nombre, activo")
+      .select("id, nombre, activo, last_password_reset_request_at")
       .eq("email", normalized)
       .single()
 
-    if (profile?.activo) {
+    // Cooldown: sin esto, cualquiera que conozca/adivine el correo de una
+    // cuenta real puede forzar el reseteo repetido de su contraseña real
+    // (no roba la cuenta, pero la deja inservible hasta que su dueño revise
+    // el correo cada vez) — DoS de disponibilidad dirigido a una persona.
+    // Respuesta idéntica dentro o fuera del cooldown (siempre {success:true})
+    // para no revelar nada distinto a lo que ya no revela la enumeración.
+    const COOLDOWN_MS = 5 * 60 * 1000
+    const lastRequest = profile?.last_password_reset_request_at
+      ? new Date(profile.last_password_reset_request_at).getTime()
+      : 0
+    const enCooldown = Date.now() - lastRequest < COOLDOWN_MS
+
+    if (profile?.activo && !enCooldown) {
       // Antes usaba supabase.auth.resetPasswordForEmail(), que manda el correo
       // nativo de Supabase Auth (su template propio, sin marca ADP y con costo
       // aparte por personalizarlo). Ahora se genera una contraseña temporal y
@@ -39,7 +52,9 @@ export async function POST(req: NextRequest) {
       if (pwErr) {
         console.error("[auth/forgot-password] error fijando contraseña temporal:", pwErr)
       } else {
-        await supabaseAdmin.from("profiles").update({ must_change_password: true }).eq("id", profile.id)
+        await supabaseAdmin.from("profiles")
+          .update({ must_change_password: true, last_password_reset_request_at: new Date().toISOString() })
+          .eq("id", profile.id)
         await sendResetEmail(req, normalized, profile.nombre ?? "", tempPassword)
       }
     }
@@ -62,12 +77,12 @@ async function sendResetEmail(req: NextRequest, email: string, nombre: string, t
     const loginUrl = `${resolveSiteUrl(req)}/login`
     const bodyHtml = `
       <h1 style="margin:0 0 6px;font-size:20px;color:${emailColors.text};">Restablecimos tu contraseña</h1>
-      <p style="margin:0 0 20px;font-size:14px;color:${emailColors.muted};line-height:1.6;">Hola ${nombre}, solicitaste restablecer tu contraseña en <strong style="color:${emailColors.text};">ADP Gestión</strong>. Usa esta contraseña temporal para entrar:</p>
+      <p style="margin:0 0 20px;font-size:14px;color:${emailColors.muted};line-height:1.6;">Hola ${escapeHtml(nombre)}, solicitaste restablecer tu contraseña en <strong style="color:${emailColors.text};">ADP Gestión</strong>. Usa esta contraseña temporal para entrar:</p>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
         <tr>
           <td style="padding:16px 18px;background:${emailColors.celesteLight};border:1px solid ${emailColors.celeste};border-radius:8px;">
             <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Correo</p>
-            <p style="margin:0 0 16px;font-size:14px;color:${emailColors.text};">${email}</p>
+            <p style="margin:0 0 16px;font-size:14px;color:${emailColors.text};">${escapeHtml(email)}</p>
             <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Contraseña temporal</p>
             <p style="margin:0;font-size:22px;font-weight:bold;letter-spacing:2px;color:${emailColors.navy};font-family:'Courier New',Courier,monospace;">${tempPassword}</p>
           </td>
