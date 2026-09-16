@@ -3,18 +3,28 @@ import type { NextConfig } from "next"
 // Único origen externo que la app llama en runtime — next/font/google
 // autohospeda las fuentes en build, así que no hace falta abrir
 // fonts.googleapis.com/fonts.gstatic.com acá.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
+const supabaseUrl    = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
+// Supabase Realtime (usado por notificaciones en vivo) conecta por WebSocket
+// — es un esquema aparte de https en CSP, así que connect-src necesita el
+// origen wss:// explícito además del https:// para las llamadas REST normales.
+const supabaseWsUrl  = supabaseUrl.replace(/^https:/, "wss:")
 
 // 'unsafe-inline' en script-src es necesario por el script inline de tema
 // en src/app/layout.tsx (antes de que React hidrate) — es estático, sin
 // interpolación de datos de usuario, así que el riesgo real es bajo.
+// 'unsafe-eval' solo se agrega en desarrollo: Turbopack/React Fast Refresh
+// usan eval() para el hot-reload y para reconstruir call stacks del overlay
+// de errores — sin esto, cualquier página tira "eval() is not supported".
+// En producción (npm run build/start) NODE_ENV es 'production' y esto no
+// se incluye, así que el CSP de producción sigue tan estricto como antes.
+const isDev = process.env.NODE_ENV === "development"
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${supabaseUrl}`,
   "font-src 'self' data:",
-  `connect-src 'self' ${supabaseUrl} https://api.resend.com`,
+  `connect-src 'self' ${supabaseUrl} ${supabaseWsUrl} https://api.resend.com`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Package, ArrowDownCircle, ArrowUpCircle, Users,
-  AlertTriangle, ArrowRight, RefreshCw, Loader2,
-  CheckCircle2, Info,
+  AlertTriangle, ArrowRight, Loader2,
+  Info,
 } from "lucide-react"
 import {
   BarChart, Bar, XAxis, CartesianGrid,
@@ -126,16 +126,16 @@ function KpiCard({
   icon: React.ElementType; iconColor: string; iconBg: string; positive?: boolean | null
 }) {
   return (
-    <div className="bg-card border border-border rounded-lg px-4 py-3 flex flex-col gap-3">
+    <div className="bg-card border border-border rounded-lg px-3.5 py-2.5 flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground font-medium">{title}</p>
-        <div className={cn("h-7 w-7 rounded-md flex items-center justify-center", iconBg)}>
+        <div className={cn("h-6 w-6 rounded-md flex items-center justify-center flex-shrink-0", iconBg)}>
           <Icon className={cn("h-3.5 w-3.5", iconColor)} />
         </div>
       </div>
-      <div>
-        <p className="kpi-value">{value}</p>
-        <p className="text-[11px] text-muted-foreground mt-0.5">{unit}</p>
+      <div className="flex items-baseline gap-1.5">
+        <p className="text-xl font-medium tracking-tight tabular-nums text-foreground">{value}</p>
+        <p className="text-[10.5px] text-muted-foreground truncate">{unit}</p>
       </div>
       <p className={cn(
         "text-[10px] font-medium",
@@ -281,18 +281,23 @@ export default function DashboardPage() {
   useEffect(() => { fetchData() }, [fetchData])
   useEffect(() => { setChartData(buildChartData(allMovs, chartMonths)) }, [chartMonths, allMovs])
 
-  // Filas de "Movimientos recientes" que caben sin scroll: tope de 3 hasta 1279px
-  // (donde comparte fila con Alertas), y las que entren de ahí para arriba.
+  // Filas de "Movimientos recientes": debajo de 1280px la página hace scroll
+  // (el contenedor ya no tiene una altura fija que calzar), así que ahí se
+  // muestra un número fijo prudente. Desde 1280px el layout sí queda fijo a
+  // una pantalla, así que se calculan cuántas filas caben sin scroll.
   useEffect(() => {
     function recompute() {
+      if (window.innerWidth < 1280) {
+        setVisibleMovsCount(Math.min(5, recentMovs.length || 5))
+        return
+      }
       const container = movsContainerRef.current
       const rowEl      = movsRowRef.current
       if (!container || !rowEl) return
       const headerH = movsHeaderRef.current?.offsetHeight ?? 0
       const rowH    = rowEl.offsetHeight || 44
       const fit     = Math.max(1, Math.floor((container.clientHeight - headerH) / rowH))
-      const cap     = window.innerWidth < 1280 ? 3 : fit
-      setVisibleMovsCount(Math.min(fit, cap, recentMovs.length || fit))
+      setVisibleMovsCount(Math.min(fit, recentMovs.length || fit))
     }
     recompute()
     const ro = new ResizeObserver(recompute)
@@ -304,41 +309,25 @@ export default function DashboardPage() {
   const alertCount = alertas.filter(a => a.nivel !== "info").length
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto lg:overflow-hidden">
-      <div className="p-3 sm:p-4 flex flex-col gap-3 lg:flex-1 lg:min-h-0 lg:grid lg:grid-rows-[auto_auto_auto_1fr]">
+    <div className="flex flex-col h-full overflow-y-auto">
+      <div className="p-3 sm:p-4 flex flex-col gap-3 xl:flex-1 xl:min-h-0 xl:grid xl:grid-rows-[auto_auto_auto_1fr]">
 
         {/* ── Header ── */}
-        <div className="flex items-center justify-between py-1">
-          <div>
-            <h1 className="text-base font-medium tracking-tight text-foreground">
+        <div className="flex items-baseline justify-between gap-3 py-1">
+          <div className="flex items-baseline gap-2 min-w-0 flex-wrap">
+            <h1 className="text-base font-medium tracking-tight text-foreground flex-shrink-0">
               {getGreeting()}, {nombre}
             </h1>
-            <p className="section-label mt-0.5">{getDayStr()} · Camino La Pólvora 106, Valparaíso</p>
+            <p className="section-label truncate">· {getDayStr()} · Camino La Pólvora 106, Valparaíso</p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border",
-              alertCount > 0
-                ? "badge-warning border-[var(--color-status-warning-bg)]"
-                : "badge-success border-[var(--color-status-success-bg)]"
-            )}>
-              {alertCount > 0
-                ? <AlertTriangle className="h-3 w-3" />
-                : <CheckCircle2 className="h-3 w-3" />
-              }
-              {alertCount > 0
-                ? `${alertCount} alerta${alertCount > 1 ? "s" : ""} activa${alertCount > 1 ? "s" : ""}`
-                : "Sistema operativo"
-              }
+          {/* Solo ocupa espacio cuando hay algo que avisar — el estado "todo
+              bien" no aporta información que valga la pena mostrar siempre. */}
+          {alertCount > 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border badge-warning border-[var(--color-status-warning-bg)] flex-shrink-0">
+              <AlertTriangle className="h-3 w-3" />
+              {`${alertCount} alerta${alertCount > 1 ? "s" : ""} activa${alertCount > 1 ? "s" : ""}`}
             </div>
-            <Button
-              variant="ghost" size="sm"
-              onClick={fetchData} disabled={loading}
-              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-            </Button>
-          </div>
+          )}
         </div>
 
         {/* ── Error ── */}
@@ -357,7 +346,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {loading
             ? Array(4).fill(0).map((_, i) => (
-                <div key={i} className="rounded-lg bg-muted/40 h-[88px] animate-pulse" />
+                <div key={i} className="rounded-lg bg-muted/40 h-[72px] animate-pulse" />
               ))
             : (
               <>
@@ -407,11 +396,11 @@ export default function DashboardPage() {
 
         {/* ── Gráfico de tendencia ── */}
         <Card className="border-border bg-card">
-          <CardHeader className="py-3 px-4 border-b border-border">
+          <CardHeader className="py-2 px-3.5 border-b border-border">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex items-baseline gap-2">
                 <CardTitle className="text-sm font-medium">Actividad mensual</CardTitle>
-                <CardDescription className="text-xs mt-0.5">Ingresos y despachos — últimos 6 meses</CardDescription>
+                <CardDescription className="text-[11px]">Ingresos y despachos — últimos 6 meses</CardDescription>
               </div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-3">
@@ -443,11 +432,11 @@ export default function DashboardPage() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="px-4 pt-3 pb-2">
+          <CardContent className="px-3.5 pt-2 pb-1.5">
             {loading ? (
-              <div className="h-[112px] animate-pulse rounded-lg bg-muted/40" />
+              <div className="h-[76px] animate-pulse rounded-lg bg-muted/40" />
             ) : (
-              <div className="h-[112px]">
+              <div className="h-[76px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={chartData}
@@ -481,10 +470,10 @@ export default function DashboardPage() {
         </Card>
 
         {/* ── Contenido principal — Movimientos + Alertas en lg (Ocupación oculta), 3 paneles 5/4/3 desde xl ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-1 gap-3 lg:min-h-0">
+        <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-rows-1 gap-3 xl:min-h-0">
 
           {/* Movimientos recientes — 8/12 en lg, 5/12 desde xl */}
-          <Card className="lg:col-span-8 xl:col-span-5 lg:row-start-1 xl:row-start-1 border-border bg-card flex flex-col lg:min-h-0">
+          <Card className="lg:col-span-8 xl:col-span-5 lg:row-start-1 xl:row-start-1 border-border bg-card flex flex-col xl:min-h-[220px]">
             <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border">
               <div className="flex items-center justify-between">
                 <div>
@@ -499,7 +488,7 @@ export default function DashboardPage() {
                 </Link>
               </div>
             </CardHeader>
-            <CardContent ref={movsContainerRef} className="p-0 flex-1 min-h-0 overflow-hidden">
+            <CardContent ref={movsContainerRef} className="p-0 xl:flex-1 xl:min-h-0 xl:overflow-hidden">
               {loading ? (
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -564,7 +553,7 @@ export default function DashboardPage() {
           </Card>
 
           {/* Ocupación por área — oculto en lg (no cabe bien a 1024-1279px), 4/12 desde xl */}
-          <Card className="lg:hidden xl:flex xl:col-span-4 xl:row-start-1 border-border bg-card flex-col lg:min-h-0">
+          <Card className="lg:hidden xl:flex xl:col-span-4 xl:row-start-1 border-border bg-card flex-col xl:min-h-[220px]">
             <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border flex-row items-center justify-between gap-2">
               <div>
                 <CardTitle className="text-sm font-medium">Ocupación por área</CardTitle>
@@ -633,7 +622,7 @@ export default function DashboardPage() {
           </Card>
 
           {/* Alertas — 4/12 en lg, junto a Movimientos (Ocupación oculta); 3/12 desde xl */}
-          <Card className="lg:col-span-4 xl:col-span-3 lg:row-start-1 xl:row-start-1 border-border bg-card flex flex-col lg:min-h-0">
+          <Card className="lg:col-span-4 xl:col-span-3 lg:row-start-1 xl:row-start-1 border-border bg-card flex flex-col xl:min-h-[220px]">
             <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
@@ -645,7 +634,7 @@ export default function DashboardPage() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-3 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
+            <CardContent className="p-3 flex flex-col gap-2 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
               {loading
                 ? <div className="h-24 animate-pulse rounded-md bg-muted/40" />
                 : alertas.map((a, i) => {
