@@ -260,13 +260,14 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc, hideActivati
 
 // ── Sec3Content ────────────────────────────────────────────────────────────────
 
-export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode, operadorNode, hideActivation }: {
+export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode, operadorNode, serviciosNode, hideActivation }: {
   form: ReportFormData
   set: FormSetter
   readOnly?: boolean
   toUpperCase?: boolean
   productoNode: React.ReactNode
   operadorNode?: React.ReactNode
+  serviciosNode?: React.ReactNode
   hideActivation?: boolean
 }) {
   const str = (key: keyof ReportFormData) =>
@@ -349,6 +350,12 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode
             <Input type="date" value={form.sec3_fecha_vencimiento}
               onChange={e => set("sec3_fecha_vencimiento", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
+
+          {serviciosNode && (
+            <div className="col-span-1 sm:col-span-3">
+              {serviciosNode}
+            </div>
+          )}
 
           <div className="col-span-1 sm:col-span-3 flex items-center gap-2">
             <Checkbox id="sec3_servicio_adicional" checked={form.sec3_servicio_adicional}

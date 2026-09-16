@@ -3,6 +3,7 @@ import { Resend } from "resend"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { createServerSupabaseClient } from "@/lib/supabase-server"
 import { wrapBrandedEmail, emailColors } from "@/lib/email-brand"
+import { escapeHtml } from "@/lib/sanitize"
 
 export async function POST() {
   try {
@@ -53,12 +54,12 @@ async function sendPasswordChangedEmail(email: string, nombre: string) {
 
   const bodyHtml = `
     <h1 style="margin:0 0 6px;font-size:20px;color:${emailColors.text};">Contraseña actualizada</h1>
-    <p style="margin:0 0 20px;font-size:14px;color:${emailColors.muted};line-height:1.6;">Hola ${nombre || ""}, te confirmamos que la contraseña de tu cuenta en <strong style="color:${emailColors.text};">ADP Gestión</strong> se actualizó correctamente.</p>
+    <p style="margin:0 0 20px;font-size:14px;color:${emailColors.muted};line-height:1.6;">Hola ${escapeHtml(nombre || "")}, te confirmamos que la contraseña de tu cuenta en <strong style="color:${emailColors.text};">ADP Gestión</strong> se actualizó correctamente.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
       <tr>
         <td style="padding:14px 18px;background:${emailColors.celesteLight};border:1px solid ${emailColors.celeste};border-radius:8px;">
           <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Cuenta</p>
-          <p style="margin:0 0 12px;font-size:14px;color:${emailColors.text};">${email}</p>
+          <p style="margin:0 0 12px;font-size:14px;color:${emailColors.text};">${escapeHtml(email)}</p>
           <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Fecha</p>
           <p style="margin:0;font-size:14px;color:${emailColors.text};">${fecha}</p>
         </td>

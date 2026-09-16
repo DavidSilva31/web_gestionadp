@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs"
 import type { TransporteIncomex } from "@/types/database"
+import { sanitizeSpreadsheetCell } from "@/lib/sanitize"
 
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -33,7 +34,9 @@ function kxStyle(cell: ExcelJS.Cell, o: KxStyleOpts = {}) {
 }
 
 function fmtFecha(iso: string) { return iso.split("-").reverse().join("/") }
-const str = (v: string | number | null | undefined) => v ?? ""
+// Neutraliza CSV/Excel formula injection en texto libre — ver src/lib/sanitize.ts.
+const str = (v: string | number | null | undefined) =>
+  typeof v === "string" ? sanitizeSpreadsheetCell(v) : v ?? ""
 const uf  = (v: number | null | undefined) => v == null ? null : Number(v.toFixed(4))
 const clp = (v: number | null | undefined) => v == null ? null : v
 

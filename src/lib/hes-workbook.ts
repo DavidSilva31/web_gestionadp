@@ -6,6 +6,7 @@ import path from "path"
 import type { createServerSupabaseClient } from "@/lib/supabase-server"
 import { computeHES, computeBilling, type MovRaw, type BillingRow, type DayEntry, type HesResult, type BillingResult } from "@/lib/hes-calc"
 import type { TarifaCliente, ServicioCliente, TransporteIncomex } from "@/types/database"
+import { sanitizeSpreadsheetCell } from "@/lib/sanitize"
 
 export type SupabaseSrv = Awaited<ReturnType<typeof createServerSupabaseClient>>
 
@@ -677,7 +678,7 @@ function addTarifaSheet(
 
     r.getCell("B").value = dateStr
     st(r.getCell("B"), { size: 9, ha: "center" })
-    r.getCell("C").value = d.operador || ""
+    r.getCell("C").value = d.operador ? sanitizeSpreadsheetCell(d.operador) : ""
     st(r.getCell("C"), { size: 8 })
     r.getCell("D").value = d.guias_in || ""
     st(r.getCell("D"), { size: 8, ha: "center" })
@@ -817,12 +818,12 @@ function addTransporteSheet(
 
     const r = ws.addRow([]); r.height = 14; spacerA(r)
     r.getCell("B").value = op.fecha
-    r.getCell("C").value = op.guia_numero ?? ""
-    r.getCell("D").value = op.tipo_movimiento ?? ""
-    r.getCell("E").value = op.origen_destino ?? ""
-    r.getCell("F").value = op.detalle_carga ?? ""
-    r.getCell("G").value = op.transportista ?? ""
-    r.getCell("H").value = op.conductor ?? ""
+    r.getCell("C").value = op.guia_numero ? sanitizeSpreadsheetCell(op.guia_numero) : ""
+    r.getCell("D").value = op.tipo_movimiento ? sanitizeSpreadsheetCell(op.tipo_movimiento) : ""
+    r.getCell("E").value = op.origen_destino ? sanitizeSpreadsheetCell(op.origen_destino) : ""
+    r.getCell("F").value = op.detalle_carga ? sanitizeSpreadsheetCell(op.detalle_carga) : ""
+    r.getCell("G").value = op.transportista ? sanitizeSpreadsheetCell(op.transportista) : ""
+    r.getCell("H").value = op.conductor ? sanitizeSpreadsheetCell(op.conductor) : ""
     r.getCell("I").value = opUF
     r.getCell("J").value = opCLP
     st(r.getCell("B"), { size: 8, ha: "center" })

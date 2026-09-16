@@ -24,7 +24,7 @@ import { dbToForm } from "@/components/reports/report-form-types"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
 import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
-import { ClienteCombobox, ProductoCombobox, FirmaCanvas, type InventarioItemOption, type ServicioSeleccionado, type TarifaOption } from "@/components/reports/report-form-widgets"
+import { ClienteCombobox, ProductoCombobox, FirmaCanvas, ServiciosSection, type InventarioItemOption, type ServicioSeleccionado, type TarifaOption } from "@/components/reports/report-form-widgets"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
@@ -74,12 +74,29 @@ export default function ReportDetailPage() {
   // Clase IMO del producto que Operaciones elige en Bodegaje contra la Clase
   // IMO de cada contrato del cliente (ver ProductoCombobox.onSelect abajo).
   const [tarifasCliente, setTarifasCliente] = useState<TarifaOption[]>([])
-  // servicioSeleccion/serviciosManual ya no tienen UI propia (se sacó del
-  // formulario) — se siguen cargando y reenviando tal cual en buildPayload
-  // para no perder lo que un report viejo ya tenía guardado; el HES sigue
-  // leyéndolos exactamente igual que antes.
+  // Servicios del catálogo del cliente asociados a este report — se
+  // muestran arriba de "Servicio Adicional" en Bodegaje (Sec3Content,
+  // serviciosNode) para que Operaciones pueda marcar uno o más servicios ya
+  // contratados por el cliente en vez de solo escribir texto libre en
+  // Observaciones. servicios_ids repite el id tantas veces como la cantidad
+  // elegida (ver buildPayload) — el HES cuenta esas repeticiones.
   const [servicioSeleccion, setServicioSeleccion] = useState<ServicioSeleccionado[]>([])
   const [serviciosManual, setServiciosManual] = useState<string[]>([])
+
+  function toggleServicio(id: string) {
+    setServicioSeleccion(prev =>
+      prev.some(s => s.id === id) ? prev.filter(s => s.id !== id) : [...prev, { id, cantidad: 1 }]
+    )
+  }
+  function cambiarCantidadServicio(id: string, cantidad: number) {
+    setServicioSeleccion(prev => prev.map(s => s.id === id ? { ...s, cantidad } : s))
+  }
+  function agregarServicioManual(nombre: string) {
+    setServiciosManual(prev => [...prev, nombre])
+  }
+  function quitarServicioManual(index: number) {
+    setServiciosManual(prev => prev.filter((_, i) => i !== index))
+  }
   const [numero,  setNumero]  = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving,        setSaving]        = useState(false)
@@ -960,6 +977,18 @@ export default function ReportDetailPage() {
                       </p>
                     )}
                   </>
+                }
+                serviciosNode={
+                  <ServiciosSection
+                    clienteId={form.cliente_id}
+                    selected={servicioSeleccion}
+                    onToggle={toggleServicio}
+                    onCantidadChange={cambiarCantidadServicio}
+                    manual={serviciosManual}
+                    onAddManual={agregarServicioManual}
+                    onRemoveManual={quitarServicioManual}
+                    readOnly={rightReadOnly}
+                  />
                 }
               />
               {/* Nombre operador de carga: un solo input, más abajo junto a

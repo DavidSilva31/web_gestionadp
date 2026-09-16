@@ -6,6 +6,7 @@ import { logAuditServer } from "@/lib/audit"
 import { resolveSiteUrl } from "@/lib/site-url"
 import { wrapBrandedEmail, brandButton, emailColors } from "@/lib/email-brand"
 import { generateTempPassword } from "@/lib/temp-password"
+import { escapeHtml } from "@/lib/sanitize"
 
 const VALID_ROLES = ["super_admin", "operador", "operador_carga"] as const
 
@@ -101,13 +102,13 @@ export async function POST(req: NextRequest) {
       const fromAddress = process.env.RESEND_FROM_EMAIL || "Altos del Puerto <onboarding@resend.dev>"
       const loginUrl = `${resolveSiteUrl(req)}/login`
       const bodyHtml = `
-        <h1 style="margin:0 0 6px;font-size:20px;color:${emailColors.text};">¡Bienvenido(a), ${nombre}!</h1>
+        <h1 style="margin:0 0 6px;font-size:20px;color:${emailColors.text};">¡Bienvenido(a), ${escapeHtml(nombre)}!</h1>
         <p style="margin:0 0 24px;font-size:14px;color:${emailColors.muted};line-height:1.6;">Se creó tu cuenta en <strong style="color:${emailColors.text};">ADP Gestión</strong>. Estos son tus datos de acceso:</p>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
           <tr>
             <td style="padding:16px 18px;background:${emailColors.celesteLight};border:1px solid ${emailColors.celeste};border-radius:8px;">
               <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Correo</p>
-              <p style="margin:0 0 16px;font-size:14px;color:${emailColors.text};">${email}</p>
+              <p style="margin:0 0 16px;font-size:14px;color:${emailColors.text};">${escapeHtml(email)}</p>
               <p style="margin:0 0 4px;font-size:11px;font-weight:bold;color:${emailColors.navyMid};text-transform:uppercase;letter-spacing:0.5px;">Contraseña temporal</p>
               <p style="margin:0;font-size:22px;font-weight:bold;letter-spacing:2px;color:${emailColors.navy};font-family:'Courier New',Courier,monospace;">${tempPassword}</p>
             </td>
