@@ -2136,9 +2136,59 @@ export default function HesPage() {
                 ) : isUnificado ? (
                   <div className="space-y-4">
                     <div className="bg-background rounded-xl border border-border/40 shadow-sm px-6 py-5">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Hoja de Estado de Servicio — Unificado</p>
-                      <h1 className="text-lg font-bold mt-1">HES {selectedCliente.nombre.toUpperCase()} · Todas las tarifas ({tarifas.length})</h1>
-                      <p className="text-sm text-muted-foreground mt-0.5">{MESES[selectedMonth]} {selectedYear}</p>
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Hoja de Estado de Servicio — Unificado</p>
+                          <h1 className="text-lg font-bold mt-1">HES {selectedCliente.nombre.toUpperCase()} · Todas las tarifas ({tarifas.length})</h1>
+                          <p className="text-sm text-muted-foreground mt-0.5">{MESES[selectedMonth]} {selectedYear}</p>
+                        </div>
+                        <div className="sm:text-right space-y-0.5 flex-shrink-0">
+                          <div className="flex items-center gap-1.5 flex-wrap sm:justify-end">
+                            <span className="text-[10px] text-muted-foreground">UF al {fmtDateDisplay(ufDate)}</span>
+                            <div className="relative">
+                              <Button
+                                type="button" variant="outline" size="icon-xs"
+                                onClick={openUfDatePicker}
+                                title="Elegir fecha de la UF"
+                                className="text-muted-foreground hover:text-foreground"
+                              >
+                                <CalendarIcon className="size-[11px]" />
+                              </Button>
+                              <input
+                                ref={ufDateInputRef}
+                                type="date"
+                                value={ufDate}
+                                max={TODAY_ISO}
+                                onChange={e => e.target.value && setUfDate(e.target.value)}
+                                tabIndex={-1}
+                                className="absolute inset-0 h-6 w-6 opacity-0 pointer-events-none"
+                              />
+                            </div>
+                            <Input value={ufValue} onChange={e => { setUfValue(e.target.value); setUfError(null) }}
+                              className={cn(
+                                "h-6 w-28 text-[11px] text-right bg-muted/40 border-border/50",
+                                ufError && "border-amber-400 dark:border-amber-700"
+                              )}
+                              placeholder={ufLoading ? "Cargando…" : "$38.000,00"} />
+                            {ufError && (
+                              <Button
+                                type="button" variant="outline" size="icon-xs"
+                                onClick={() => setUfRetryTick(t => t + 1)}
+                                title="Reintentar obtener la UF"
+                                className="text-amber-600 hover:text-amber-700"
+                              >
+                                <RefreshCw className="size-[11px]" />
+                              </Button>
+                            )}
+                          </div>
+                          {ufError && (
+                            <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-1 flex items-center gap-1 sm:justify-end">
+                              <AlertCircle className="size-3 flex-shrink-0" />
+                              {ufError}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     {pendingManualesError && (
