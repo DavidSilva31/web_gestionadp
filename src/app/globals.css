@@ -102,7 +102,10 @@
 
   /* Muted — fondos de secciones, texto secundario */
   --muted: oklch(0.965 0.004 240);
-  --muted-foreground: oklch(0.50 0.025 240);
+  /* Oscurecido de 0.50 a 0.42 a pedido explícito ("letras más oscuras") —
+     el texto secundario (labels, encabezados de tabla, texto muted-foreground
+     en todo el sistema) quedaba demasiado claro en modo día. */
+  --muted-foreground: oklch(0.42 0.025 240);
 
   /* Accent — hover states sutiles */
   --accent: oklch(0.95 0.015 215);
@@ -321,9 +324,12 @@
   }
 
   html {
-    /* Tamaño base ligeramente mayor: 87.5% = ~14px.
-       Mejora legibilidad sin perder la densidad del sistema. */
-    font-size: 87.5%;
+    /* Tamaño base: 93.75% = 15px (subido desde 87.5%/14px a pedido
+       explícito — "aumentar un par de píxeles el tamaño general"). Como
+       casi todo el sistema de espaciado/alto de Tailwind es rem-based,
+       esto escala botones, inputs, gaps y texto sin variante [Npx] de una
+       sola vez, sin tener que tocar componente por componente. */
+    font-size: 93.75%;
     height: 100%;
     overflow: hidden;
     /* Renderizado tipográfico más nítido */
