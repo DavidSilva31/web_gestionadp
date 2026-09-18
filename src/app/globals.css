@@ -484,4 +484,15 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+
+  /* Degradado que se desplaza lentamente — usado en el orbe del chatbot.
+     Necesita background-size mayor a 100% para que el movimiento se note. */
+  .animate-gradient-shift {
+    background-size: 200% 200%;
+    animation: gradient-shift 6s ease-in-out infinite;
+  }
+  @keyframes gradient-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
+  }
 }
