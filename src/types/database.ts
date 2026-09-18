@@ -24,7 +24,9 @@ export interface Report {
   empresa_transporte: string | null
   transporte_tipo: TransporteTipo
   hds_header: boolean
+  observaciones: string | null
   hds_archivos: string[]
+  archivos_pendiente_despacho: string[]
 
   // Sección 1
   sec1_activa: boolean

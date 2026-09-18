@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { CheckCircle2, Clock, Truck, Search, User, Calendar, Package, ChevronDown, ChevronUp, Loader2, RefreshCw, Upload, FileText, X, AlertTriangle } from "lucide-react"
+import { CheckCircle2, Clock, Truck, Search, User, Calendar, Package, ChevronDown, ChevronUp, Loader2, RefreshCw, Upload, FileText, X, AlertTriangle, Paperclip } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PageHeader } from "@/components/layout/page-header"
@@ -28,6 +28,7 @@ interface PendingReport {
   sec3_tipo:            string | null
   sec3_numero_pallets:  number | null
   sec3_inventario_item_id: string | null
+  archivos_pendiente_despacho: string[] | null
 }
 
 interface DispatchedReport {
@@ -66,6 +67,66 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
   const [dispatching, setDispatching] = useState(false)
   const [dragOver,    setDragOver]    = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Archivos adjuntos mientras espera despacho (el report escaneado, una
+  // guía, cualquier archivo necesario) — independiente del documento
+  // firmado que se sube recién al confirmar la salida más abajo.
+  const [filesOpen,          setFilesOpen]          = useState(false)
+  const [archivosPD,         setArchivosPD]         = useState<string[]>(report.archivos_pendiente_despacho ?? [])
+  const [archivosPDUploading, setArchivosPDUploading] = useState(false)
+  const [archivosPDError,    setArchivosPDError]    = useState<string | null>(null)
+  const [archivosPDDragOver, setArchivosPDDragOver] = useState(false)
+  const archivosPDFileRef = useRef<HTMLInputElement>(null)
+
+  async function uploadArchivosPD(list: FileList | File[]) {
+    const files = Array.from(list)
+    const invalido = files.map(f => validateUploadFile(f)).find(Boolean)
+    if (invalido) { setArchivosPDError(invalido); return }
+    setArchivosPDError(null)
+    setArchivosPDUploading(true)
+    try {
+      const supabase = createClient()
+      const uploadedPaths: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        const ext  = sanitizeExt(f.name)
+        const path = `pd-${report.numero}-${report.id}-${Date.now()}-${i}.${ext}`
+        const { error: uploadErr } = await supabase.storage.from("reports-firmados").upload(path, f, { upsert: true })
+        if (uploadErr) throw uploadErr
+        uploadedPaths.push(path)
+      }
+      const nuevosPaths = [...archivosPD, ...uploadedPaths]
+      const { error: updateErr } = await supabase.from("reports")
+        .update({ archivos_pendiente_despacho: nuevosPaths }).eq("id", report.id)
+      if (updateErr) throw updateErr
+      setArchivosPD(nuevosPaths)
+    } catch (err) {
+      console.error("[reports/despacho] error subiendo archivo:", err)
+      setArchivosPDError("No se pudo subir el archivo. Intenta de nuevo.")
+    } finally {
+      setArchivosPDUploading(false)
+    }
+  }
+
+  async function removeArchivoPD(index: number) {
+    const nuevosPaths = archivosPD.filter((_, i) => i !== index)
+    setArchivosPDError(null)
+    const supabase = createClient()
+    const { error } = await supabase.from("reports")
+      .update({ archivos_pendiente_despacho: nuevosPaths }).eq("id", report.id)
+    if (error) {
+      console.error("[reports/despacho] error quitando archivo:", error)
+      setArchivosPDError("No se pudo quitar el archivo. Intenta de nuevo.")
+      return
+    }
+    setArchivosPD(nuevosPaths)
+  }
+
+  function onArchivosPDDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setArchivosPDDragOver(false)
+    if (e.dataTransfer.files?.length) uploadArchivosPD(e.dataTransfer.files)
+  }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
@@ -119,6 +180,23 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
           <Truck className="h-5 w-5 text-amber-600" />
         </div>
 
+        <button
+          type="button"
+          onClick={() => setFilesOpen(v => !v)}
+          title="Archivos adjuntos"
+          className={cn(
+            "relative h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors",
+            filesOpen ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Paperclip className="h-4 w-4" />
+          {archivosPD.length > 0 && (
+            <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center">
+              {archivosPD.length}
+            </span>
+          )}
+        </button>
+
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="font-mono font-bold text-sm text-primary">#{report.numero}</span>
@@ -139,6 +217,50 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
       </div>
+
+      {filesOpen && (
+        <div className="border-t bg-muted/20 px-5 py-3 space-y-2">
+          <p className="text-xs font-semibold text-foreground">Archivos adjuntos</p>
+          {archivosPD.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {archivosPD.map((path, i) => (
+                <ArchivoPDLink key={path} path={path} index={i} onRemove={() => removeArchivoPD(i)} />
+              ))}
+            </div>
+          )}
+          <input
+            ref={archivosPDFileRef}
+            type="file"
+            multiple
+            accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*"
+            className="hidden"
+            onChange={e => { if (e.target.files) uploadArchivosPD(e.target.files); e.target.value = "" }}
+          />
+          <div
+            onClick={() => !archivosPDUploading && archivosPDFileRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setArchivosPDDragOver(true) }}
+            onDragLeave={e => { e.preventDefault(); setArchivosPDDragOver(false) }}
+            onDrop={onArchivosPDDrop}
+            className={cn(
+              "flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 py-2.5 text-center cursor-pointer transition-colors",
+              archivosPDDragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/40",
+              archivosPDUploading && "pointer-events-none opacity-60"
+            )}
+          >
+            {archivosPDUploading
+              ? <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+              : <Paperclip className="h-4 w-4 text-muted-foreground" />
+            }
+            <p className="text-[11px] text-muted-foreground">
+              {archivosPDUploading
+                ? "Subiendo..."
+                : <>Arrastra archivos aquí o <span className="text-primary underline underline-offset-2">selecciona</span></>
+              }
+            </p>
+          </div>
+          {archivosPDError && <p className="text-xs text-destructive">{archivosPDError}</p>}
+        </div>
+      )}
 
       <div className="flex items-center gap-2 px-5 pt-0 pb-4">
         <Package className="h-3 w-3 text-muted-foreground" />
@@ -288,7 +410,7 @@ export default function DespachoPage() {
     const [pendingRes, dispatchedRes] = await Promise.all([
       supabase
         .from("reports")
-        .select("id, numero, cliente, patente, conductor, created_at, nombre_operador, sec1_activa, sec2_activa, sec3_activa, sec1_tipo_contenedor, sec3_producto, sec3_tipo, sec3_numero_pallets, sec3_inventario_item_id")
+        .select("id, numero, cliente, patente, conductor, created_at, nombre_operador, sec1_activa, sec2_activa, sec3_activa, sec1_tipo_contenedor, sec3_producto, sec3_tipo, sec3_numero_pallets, sec3_inventario_item_id, archivos_pendiente_despacho")
         .eq("estado", "pendiente_despacho")
         .order("created_at", { ascending: true }),
 
@@ -498,6 +620,44 @@ export default function DespachoPage() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function ArchivoPDLink({ path, index, onRemove }: { path: string; index: number; onRemove: () => void }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    createClient().storage.from("reports-firmados").createSignedUrl(path, 3600)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) { console.error("[reports/despacho] error generando URL firmada:", error); setFailed(true); return }
+        if (data) setUrl(data.signedUrl)
+        else setFailed(true)
+      })
+    return () => { cancelled = true }
+  }, [path, retryKey])
+  return (
+    <div className="flex items-center gap-2 bg-background border border-border/40 rounded-lg px-2.5 py-1.5">
+      <a
+        href={failed ? "#" : url ?? "#"}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={failed ? "No se pudo cargar el archivo — clic para reintentar" : undefined}
+        onClick={failed ? (e) => { e.preventDefault(); setFailed(false); setUrl(null); setRetryKey(k => k + 1) } : undefined}
+        className={cn(
+          "flex items-center gap-2 flex-1 min-w-0 text-xs",
+          url ? "hover:underline cursor-pointer" : failed ? "cursor-pointer hover:underline text-destructive" : "opacity-60 cursor-wait pointer-events-none"
+        )}
+      >
+        <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+        <span className="truncate">Archivo {index + 1}{failed && " — no se pudo cargar, clic para reintentar"}</span>
+      </a>
+      <button type="button" onClick={onRemove} className="text-muted-foreground hover:text-destructive flex-shrink-0">
+        <X className="h-3.5 w-3.5" />
+      </button>
     </div>
   )
 }

@@ -12,6 +12,7 @@ export interface ReportFormData {
   empresa_transporte: string
   transporte_tipo:    TransporteTipo
   hds_header:         boolean
+  observaciones:      string
 
   sec1_activa:          boolean
   sec1_tipo_movimiento: TipoMovimiento | ""
@@ -73,6 +74,7 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
     empresa_transporte: s(data.empresa_transporte),
     transporte_tipo: (s(data.transporte_tipo) || "externo") as TransporteTipo,
     hds_header: b(data.hds_header),
+    observaciones: s(data.observaciones),
     sec1_activa: b(data.sec1_activa),
     sec1_tipo_movimiento: s(data.sec1_tipo_movimiento) as TipoMovimiento | "",
     sec1_tipo_contenedor: s(data.sec1_tipo_contenedor) as TipoContenedor | "",

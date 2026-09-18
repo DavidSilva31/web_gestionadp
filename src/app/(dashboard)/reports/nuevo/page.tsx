@@ -25,7 +25,7 @@ interface FormData extends ReportFormData {
 
 const INITIAL: FormData = {
   cliente: "", cliente_id: "", tarifa_cliente_id: "", fecha: new Date().toISOString().split("T")[0], patente: "", conductor: "",
-  rut_conductor: "", empresa_transporte: "", transporte_tipo: "externo", hds_header: false,
+  rut_conductor: "", empresa_transporte: "", transporte_tipo: "externo", hds_header: false, observaciones: "",
   sec1_activa: false, sec1_tipo_movimiento: "", sec1_tipo_contenedor: "", sec1_carga_normal: false,
   sec1_carga_imo: false, sec1_clase_imo: "", sec1_nu: "", sec1_hora_inicio: "", sec1_hora_termino: "",
   sec1_sigla: "", sec1_guia_numero: "", sec1_interchange: "", sec1_hds: false,
@@ -138,7 +138,6 @@ export default function NuevoReportPage() {
   // acá) y solo demoraba a Operaciones. Ahora al guardar queda directo en
   // "pendiente_operaciones".
   function buildPayload() {
-    const estado = "pendiente_operaciones" as const
     const sec1Activa = !!(
       form.sec1_tipo_movimiento || form.sec1_tipo_contenedor || form.sec1_carga_normal ||
       form.sec1_carga_imo || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
@@ -161,6 +160,15 @@ export default function NuevoReportPage() {
       form.sec3_fecha_elaboracion || form.sec3_fecha_vencimiento || form.sec3_observaciones
     )
 
+    // Depósito de Contenedores (Sección 1) con Ingreso/Despacho elegido es
+    // una operación que Operaciones no necesita tocar (no hay Bodegaje ni
+    // Consolidado de por medio) — si es la ÚNICA sección activa, el report
+    // ya puede ir directo a la cola de despacho, sin pasar por
+    // "pendiente_operaciones". Si además tiene Sección 2/3 activa, esas sí
+    // necesitan a Operaciones, así que sigue el flujo normal.
+    const soloDeposito = !!form.sec1_tipo_movimiento && sec1Activa && !sec2Activa && !sec3Activa
+    const estado = soloDeposito ? "pendiente_despacho" as const : "pendiente_operaciones" as const
+
     return {
       estado,
       cliente:            form.cliente,
@@ -172,6 +180,7 @@ export default function NuevoReportPage() {
       empresa_transporte: form.transporte_tipo === "propio" ? null : (form.empresa_transporte || null),
       transporte_tipo:    form.transporte_tipo,
       hds_header:         form.hds_header,
+      observaciones:      form.observaciones || null,
       // Sección 1
       sec1_activa:          sec1Activa,
       sec1_tipo_movimiento: form.sec1_tipo_movimiento || null,
@@ -532,6 +541,15 @@ export default function NuevoReportPage() {
                     )}
                   </div>
                 )}
+                <Field label="Observaciones" className="col-span-1 sm:col-span-3">
+                  <textarea
+                    value={form.observaciones}
+                    onChange={e => set("observaciones", e.target.value)}
+                    placeholder="Observaciones generales del report..."
+                    rows={2}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </Field>
               </div>
             </div>
 

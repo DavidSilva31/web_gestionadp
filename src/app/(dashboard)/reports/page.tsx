@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Truck, X, Eye } from "lucide-react"
+import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Truck, X, Eye, Paperclip } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -16,6 +16,7 @@ import { exportReportsToExcel } from "@/lib/export-reports-excel"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
+import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
@@ -37,6 +38,7 @@ interface ReportRow {
   sec3_numero_pallets:     number | null
   sec3_inventario_item_id: string | null
   sec3_producto:           string | null
+  archivos_pendiente_despacho: string[] | null
 }
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
@@ -81,20 +83,70 @@ export default function ReportsPage() {
   const [dispatchLoading, setDispatchLoading] = useState(false)
   const [dispatchError,  setDispatchError]  = useState<string | null>(null)
 
+  // Estado del modal de archivos (pendiente_despacho) — el report escaneado,
+  // una guía, cualquier archivo necesario antes de despachar.
+  const [filesFor, setFilesFor] = useState<ReportRow | null>(null)
+  useCloseOnBack(filesFor !== null, () => setFilesFor(null))
+
+  const SELECT_COLS = "id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa, sec3_tipo, sec3_numero_pallets, sec3_inventario_item_id, sec3_producto, archivos_pendiente_despacho"
+
+  // La grilla solo muestra los últimos 6 meses por defecto (va a seguir
+  // creciendo indefinidamente si no se acota) — lo anterior queda
+  // "archivado": no aparece acá, pero sí se puede encontrar buscando (ver
+  // searchArchive más abajo, que consulta sin este filtro de fecha).
+  const seisMesesAtras = useMemo(() => {
+    const d = new Date()
+    d.setMonth(d.getMonth() - 6)
+    return d.toISOString().slice(0, 10)
+  }, [])
+
   const fetchReports = useCallback(async () => {
     setLoading(true)
     setFetchError(null)
     const supabase = createClient()
     const { data, error: err } = await supabase
       .from("reports")
-      .select("id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa, sec3_tipo, sec3_numero_pallets, sec3_inventario_item_id, sec3_producto")
+      .select(SELECT_COLS)
+      .gte("fecha", seisMesesAtras)
       .order("numero", { ascending: false })
       .limit(500)
 
     if (err) { setFetchError(err.message); setLoading(false); return }
     if (data) setReports(data as ReportRow[])
     setLoading(false)
-  }, [])
+  }, [seisMesesAtras])
+
+  // Búsqueda en el archivo (reports de más de 6 meses) — se dispara solo
+  // cuando el usuario escribe algo, consultando directo a la BD sin el
+  // filtro de fecha (a diferencia del filtro por patente/cliente/conductor
+  // de `filtered`, que es 100% client-side sobre lo ya cargado).
+  const [archiveResults,   setArchiveResults]   = useState<ReportRow[]>([])
+  const [archiveSearching, setArchiveSearching] = useState(false)
+  const [archiveError,     setArchiveError]     = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const q = search.trim()
+    const timer = setTimeout(async () => {
+      if (q.length < 2) { setArchiveResults([]); setArchiveError(null); return }
+      setArchiveSearching(true)
+      setArchiveError(null)
+      const supabase = createClient()
+      const orFilter = `patente.ilike.%${q}%,cliente.ilike.%${q}%,conductor.ilike.%${q}%`
+      const { data, error: err } = await supabase
+        .from("reports")
+        .select(SELECT_COLS)
+        .lt("fecha", seisMesesAtras)
+        .or(/^\d+$/.test(q) ? `${orFilter},numero.eq.${q}` : orFilter)
+        .order("numero", { ascending: false })
+        .limit(100)
+      if (cancelled) return
+      if (err) { setArchiveError(err.message); setArchiveSearching(false); return }
+      setArchiveResults((data as ReportRow[]) ?? [])
+      setArchiveSearching(false)
+    }, 350)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [search, seisMesesAtras])
 
   useEffect(() => { fetchReports() }, [fetchReports])
 
@@ -219,17 +271,22 @@ export default function ReportsPage() {
     }
   }
 
-  const filtered = useMemo(() => reports.filter(r => {
-    if (activeTab !== "todos" && r.estado !== activeTab) return false
-    if (search) {
-      const q = search.toLowerCase()
-      return r.patente.toLowerCase().includes(q) ||
-             r.cliente.toLowerCase().includes(q) ||
-             r.conductor.toLowerCase().includes(q) ||
-             String(r.numero).includes(q)
-    }
-    return true
-  }), [reports, activeTab, search])
+  const filtered = useMemo(() => {
+    // archiveResults ya viene filtrado por la búsqueda desde la BD (fuera
+    // de los últimos 6 meses) — solo falta aplicarle la pestaña activa.
+    const combined = search.trim().length >= 2 ? [...reports, ...archiveResults] : reports
+    return combined.filter(r => {
+      if (activeTab !== "todos" && r.estado !== activeTab) return false
+      if (search) {
+        const q = search.toLowerCase()
+        return r.patente.toLowerCase().includes(q) ||
+               r.cliente.toLowerCase().includes(q) ||
+               r.conductor.toLowerCase().includes(q) ||
+               String(r.numero).includes(q)
+      }
+      return true
+    })
+  }, [reports, archiveResults, activeTab, search])
 
   const counts = useMemo(() => ({
     todos:                 reports.length,
@@ -295,6 +352,30 @@ export default function ReportsPage() {
               }
             </Button>
           </div>
+        </div>
+      </div>
+    )}
+
+    {/* Modal archivos adjuntos */}
+    {filesFor && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="bg-card rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-foreground">Archivos — Report #{filesFor.numero}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{filesFor.cliente} · {filesFor.patente}</p>
+            </div>
+            <button onClick={() => setFilesFor(null)} className="text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <ArchivosPendienteDespachoPanel
+            report={filesFor}
+            onChange={paths => {
+              setFilesFor(prev => prev ? { ...prev, archivos_pendiente_despacho: paths } : prev)
+              setReports(prev => prev.map(r => r.id === filesFor.id ? { ...r, archivos_pendiente_despacho: paths } : r))
+            }}
+          />
         </div>
       </div>
     )}
@@ -372,8 +453,20 @@ export default function ReportsPage() {
         <div className="relative flex-1 min-w-[140px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input placeholder="Buscar patente, cliente, N°..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs w-full" />
+          {archiveSearching && (
+            <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground animate-spin" />
+          )}
         </div>
       </div>
+
+      {search.trim().length >= 2 && !archiveSearching && archiveResults.length > 0 && (
+        <p className="px-6 pb-2 text-[11px] text-muted-foreground -mt-1">
+          Se muestra la grilla (últimos 6 meses) + {archiveResults.length} resultado{archiveResults.length !== 1 ? "s" : ""} del archivo.
+        </p>
+      )}
+      {archiveError && (
+        <p className="px-6 pb-2 text-[11px] text-destructive -mt-1">No se pudo buscar en el archivo: {archiveError}</p>
+      )}
 
       {/* Table */}
       <div className="flex-1 min-h-0 overflow-hidden px-6 pb-4">
@@ -446,19 +539,34 @@ export default function ReportsPage() {
                       <td className="px-4 py-4">
                         <div className="flex items-center justify-end gap-0.5">
                           {r.estado === "pendiente_despacho" && (
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-8 w-8 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
-                              title="Despachar"
-                              onClick={e => {
-                                e.stopPropagation()
-                                setDispatchFor(r)
-                                setDispatchNombre("")
-                                setDispatchError(null)
-                              }}
-                            >
-                              <Truck className="h-4 w-4" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost" size="icon"
+                                className="relative h-8 w-8 text-muted-foreground hover:text-primary"
+                                title="Archivos adjuntos"
+                                onClick={e => { e.stopPropagation(); setFilesFor(r) }}
+                              >
+                                <Paperclip className="h-4 w-4" />
+                                {(r.archivos_pendiente_despacho?.length ?? 0) > 0 && (
+                                  <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center">
+                                    {r.archivos_pendiente_despacho!.length}
+                                  </span>
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-8 w-8 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
+                                title="Despachar"
+                                onClick={e => {
+                                  e.stopPropagation()
+                                  setDispatchFor(r)
+                                  setDispatchNombre("")
+                                  setDispatchError(null)
+                                }}
+                              >
+                                <Truck className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
                           <Button
                             variant="ghost" size="icon"
@@ -500,5 +608,140 @@ export default function ReportsPage() {
       </div>
     </div>
     </>
+  )
+}
+
+function ArchivosPendienteDespachoPanel({ report, onChange }: { report: ReportRow; onChange: (paths: string[]) => void }) {
+  const [archivos,  setArchivos]  = useState<string[]>(report.archivos_pendiente_despacho ?? [])
+  const [uploading, setUploading] = useState(false)
+  const [error,     setError]     = useState<string | null>(null)
+  const [dragOver,  setDragOver]  = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function upload(list: FileList | File[]) {
+    const files = Array.from(list)
+    const invalido = files.map(f => validateUploadFile(f)).find(Boolean)
+    if (invalido) { setError(invalido); return }
+    setError(null)
+    setUploading(true)
+    try {
+      const supabase = createClient()
+      const uploadedPaths: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        const ext  = sanitizeExt(f.name)
+        const path = `pd-${report.numero}-${report.id}-${Date.now()}-${i}.${ext}`
+        const { error: uploadErr } = await supabase.storage.from("reports-firmados").upload(path, f, { upsert: true })
+        if (uploadErr) throw uploadErr
+        uploadedPaths.push(path)
+      }
+      const nuevosPaths = [...archivos, ...uploadedPaths]
+      const { error: updateErr } = await supabase.from("reports")
+        .update({ archivos_pendiente_despacho: nuevosPaths }).eq("id", report.id)
+      if (updateErr) throw updateErr
+      setArchivos(nuevosPaths)
+      onChange(nuevosPaths)
+    } catch (err) {
+      console.error("[reports] error subiendo archivo:", err)
+      setError("No se pudo subir el archivo. Intenta de nuevo.")
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function remove(index: number) {
+    const nuevosPaths = archivos.filter((_, i) => i !== index)
+    setError(null)
+    const supabase = createClient()
+    const { error: err } = await supabase.from("reports")
+      .update({ archivos_pendiente_despacho: nuevosPaths }).eq("id", report.id)
+    if (err) {
+      console.error("[reports] error quitando archivo:", err)
+      setError("No se pudo quitar el archivo. Intenta de nuevo.")
+      return
+    }
+    setArchivos(nuevosPaths)
+    onChange(nuevosPaths)
+  }
+
+  return (
+    <div className="space-y-2">
+      {archivos.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {archivos.map((path, i) => (
+            <ArchivoPDLink key={path} path={path} index={i} onRemove={() => remove(i)} />
+          ))}
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*"
+        className="hidden"
+        onChange={e => { if (e.target.files) upload(e.target.files); e.target.value = "" }}
+      />
+      <div
+        onClick={() => !uploading && fileRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={e => { e.preventDefault(); setDragOver(false) }}
+        onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) upload(e.dataTransfer.files) }}
+        className={cn(
+          "flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 py-3 text-center cursor-pointer transition-colors",
+          dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/40",
+          uploading && "pointer-events-none opacity-60"
+        )}
+      >
+        {uploading
+          ? <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+          : <Paperclip className="h-4 w-4 text-muted-foreground" />
+        }
+        <p className="text-xs text-muted-foreground">
+          {uploading
+            ? "Subiendo..."
+            : <>Arrastra archivos aquí o <span className="text-primary underline underline-offset-2">selecciona</span></>
+          }
+        </p>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+function ArchivoPDLink({ path, index, onRemove }: { path: string; index: number; onRemove: () => void }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    createClient().storage.from("reports-firmados").createSignedUrl(path, 3600)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) { console.error("[reports] error generando URL firmada:", error); setFailed(true); return }
+        if (data) setUrl(data.signedUrl)
+        else setFailed(true)
+      })
+    return () => { cancelled = true }
+  }, [path, retryKey])
+  return (
+    <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-lg px-2.5 py-1.5">
+      <a
+        href={failed ? "#" : url ?? "#"}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={failed ? "No se pudo cargar el archivo — clic para reintentar" : undefined}
+        onClick={failed ? (e) => { e.preventDefault(); setFailed(false); setUrl(null); setRetryKey(k => k + 1) } : undefined}
+        className={cn(
+          "flex items-center gap-2 flex-1 min-w-0 text-xs",
+          url ? "hover:underline cursor-pointer" : failed ? "cursor-pointer hover:underline text-destructive" : "opacity-60 cursor-wait pointer-events-none"
+        )}
+      >
+        <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+        <span className="truncate">Archivo {index + 1}{failed && " — no se pudo cargar, clic para reintentar"}</span>
+      </a>
+      <button type="button" onClick={onRemove} className="text-muted-foreground hover:text-destructive flex-shrink-0">
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
   )
 }

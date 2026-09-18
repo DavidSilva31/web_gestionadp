@@ -325,6 +325,7 @@ export default function ReportDetailPage() {
       empresa_transporte: form.transporte_tipo === "propio" ? null : (form.empresa_transporte || null),
       transporte_tipo:    form.transporte_tipo,
       hds_header:         form.hds_header,
+      observaciones:      form.observaciones || null,
       sec1_activa:          sec1Activa,
       sec1_tipo_movimiento: form.sec1_tipo_movimiento || null,
       sec1_tipo_contenedor: form.sec1_tipo_contenedor || null,
@@ -851,6 +852,16 @@ export default function ReportDetailPage() {
                     )}
                   </div>
                 )}
+                <Field label="Observaciones" className="col-span-1 sm:col-span-3">
+                  <textarea
+                    value={form.observaciones}
+                    onChange={e => set("observaciones", e.target.value)}
+                    placeholder="Observaciones generales del report..."
+                    rows={2}
+                    disabled={leftReadOnly}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50"
+                  />
+                </Field>
               </div>
             </div>
 

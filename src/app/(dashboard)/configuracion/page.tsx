@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import {
   User, Users, Save, Loader2, Plus, Eye, EyeOff,
   ShieldCheck, Shield, Package, CheckCircle2, XCircle,
@@ -15,7 +16,7 @@ import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { AVATAR_ICONS, AVATAR_ICON_KEYS } from "@/lib/avatar-icons"
 import { ACCENT_COLORS, ACCENT_COLOR_KEYS } from "@/lib/accent-colors"
-import { ROLE_LABELS } from "@/types/auth"
+import { ROLE_LABELS, DEFAULT_ROUTE } from "@/types/auth"
 import { cn } from "@/lib/utils"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { UserRole } from "@/types/auth"
@@ -135,6 +136,7 @@ const initials = (nombre: string) =>
 
 export default function ConfiguracionPage() {
   const { user, profile, role, refreshProfile } = useAuth()
+  const router = useRouter()
   const isSuperAdmin = role === "super_admin"
 
   const [tab, setTab] = useState<Tab>("perfil")
@@ -252,6 +254,10 @@ export default function ConfiguracionPage() {
   async function handleChangePassword() {
     if (newPass !== confirmPass) { setPassMsg({ ok: false, text: "Las contraseñas no coinciden" }); return }
     if (newPass.length < 8)      { setPassMsg({ ok: false, text: "Mínimo 8 caracteres" });          return }
+    // Se captura antes de tocar nada: era un cambio forzado (primer login o
+    // reseteo) si el flag ya estaba activo — eso decide si al final hay que
+    // sacar al usuario de /configuracion solo o dejarlo donde está.
+    const eraForzado = profile?.must_change_password === true
     setSavingPass(true); setPassMsg(null)
     try {
       const supabase = createClient()
@@ -271,7 +277,18 @@ export default function ConfiguracionPage() {
         setPassMsg({ ok: false, text: `Tu contraseña se actualizó correctamente, pero no se pudo desbloquear el acceso (${flagJson.error ?? flagRes.status}). Recarga la página o contacta a soporte.` })
         return
       }
-      setPassMsg({ ok: true, text: "Contraseña actualizada" })
+      // Antes esto se quedaba solo en un mensaje de texto — el usuario tenía
+      // que apretar F5 para que el sidebar/menú dejaran de verse bloqueados,
+      // porque el perfil en memoria (AuthProvider) seguía con
+      // must_change_password=true hasta el próximo refresh manual.
+      await refreshProfile()
+      router.refresh()
+      if (eraForzado) {
+        setPassMsg({ ok: true, text: "Contraseña actualizada. Redirigiendo..." })
+        router.push(DEFAULT_ROUTE[role ?? "operador"])
+      } else {
+        setPassMsg({ ok: true, text: "Contraseña actualizada" })
+      }
     } catch (err) {
       console.error("[configuracion] error cambiando contraseña:", err)
       setPassMsg({ ok: false, text: "No se pudo conectar con el servidor." })

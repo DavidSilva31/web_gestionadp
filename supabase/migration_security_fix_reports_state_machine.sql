@@ -17,8 +17,11 @@
 --
 -- Este fix reinstala reglas ESTRUCTURALES (no las de negocio que se
 -- sacaron a propósito):
---   1) No se puede INSERTAR un report que nazca directo en
---      'pendiente_despacho' o 'despachado', saltándose Recepción/Operaciones.
+--   1) No se puede INSERTAR un report que nazca directo en 'despachado',
+--      saltándose Recepción/Operaciones/Despacho enteros. 'pendiente_despacho'
+--      SÍ se permite de entrada — ver migration_security_fix_reports_state_machine_v2.sql,
+--      que agregó el caso de reports/nuevo cuya única sección activa es
+--      Depósito de Contenedores (no necesita pasar por Operaciones).
 --   2) En pendiente_despacho, la UI también lo trata como solo-lectura — el
 --      único cambio legítimo desde ahí es la transición final a despachado
 --      (reports/despacho y el modal rápido de reports/page.tsx).
@@ -34,7 +37,7 @@
 CREATE OR REPLACE FUNCTION validate_report_transition()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF TG_OP = 'INSERT' AND NEW.estado NOT IN ('borrador', 'pendiente_operaciones') THEN
+  IF TG_OP = 'INSERT' AND NEW.estado NOT IN ('borrador', 'pendiente_operaciones', 'pendiente_despacho') THEN
     RAISE EXCEPTION 'Un report nuevo no puede crearse directo en estado %', NEW.estado;
   END IF;
 

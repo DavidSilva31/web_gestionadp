@@ -27,7 +27,12 @@ const securityHeaders = [
   { key: "X-XSS-Protection",          value: "1; mode=block"                   },
   { key: "Referrer-Policy",           value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy",        value: "camera=(), microphone=(), geolocation=()" },
-  { key: "Content-Security-Policy",   value: csp                               },
+  // Solo en producción: React dev necesita eval() para reconstruir
+  // callstacks al debuggear (nunca lo usa en producción), así que el CSP
+  // en dev rompe la consola de Next con "eval() is not supported".
+  ...(process.env.NODE_ENV === "production"
+    ? [{ key: "Content-Security-Policy", value: csp }]
+    : []),
 ]
 
 const nextConfig: NextConfig = {
