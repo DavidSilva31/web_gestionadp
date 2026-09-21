@@ -1058,126 +1058,43 @@ export default function HesPage() {
   }, [rangoPersonalizado, customStart, customEnd, selectedYear, selectedMonth, selectedCliente])
 
   // ── Fetch UF de la fecha seleccionada ───────────────────────────────────────
-  // 1) caché en Supabase (uf_valores) — la UF de un día pasado nunca cambia,
-  //    así que una vez obtenida no se vuelve a pedir a ninguna API externa.
-  // 2) mindicador.cl (histórico por fecha) con un reintento ante fallas
-  //    transitorias — es una API pública gratuita, a veces lenta/inestable.
-  // 3) si falla y la fecha es HOY, respaldo con api.gael.cloud (otro proveedor,
-  //    sin key, pero solo entrega el valor del día actual).
-  // Si todo falla, se avisa y el input de UF queda editable a mano.
+  // Se pide a /api/uf, que resuelve en el servidor (caché uf_valores →
+  // mindicador.cl → respaldo gael.cloud para hoy). Antes se llamaba a
+  // mindicador.cl directo desde el navegador, pero el CSP de producción
+  // bloquea ese origen (connect-src) y la UF nunca se cargaba sola.
+  // Si falla, se avisa y el input de UF queda editable a mano.
   useEffect(() => {
     let cancelled = false
-    let activeController: AbortController | null = null
+    const controller = new AbortController()
     setUfLoading(true)
     setUfError(null)
     setUfValue("")
 
-    const supabase = createClient()
-    const [y, m, d] = ufDate.split("-")
-    const mindicadorUrl = `https://mindicador.cl/api/uf/${d}-${m}-${y}`
-
-    // El componente puede desmontarse (o este efecto reiniciarse) mientras un
-    // fetch sigue en curso — el cleanup de abajo cancela ese fetch a propósito.
-    // Esa cancelación no es un error real: se detecta acá para no loguearla
-    // como falla ni pasar a los respaldos (mindicador -> reintento -> gael.cloud).
-    function isAbort(err: unknown): boolean {
-      return err instanceof DOMException && err.name === "AbortError"
-    }
-
-    async function fetchFromMindicador(): Promise<number> {
-      const controller = new AbortController()
-      activeController = controller
-      const timeout = setTimeout(() => controller.abort(new DOMException("timeout", "AbortError")), 8000)
-      try {
-        const r = await fetch(mindicadorUrl, { signal: controller.signal })
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        const data = await r.json()
-        const val = data?.serie?.[0]?.valor
-        if (typeof val !== "number") throw new Error("Respuesta inesperada de mindicador.cl")
-        return val
-      } finally {
-        clearTimeout(timeout)
-      }
-    }
-
-    async function fetchFromGaelCloud(): Promise<number> {
-      const controller = new AbortController()
-      activeController = controller
-      const timeout = setTimeout(() => controller.abort(new DOMException("timeout", "AbortError")), 8000)
-      try {
-        const r = await fetch("https://api.gael.cloud/general/public/monedas", { signal: controller.signal })
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        const data = await r.json()
-        const raw = Array.isArray(data) ? data.find((i: { Codigo?: string }) => i.Codigo === "UF")?.Valor : null
-        const val = typeof raw === "string" ? parseFloat(raw.replace(/\./g, "").replace(",", ".")) : NaN
-        if (!Number.isFinite(val)) throw new Error("Respuesta inesperada de gael.cloud")
-        return val
-      } finally {
-        clearTimeout(timeout)
-      }
-    }
-
-    function cacheValue(val: number) {
-      supabase.from("uf_valores").upsert({ fecha: ufDate, valor: val }, { onConflict: "fecha" })
-        .then(({ error }) => { if (error) console.error("[hes] error cacheando UF:", error) })
-    }
-
     async function run() {
       try {
-        const { data: cached } = await supabase.from("uf_valores").select("valor").eq("fecha", ufDate).maybeSingle()
+        const res = await fetch(`/api/uf?fecha=${encodeURIComponent(ufDate)}`, { signal: controller.signal })
+        const data = await res.json().catch(() => ({})) as { valor?: number; error?: string }
         if (cancelled) return
-        if (cached?.valor != null) {
-          setUfValue(Number(cached.valor).toFixed(2))
-          setUfLoading(false)
+        if (!res.ok || typeof data.valor !== "number") {
+          setUfError(
+            res.status === 404 || res.status === 400
+              ? `${data.error ?? "No hay UF para esa fecha."} Ingrésala manualmente o elige otra fecha.`
+              : "No se pudo obtener la UF automáticamente. Ingrésala manualmente o reintenta."
+          )
           return
         }
-
-        try {
-          const val = await fetchFromMindicador()
-          if (cancelled) return
-          setUfValue(val.toFixed(2))
-          cacheValue(val)
-          return
-        } catch (err) {
-          if (cancelled || isAbort(err)) return
-          await new Promise(res => setTimeout(res, 1500))
-          if (cancelled) return
-          try {
-            const val = await fetchFromMindicador()
-            if (cancelled) return
-            setUfValue(val.toFixed(2))
-            cacheValue(val)
-            return
-          } catch (err2) {
-            if (cancelled || isAbort(err2)) return
-            console.error("[hes] error obteniendo UF de mindicador.cl:", err2)
-          }
-        }
-
-        if (ufDate === TODAY_ISO) {
-          try {
-            const val = await fetchFromGaelCloud()
-            if (cancelled) return
-            setUfValue(val.toFixed(2))
-            cacheValue(val)
-            return
-          } catch (err) {
-            if (cancelled || isAbort(err)) return
-            console.error("[hes] error obteniendo UF de gael.cloud:", err)
-          }
-        }
-
-        if (!cancelled) setUfError("No se pudo obtener la UF automáticamente. Ingrésala manualmente o reintenta.")
+        setUfValue(data.valor.toFixed(2))
+      } catch (err) {
+        if (cancelled || (err instanceof DOMException && err.name === "AbortError")) return
+        console.error("[hes] error obteniendo la UF:", err)
+        setUfError("No se pudo obtener la UF automáticamente. Ingrésala manualmente o reintenta.")
       } finally {
         if (!cancelled) setUfLoading(false)
       }
     }
+    run()
 
-    run().catch(err => {
-      if (!isAbort(err)) console.error("[hes] error inesperado obteniendo UF:", err)
-    })
-
-    return () => { cancelled = true; activeController?.abort(new DOMException("cleanup", "AbortError")) }
+    return () => { cancelled = true; controller.abort() }
   }, [ufDate, ufRetryTick])
 
   function openUfDatePicker() {
