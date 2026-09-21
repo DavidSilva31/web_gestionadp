@@ -58,7 +58,10 @@ export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
         const blob  = await pdf(<ReportPDF report={report} firmaUrl={firmaUrl} />).toBlob()
         objectUrl   = URL.createObjectURL(blob)
         setUrl(objectUrl)
-      } catch {
+      } catch (err) {
+        // Antes se tragaba el error sin dejar rastro — imposible saber por
+        // qué fallaba la generación (ej. CSP bloqueando WebAssembly).
+        console.error("[report-preview-modal] error generando vista previa:", err)
         setError(true)
       } finally {
         setLoading(false)

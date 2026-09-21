@@ -20,12 +20,23 @@ const supabaseWsUrl  = supabaseUrl.replace(/^https:/, "wss:")
 const isDev = process.env.NODE_ENV === "development"
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  // 'wasm-unsafe-eval': @react-pdf/renderer 4.x (yoga-layout 3) compila un
+  // módulo WebAssembly en el navegador para generar los PDF (vista previa y
+  // descarga de reports/HES). Sin esto el CSP lo bloquea y todos los PDF
+  // fallan con "No se pudo generar la vista previa". Solo permite compilar
+  // WASM — a diferencia de 'unsafe-eval', no habilita eval() de JavaScript.
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${supabaseUrl}`,
   "font-src 'self' data:",
   `connect-src 'self' ${supabaseUrl} ${supabaseWsUrl} https://api.resend.com`,
-  "object-src 'none'",
+  // Los PDFs (vista previa de reports/HES/analítica, visor de HDS) se muestran
+  // en un <iframe> con una URL blob: generada en el navegador — sin frame-src
+  // caía en default-src 'self' y el visor quedaba en blanco. object-src 'none'
+  // además bloquea el visor de PDF nativo de Chrome dentro de ese iframe.
+  `frame-src 'self' blob: ${supabaseUrl}`,
+  "object-src 'self' blob:",
+  "worker-src 'self' blob:",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
