@@ -416,12 +416,12 @@ export function FirmaCanvas({ onChange, readOnly }: {
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="relative rounded-lg border-2 border-dashed border-muted-foreground/25 overflow-hidden">
+      <div className={cn("relative rounded-lg border-2 border-dashed border-muted-foreground/25 overflow-hidden", readOnly && "opacity-60")}>
         <canvas
           ref={canvasRef}
           width={700}
           height={200}
-          className="w-full h-[170px] touch-none cursor-crosshair bg-white"
+          className={cn("w-full h-[170px] touch-none bg-white", readOnly ? "cursor-not-allowed" : "cursor-crosshair")}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -429,7 +429,7 @@ export function FirmaCanvas({ onChange, readOnly }: {
         />
         {!hasStroke && (
           <p className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/70 pointer-events-none px-4 text-center">
-            Firma aquí — el conductor firma con el dedo o lápiz óptico
+            {readOnly ? "Firma bloqueada — el report ya no admite cambios" : "Firma aquí — el conductor firma con el dedo o lápiz óptico"}
           </p>
         )}
       </div>

@@ -11,12 +11,24 @@ import { HesResumenUnificadoPDF, type HesResumenUnificadoPDFData } from "@/compo
 
 let cachedLogoDataUri: string | null = null
 
+// PNG transparente de 1x1 — placeholder si el logo no se puede leer del disco.
+const TRANSPARENT_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
 function getLogoDataUri(): string {
   if (cachedLogoDataUri) return cachedLogoDataUri
-  const logoPath = path.join(process.cwd(), "public", "adp_logo_hd.png")
-  const b64 = fs.readFileSync(logoPath).toString("base64")
-  cachedLogoDataUri = `data:image/png;base64,${b64}`
-  return cachedLogoDataUri
+  try {
+    const logoPath = path.join(process.cwd(), "public", "adp_logo_hd.png")
+    const b64 = fs.readFileSync(logoPath).toString("base64")
+    cachedLogoDataUri = `data:image/png;base64,${b64}`
+    return cachedLogoDataUri
+  } catch (err) {
+    // En el runtime serverless de Netlify public/ puede no estar en el
+    // bundle de la función. Sin logo el PDF igual sale — antes esto tiraba y
+    // tumbaba todo el envío del correo. No se cachea para reintentar.
+    console.error("[hes-pdf-server] no se pudo leer el logo, se genera el PDF sin logo:", err)
+    return TRANSPARENT_PNG
+  }
 }
 
 export async function renderResumenPdfBuffer(data: Omit<HesResumenPDFData, "logoSrc">): Promise<Buffer> {

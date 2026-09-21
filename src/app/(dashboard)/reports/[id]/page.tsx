@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { logAudit, accionLabel } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
+import { ReportArchivosPanel } from "@/components/reports/report-archivos-panel"
 import type { AuditLog } from "@/lib/audit"
 import type { ReportEstado } from "@/types/database"
 import { dbToForm } from "@/components/reports/report-form-types"
@@ -124,6 +125,8 @@ export default function ReportDetailPage() {
   // Antes de este fix, reports/[id] no tenía ninguna forma de adjuntar o
   // reemplazar el HDS al editar (solo reports/nuevo lo permitía).
   const [existingHdsPaths, setExistingHdsPaths] = useState<string[]>([])
+  // Archivos adjuntos del report (cualquier estado) — se guardan al instante desde ReportArchivosPanel.
+  const [archivosAdjuntos, setArchivosAdjuntos] = useState<string[]>([])
   const [hdsFiles,         setHdsFiles]         = useState<File[]>([])
   const [hdsDragOver,      setHdsDragOver]      = useState(false)
   const hdsFileRef = useRef<HTMLInputElement>(null)
@@ -263,6 +266,7 @@ export default function ReportDetailPage() {
       if (data.documento_firmado_url) setDocPath(data.documento_firmado_url as string)
       setExistingEvidenciaPaths((data.sec2_evidencia_archivos as string[] | null) ?? [])
       setExistingHdsPaths((data.hds_archivos as string[] | null) ?? [])
+      setArchivosAdjuntos((data.archivos_pendiente_despacho as string[] | null) ?? [])
       if (data.firma_conductor_url) setFirmaPath(data.firma_conductor_url as string)
       setLoading(false)
 
@@ -789,7 +793,7 @@ export default function ReportDetailPage() {
                 )}
                 <div className="col-span-1 sm:col-span-3 flex items-center gap-2">
                   <Checkbox id="hds_header" checked={form.hds_header} onCheckedChange={v => !leftReadOnly && set("hds_header", v === true)} className="h-3.5 w-3.5" disabled={leftReadOnly} />
-                  <label htmlFor="hds_header" className="text-xs text-foreground/80 cursor-pointer">HDS (Hoja de datos de seguridad presente)</label>
+                  <label htmlFor="hds_header" className="text-xs font-bold text-foreground cursor-pointer">HDS (Hoja de datos de seguridad presente)</label>
                 </div>
                 {form.hds_header && (
                   <div className="col-span-1 sm:col-span-3 flex flex-col gap-1.5">
@@ -869,6 +873,10 @@ export default function ReportDetailPage() {
               <h2 className="text-[13px] font-bold text-foreground mb-1.5">1. Depósito de Contenedores</h2>
               <Sec1Content form={form} set={set as unknown as FormSetter} readOnly={leftReadOnly} toUpperCase hideActivation />
             </div>
+
+            {numero !== null && (
+              <ReportArchivosPanel reportId={id} numero={numero} initial={archivosAdjuntos} />
+            )}
             </div>
 
             {/* Columna derecha: Sección 2 + Sección 3 */}

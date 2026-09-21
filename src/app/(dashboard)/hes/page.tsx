@@ -1696,7 +1696,8 @@ export default function HesPage() {
       setResumenBlob(blob)
       setResumenUrl(URL.createObjectURL(blob))
       return blob
-    } catch {
+    } catch (err) {
+      console.error("[hes] error generando el resumen PDF:", err)
       setResumenError("No se pudo generar el resumen.")
       return null
     } finally {
@@ -1719,7 +1720,8 @@ export default function HesPage() {
       setActiveSheetIdx(0)
       setPreviewSheet(sheets[0]?.sheet ?? null)
       return blob
-    } catch {
+    } catch (err) {
+      console.error("[hes] error generando la vista previa del Excel:", err)
       setPreviewError("No se pudo generar la vista previa del Excel.")
       return null
     } finally {
