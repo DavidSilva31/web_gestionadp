@@ -18,6 +18,7 @@ import { AVATAR_ICONS, AVATAR_ICON_KEYS } from "@/lib/avatar-icons"
 import { ACCENT_COLORS, ACCENT_COLOR_KEYS } from "@/lib/accent-colors"
 import { ROLE_LABELS, DEFAULT_ROUTE } from "@/types/auth"
 import { cn } from "@/lib/utils"
+import { MiFirmaCard } from "@/components/configuracion/mi-firma-card"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { UserRole } from "@/types/auth"
 
@@ -665,6 +666,8 @@ export default function ConfiguracionPage() {
                   </button>
                 </div>
               </div>
+
+              <MiFirmaCard />
 
               <div className="rounded-xl border bg-card shadow-sm p-6 space-y-4">
                 <div className="flex items-center gap-2 pb-3 border-b">

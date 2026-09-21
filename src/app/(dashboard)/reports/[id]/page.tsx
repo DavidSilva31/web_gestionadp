@@ -19,6 +19,9 @@ import { logAudit, accionLabel } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { ReportArchivosPanel } from "@/components/reports/report-archivos-panel"
+import { FirmaStaffBlock } from "@/components/reports/firma-staff-block"
+import { firmarReport } from "@/lib/report-firmas"
+import type { FirmaEvidencia } from "@/lib/firma-hash"
 import type { AuditLog } from "@/lib/audit"
 import type { ReportEstado } from "@/types/database"
 import { dbToForm } from "@/components/reports/report-form-types"
@@ -140,6 +143,13 @@ export default function ReportDetailPage() {
   const [firmaRetryKey,  setFirmaRetryKey]  = useState(0)
   const [firmaDataUrl,   setFirmaDataUrl]   = useState<string | null>(null)
   const [reFirmando,     setReFirmando]     = useState(false)
+  const [firmandoConductor, setFirmandoConductor] = useState(false)
+  const [firmaError,        setFirmaError]        = useState<string | null>(null)
+  // Firma electrónica: evidencia (quién/cuándo/huella) y firmas de Recepción y
+  // encargado de bodega — se registran desde /api/reports/firmar.
+  const [firmaEvidencia,  setFirmaEvidencia]  = useState<FirmaEvidencia>({})
+  const [recepcionPath,   setRecepcionPath]   = useState<string | null>(null)
+  const [bodegaPath,      setBodegaPath]      = useState<string | null>(null)
 
   useEffect(() => {
     if (!firmaPath) return
@@ -214,6 +224,8 @@ export default function ReportDetailPage() {
   const leftReadOnly   = estado !== "borrador"
   const rightReadOnly  = estado !== "pendiente_operaciones"
   const sharedReadOnly = estado === "pendiente_despacho" || estado === "despachado"
+  // Las firmas se pueden aplicar/rehacer hasta que el report se despacha.
+  const firmaBloqueada = estado === "despachado"
 
   useEffect(() => {
     if (!historialOpen || logsLoaded) return
@@ -268,6 +280,9 @@ export default function ReportDetailPage() {
       setExistingHdsPaths((data.hds_archivos as string[] | null) ?? [])
       setArchivosAdjuntos((data.archivos_pendiente_despacho as string[] | null) ?? [])
       if (data.firma_conductor_url) setFirmaPath(data.firma_conductor_url as string)
+      setRecepcionPath((data.firma_recepcion_url as string | null) ?? null)
+      setBodegaPath((data.firma_bodega_url as string | null) ?? null)
+      setFirmaEvidencia((data.firma_evidencia as FirmaEvidencia | null) ?? {})
       setLoading(false)
 
       // El report solo guarda el nombre del cliente — resolver su id para que
@@ -287,6 +302,29 @@ export default function ReportDetailPage() {
     }
     fetchReport()
   }, [id])
+
+  // Registra la firma del conductor (firma en pantalla) con su evidencia.
+  async function firmarConductor(): Promise<boolean> {
+    if (!firmaDataUrl) return false
+    setFirmandoConductor(true)
+    setFirmaError(null)
+    try {
+      const res = await firmarReport(id, "conductor", firmaDataUrl)
+      setFirmaPath(res.path)
+      setFirmaEvidencia(res.evidencia)
+      setFirmaDataUrl(null)
+      setReFirmando(false)
+      return true
+    } catch (err) {
+      console.error("[reports/id] error firmando como conductor:", err)
+      const msg = err instanceof Error ? err.message : "No se pudo registrar la firma."
+      setFirmaError(msg)
+      setError(`El report se guardó, pero la firma del conductor no se registró: ${msg}`)
+      return false
+    } finally {
+      setFirmandoConductor(false)
+    }
+  }
 
   function set<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(prev => prev ? { ...prev, [key]: value } : prev)
@@ -508,24 +546,9 @@ export default function ReportDetailPage() {
       }
     }
 
-    // Subir firma nueva del conductor, si se (re)firmó.
-    if (firmaDataUrl) {
-      const blob = await fetch(firmaDataUrl).then(r => r.blob())
-      const path = `firma-${numero}-${id}.png`
-      const { error: firmaUploadErr } = await supabase.storage
-        .from("reports-firmados")
-        .upload(path, blob, { upsert: true, contentType: "image/png" })
-      if (firmaUploadErr) {
-        console.error("[reports/id] error subiendo firma del conductor:", firmaUploadErr)
-        setError("El report se guardó, pero no se pudo guardar la firma del conductor. Vuelve a firmar.")
-        return
-      }
-      const { error: firmaUpdateErr } = await supabase.from("reports").update({ firma_conductor_url: path }).eq("id", id)
-      if (firmaUpdateErr) {
-        console.error("[reports/id] error guardando referencia de la firma:", firmaUpdateErr)
-        setError("El report se guardó, pero no se pudo asociar la firma del conductor. Vuelve a firmar.")
-        return
-      }
+    // Firma del conductor dibujada y sin confirmar: se registra al guardar.
+    if (firmaDataUrl && !firmaBloqueada) {
+      if (!(await firmarConductor())) return
     }
 
     // stock_actual solo lo mueve el trigger de BD reports_sync_inventario
@@ -1042,7 +1065,7 @@ export default function ReportDetailPage() {
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   )}
                 </div>
-                {!sharedReadOnly && (
+                {!firmaBloqueada && (
                   <button
                     type="button"
                     onClick={() => { setReFirmando(true); setFirmaDataUrl(null) }}
@@ -1053,9 +1076,57 @@ export default function ReportDetailPage() {
                 )}
               </div>
             ) : (
-              <FirmaCanvas onChange={setFirmaDataUrl} readOnly={sharedReadOnly} />
+              <FirmaCanvas onChange={setFirmaDataUrl} readOnly={firmaBloqueada} />
+            )}
+            {!firmaBloqueada && firmaDataUrl && (
+              <div className="mt-1.5 flex items-center gap-2">
+                <Button type="button" size="sm" onClick={firmarConductor} disabled={firmandoConductor} className="h-7 gap-1.5 text-[11px]">
+                  {firmandoConductor ? <Loader2 className="h-3 w-3 animate-spin" /> : <FilePen className="h-3 w-3" />}
+                  Confirmar firma
+                </Button>
+                <span className="text-[10.5px] text-muted-foreground">Si no la confirmas, se registra al guardar el report.</span>
+              </div>
+            )}
+            {firmaError && <p className="mt-1 text-[11px] text-destructive">{firmaError}</p>}
+            {firmaPath && firmaEvidencia.conductor && !reFirmando && (
+              <p className="mt-1.5 text-[10.5px] text-muted-foreground leading-snug">
+                Firmado electrónicamente por {firmaEvidencia.conductor.user_nombre} · {new Date(firmaEvidencia.conductor.at).toLocaleString("es-CL", { timeZone: "America/Santiago", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })} · Cód. {firmaEvidencia.conductor.hash.slice(0, 8).toUpperCase()}
+              </p>
             )}
           </div>
+
+          {/* Firma electrónica del personal, según la etapa: el encargado de
+              bodega firma mientras el report está en Operaciones; Recepción
+              firma al confirmar el despacho (cola de despacho) — acá solo se
+              muestra si ya firmó. */}
+          {(estado === "pendiente_operaciones" || bodegaPath || recepcionPath) && (
+            <div className="border-t mt-3 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {(estado === "pendiente_operaciones" || bodegaPath) && (
+                <FirmaStaffBlock
+                  reportId={id}
+                  rol="bodega"
+                  titulo="Firma del encargado de bodega"
+                  path={bodegaPath}
+                  evidencia={firmaEvidencia.bodega}
+                  bloqueada={estado !== "pendiente_operaciones"}
+                  tieneFirmaPerfil={!!profile?.firma_url}
+                  onSigned={res => { setBodegaPath(res.path); setFirmaEvidencia(res.evidencia) }}
+                />
+              )}
+              {recepcionPath && (
+                <FirmaStaffBlock
+                  reportId={id}
+                  rol="recepcion"
+                  titulo="Firma de Recepción"
+                  path={recepcionPath}
+                  evidencia={firmaEvidencia.recepcion}
+                  bloqueada
+                  tieneFirmaPerfil={!!profile?.firma_url}
+                  onSigned={res => { setRecepcionPath(res.path); setFirmaEvidencia(res.evidencia) }}
+                />
+              )}
+            </div>
+          )}
 
           {/* Nombre del operador, centrado */}
           <div className="border-t mt-3 pt-3 flex justify-center">

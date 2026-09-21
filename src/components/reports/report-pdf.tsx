@@ -1,5 +1,6 @@
 import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer"
 import type { Report } from "@/types/database"
+import type { FirmaPdf, FirmasPdf } from "@/lib/report-firmas"
 
 const BLUE = "#1a3a5c"
 
@@ -57,7 +58,10 @@ const s = StyleSheet.create({
   stampSub: { fontSize: 7, color: "#e53e3e" },
 
   // Firma del conductor (imagen capturada en el canvas)
-  firmaImg: { height: 55, maxWidth: 260, objectFit: "contain", marginTop: 2 },
+  firmaImg: { height: 45, maxWidth: 160, objectFit: "contain", marginTop: 2 },
+  firmaSello: { fontSize: 5.5, color: "#555", marginTop: 2 },
+  firmaSelloAlerta: { fontSize: 5.5, color: "#c53030", marginTop: 1, fontFamily: "Helvetica-Bold" },
+  firmaLegal: { fontSize: 5.5, color: "#777", marginTop: 4 },
 })
 
 function CB({ checked }: { checked: boolean }) {
@@ -86,7 +90,39 @@ function CbItem({ checked, label }: { checked: boolean; label: string }) {
   )
 }
 
-export function ReportPDF({ report, firmaUrl }: { report: Report; firmaUrl?: string | null }) {
+function fechaFirma(iso: string): string {
+  return new Date(iso).toLocaleString("es-CL", {
+    timeZone: "America/Santiago", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  })
+}
+
+// Un bloque de firma: nombre, imagen (o línea en blanco) y el sello de la
+// firma electrónica — quién, cuándo y el código de verificación del contenido.
+function BloqueFirma({ titulo, nombre, firma }: { titulo: string; nombre: string; firma?: FirmaPdf }) {
+  return (
+    <View style={{ flex: 1, marginRight: 14 }}>
+      <Text style={[s.cbLabel, { marginBottom: 4 }]}>{titulo}</Text>
+      <Text style={[s.sigLabel, { fontFamily: "Helvetica-Bold", marginBottom: 4 }]}>{nombre}</Text>
+      <Text style={[s.cbLabel, { marginTop: 4, marginBottom: 4 }]}>Firma:</Text>
+      {firma?.url
+        ? <Image style={s.firmaImg} src={firma.url} />
+        : <View style={s.sigLine} />
+      }
+      {firma?.at ? (
+        <>
+          <Text style={s.firmaSello}>
+            Firmado electrónicamente por {firma.nombre} · {fechaFirma(firma.at)} · Cód. {firma.codigo}
+          </Text>
+          {firma.modificado && (
+            <Text style={s.firmaSelloAlerta}>El report fue modificado después de esta firma</Text>
+          )}
+        </>
+      ) : null}
+    </View>
+  )
+}
+
+export function ReportPDF({ report, firmas = {} }: { report: Report; firmas?: FirmasPdf }) {
   const isDespachado = report.estado === "despachado"
 
   return (
@@ -273,25 +309,18 @@ export function ReportPDF({ report, firmaUrl }: { report: Report; firmaUrl?: str
         </View>
 
         {/* ── Firmas ── */}
-        {/* Chofer (conductor, firma digital) y operador de carga son dos
-            personas distintas — cada uno con su lado, sin mezclar nombres. */}
+        {/* Conductor (firma en pantalla), Recepción y encargado de bodega
+            (firma guardada en su perfil). Cada una con su sello electrónico. */}
         <View style={s.sigRow}>
-          <View style={{ flex: 1, marginRight: 20 }}>
-            <Text style={[s.cbLabel, { marginBottom: 4 }]}>Chofer:</Text>
-            <Text style={[s.sigLabel, { fontFamily: "Helvetica-Bold", marginBottom: 4 }]}>{report.conductor ?? ""}</Text>
-            <Text style={[s.cbLabel, { marginTop: 4, marginBottom: 4 }]}>Firma:</Text>
-            {firmaUrl
-              ? <Image style={s.firmaImg} src={firmaUrl} />
-              : <View style={s.sigLine} />
-            }
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[s.cbLabel, { marginBottom: 4 }]}>Operador de carga:</Text>
-            <Text style={[s.sigLabel, { fontFamily: "Helvetica-Bold", marginBottom: 4 }]}>{report.nombre_operador ?? ""}</Text>
-            <Text style={[s.cbLabel, { marginTop: 4, marginBottom: 4 }]}>Firma:</Text>
-            <View style={s.sigLine} />
-          </View>
+          <BloqueFirma titulo="Chofer:" nombre={report.conductor ?? ""} firma={firmas.conductor} />
+          <BloqueFirma titulo="Recepción:" nombre={firmas.recepcion?.nombre ?? ""} firma={firmas.recepcion} />
+          <BloqueFirma titulo="Encargado de bodega:" nombre={report.nombre_operador ?? firmas.bodega?.nombre ?? ""} firma={firmas.bodega} />
         </View>
+        {(firmas.conductor?.at || firmas.recepcion?.at || firmas.bodega?.at) && (
+          <Text style={s.firmaLegal}>
+            Firmas electrónicas simples (Ley N° 19.799). El código de verificación corresponde a la huella SHA-256 del contenido firmado.
+          </Text>
+        )}
 
         {/* ── Sello DESPACHADO ── */}
         {isDespachado && (

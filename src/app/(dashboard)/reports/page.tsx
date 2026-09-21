@@ -17,6 +17,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
+import { FirmaRecepcionDespacho } from "@/components/reports/firma-staff-block"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
@@ -80,6 +81,7 @@ export default function ReportsPage() {
   // Estado del modal de despacho
   const [dispatchFor,    setDispatchFor]    = useState<ReportRow | null>(null)
   const [dispatchNombre, setDispatchNombre] = useState("")
+  const [dispatchFirmado, setDispatchFirmado] = useState(false)
   const [dispatchLoading, setDispatchLoading] = useState(false)
   const [dispatchError,  setDispatchError]  = useState<string | null>(null)
 
@@ -155,6 +157,8 @@ export default function ReportsPage() {
   function closeDispatchModal() {
     setDispatchFor(null)
     setDispatchNombre("")
+    setDispatchFirmado(false)
+    setDispatchFirmado(false)
     setDispatchError(null)
   }
 
@@ -213,7 +217,7 @@ export default function ReportsPage() {
   }
 
   async function handleDispatch() {
-    if (!dispatchFor || !dispatchNombre.trim()) return
+    if (!dispatchFor || !dispatchNombre.trim() || !dispatchFirmado) return
     setDispatchError(null)
     setDispatchLoading(true)
 
@@ -321,6 +325,9 @@ export default function ReportsPage() {
             </button>
           </div>
 
+          {/* Firma de Recepción — obligatoria para confirmar la salida */}
+          <FirmaRecepcionDespacho key={dispatchFor.id} reportId={dispatchFor.id} onChange={setDispatchFirmado} />
+
           {/* Nombre despachador */}
           <div>
             <label className="block text-xs font-medium text-foreground/80 mb-1.5">
@@ -344,7 +351,7 @@ export default function ReportsPage() {
               size="sm"
               className="flex-1 h-9 gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40"
               onClick={handleDispatch}
-              disabled={!dispatchNombre.trim() || dispatchLoading}
+              disabled={!dispatchNombre.trim() || !dispatchFirmado || dispatchLoading}
             >
               {dispatchLoading
                 ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Procesando...</>

@@ -82,6 +82,9 @@ export interface Report {
 
   // Firmas
   firma_conductor_url: string | null
+  firma_recepcion_url: string | null
+  firma_bodega_url: string | null
+  firma_evidencia: import("@/lib/firma-hash").FirmaEvidencia | null
   nombre_operador: string | null
   created_at: string
   created_by: string | null

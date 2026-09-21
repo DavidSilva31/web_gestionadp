@@ -10,6 +10,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
+import { FirmaRecepcionDespacho } from "@/components/reports/firma-staff-block"
 import { cn } from "@/lib/utils"
 
 interface PendingReport {
@@ -66,6 +67,7 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [dispatching, setDispatching] = useState(false)
   const [dragOver,    setDragOver]    = useState(false)
+  const [firmado,     setFirmado]     = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Archivos adjuntos mientras espera despacho (el report escaneado, una
@@ -136,7 +138,7 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
   }
 
   async function handleConfirm() {
-    if (!nombre.trim() || !file) return
+    if (!nombre.trim() || !file || !firmado) return
     setUploadError(null)
     const invalido = validateUploadFile(file)
     if (invalido) { setUploadError(invalido); return }
@@ -171,7 +173,7 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
   }
 
   const mins = minutosEsperando(report.created_at)
-  const canConfirm = nombre.trim().length > 0 && file !== null && !dispatching
+  const canConfirm = nombre.trim().length > 0 && file !== null && firmado && !dispatching
 
   return (
     <div className="bg-card rounded-xl border shadow-sm overflow-hidden">
@@ -334,10 +336,19 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
             {uploadError && <p className="text-xs text-red-500 mt-1">{uploadError}</p>}
           </div>
 
-          {/* Paso 2: Nombre despachador */}
+          {/* Paso 2: Firma de Recepción */}
+          <div>
+            <p className="text-xs mb-1.5">
+              <span className="font-medium text-foreground">2. Firma de Recepción</span>
+              <span className="text-red-500 ml-0.5">*</span>
+            </p>
+            <FirmaRecepcionDespacho reportId={report.id} onChange={setFirmado} />
+          </div>
+
+          {/* Paso 3: Nombre despachador */}
           <div>
             <label className="block text-xs mb-1.5">
-              <span className="font-medium text-foreground">2. Nombre del despachador</span>
+              <span className="font-medium text-foreground">3. Nombre del despachador</span>
               <span className="text-red-500 ml-0.5">*</span>
             </label>
             <div className="flex items-center gap-3">

@@ -13,6 +13,7 @@ export type AuditAccion =
   | "report.confirmar_despacho"
   | "report.despachar"
   | "report.eliminar"
+  | "report.firmar"
   | "inventario.ingreso"
   | "inventario.despacho"
   | "inventario.crear_item"
@@ -53,6 +54,7 @@ const ACCION_LABEL: Record<AuditAccion, string> = {
   "report.confirmar_despacho":   "Despacho confirmado",
   "report.despachar":            "Despacho confirmado con documento firmado",
   "report.eliminar":             "Report eliminado",
+  "report.firmar":               "Report firmado",
   "inventario.ingreso":          "Ingreso registrado en inventario",
   "inventario.despacho":         "Despacho registrado en inventario",
   "inventario.crear_item":       "Ítem de inventario creado",
@@ -86,6 +88,7 @@ export const ACCION_STYLE: Record<string, { icon: LucideIcon; pill: string }> = 
   "report.confirmar_despacho":  { icon: Truck,         pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
   "report.despachar":           { icon: ScanLine,      pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
   "report.eliminar":            { icon: Trash2,        pill: "bg-red-100     text-red-700     dark:bg-red-900/30   dark:text-red-400"     },
+  "report.firmar":              { icon: FilePen,       pill: "bg-indigo-100  text-indigo-700  dark:bg-indigo-900/30 dark:text-indigo-400"  },
   "inventario.ingreso":         { icon: PackagePlus,   pill: "bg-sky-100     text-sky-700     dark:bg-sky-900/30   dark:text-sky-400"     },
   "inventario.despacho":        { icon: PackageMinus,  pill: "bg-violet-100  text-violet-700  dark:bg-violet-900/30 dark:text-violet-400"  },
   "inventario.crear_item":      { icon: Boxes,         pill: "bg-sky-100     text-sky-700     dark:bg-sky-900/30   dark:text-sky-400"     },
