@@ -39,12 +39,17 @@ const csp = [
   "worker-src 'self' blob:",
   "base-uri 'self'",
   "form-action 'self'",
-  "frame-ancestors 'none'",
+  // 'self' en vez de 'none': la vista previa de reports ahora sirve el PDF
+  // desde /api/reports/[id]/pdf (Content-Disposition con el nombre correcto
+  // para el visor nativo, ver esa ruta) y lo muestra en un <iframe> de la
+  // propia app — sigue bloqueando que CUALQUIER otro sitio la enmarque.
+  "frame-ancestors 'self'",
 ].join("; ")
 
 const securityHeaders = [
   { key: "X-Content-Type-Options",    value: "nosniff"                         },
-  { key: "X-Frame-Options",           value: "DENY"                            },
+  // SAMEORIGIN (no DENY): mismo motivo que frame-ancestors 'self' arriba.
+  { key: "X-Frame-Options",           value: "SAMEORIGIN"                      },
   { key: "X-XSS-Protection",          value: "1; mode=block"                   },
   { key: "Referrer-Policy",           value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy",        value: "camera=(), microphone=(), geolocation=()" },

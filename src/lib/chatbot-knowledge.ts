@@ -122,7 +122,11 @@ un camión por las instalaciones. Flujo en DOS FASES:
      productos), y se agrega una tarjeta por cada producto con su propio Clase
      IMO, N° de pallets y de unidades, tipo ingreso/despacho, lote, CAS, orden de
      compra, fechas de elaboración/vencimiento — cada producto deriva su propia
-     tarifa automáticamente según su Clase IMO. Hay un check "Servicio Adicional"
+     tarifa automáticamente según su Clase IMO. Si el producto que se busca no
+     existe todavía en Inventario, el botón "+ Nuevo producto" del buscador abre
+     el mismo formulario de alta de Inventario ahí mismo — al guardar, el
+     producto queda creado y elegido en el report al instante, sin recargar la
+     página. Hay un check "Servicio Adicional"
      a nivel de sección si aplica un servicio especial, más la firma digital del
      conductor y el nombre del operador de carga. Al enviar, el report pasa a
      "pendiente_despacho".

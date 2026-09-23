@@ -131,6 +131,7 @@ Informes de recepción de carga:
   - Sección 1 — Depósito de contenedores
   - Sección 2 — Consolidado / Desconsolidado / Otros (con dropzone/cámara para **evidencia fotográfica** cuando se marca consolidado o desconsolidado)
   - Sección 3 — Bodegaje: se completa en Operaciones, no en este formulario
+  - **Alta rápida de producto nuevo**: si el producto que busca en el Producto de Bodegaje no existe en Inventario, el botón "+ Nuevo producto" abre el mismo formulario de alta de `/inventario` (descripción, categoría, instalación, Clase IMO, N° ONU, unidad, stock, peso, stock mínimo); al guardar, el producto queda creado y seleccionado en el report al instante, sin recargar la página
   - **Adjuntos**: una sola caja de adjuntar cubre tanto **HDS** como **Guía de despacho** (checkboxes independientes sobre el mismo dropzone)
   - **Firma del conductor**: recuadro con canvas táctil (pensado para tablet + lápiz) entre los servicios asociados y el cierre del report
 - **Detalle** (`/reports/[id]`): vista y edición completa; al pasar borrador → pendiente_despacho llama `update_stock` con rollback si falla

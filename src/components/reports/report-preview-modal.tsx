@@ -1,11 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Download, X, Loader2, FileText } from "lucide-react"
-import { createClient } from "@/lib/supabase"
-import { cargarFirmasReport } from "@/lib/report-firmas"
-import { cargarBodegajeItems } from "@/lib/report-bodegaje"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { Report } from "@/types/database"
 
@@ -16,9 +13,7 @@ interface Props {
 }
 
 export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
-  const [url,          setUrl]          = useState<string | null>(null)
   const [loading,       setLoading]      = useState(true)
-  const [error,         setError]        = useState(false)
   const [downloading,   setDownloading]  = useState(false)
   const [downloadError, setDownloadError] = useState(false)
 
@@ -40,45 +35,6 @@ export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
       setDownloading(false)
     }
   }
-
-  useEffect(() => {
-    let objectUrl: string
-    ;(async () => {
-      try {
-        const { pdf }       = await import("@react-pdf/renderer")
-        const { ReportPDF } = await import("@/components/reports/report-pdf")
-
-        // Recarga el report fresco en vez del que llegó por prop — ese puede
-        // venir de una lista que no se refrescó tras el último guardado, y
-        // quedaría desincronizado con la huella de las firmas (que sí se
-        // recalcula fresca), mostrando "El report fue modificado después de
-        // esta firma" aunque en la BD ya no sea cierto.
-        const [{ data: fresh }, firmas, items] = await Promise.all([
-          createClient().from("reports").select("*").eq("id", report.id).single(),
-          cargarFirmasReport(report.id),
-          cargarBodegajeItems(report.id),
-        ])
-        const blob   = await pdf(<ReportPDF report={(fresh as Report) ?? report} firmas={firmas} items={items} />).toBlob()
-        objectUrl   = URL.createObjectURL(blob)
-        setUrl(objectUrl)
-      } catch (err) {
-        // Antes se tragaba el error sin dejar rastro — imposible saber por
-        // qué fallaba la generación (ej. CSP bloqueando WebAssembly).
-        console.error("[report-preview-modal] error generando vista previa:", err)
-        setError(true)
-      } finally {
-        setLoading(false)
-      }
-    })()
-    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [report])
-
-  // Cerrar con Escape
-  useEffect(() => {
-    function handler(e: KeyboardEvent) { if (e.key === "Escape") onClose() }
-    document.addEventListener("keydown", handler)
-    return () => document.removeEventListener("keydown", handler)
-  }, [onClose])
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/70 backdrop-blur-sm">
@@ -102,7 +58,7 @@ export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
             size="sm"
             variant="outline"
             onClick={handleDownloadClick}
-            disabled={loading || error || downloading}
+            disabled={downloading}
             className="h-8 gap-1.5 text-[12px]"
           >
             {downloading
@@ -130,19 +86,17 @@ export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
             <p className="text-sm">Generando vista previa…</p>
           </div>
         )}
-        {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-            <FileText className="h-10 w-10 opacity-30" />
-            <p className="text-sm">No se pudo generar la vista previa</p>
-          </div>
-        )}
-        {url && !error && (
-          <iframe
-            src={url}
-            className="w-full h-full border-0"
-            title={`Report REP-${String(report.numero).padStart(3, "0")}`}
-          />
-        )}
+        {/* El PDF se genera en el servidor (/api/reports/[id]/pdf) y se sirve
+            con Content-Disposition — a diferencia de un blob: URL armado en
+            el navegador, esto sí le da al botón de descarga del visor nativo
+            del PDF (el de su propia barra, no el "Descargar" de acá arriba)
+            un nombre de archivo real para sugerir al guardar. */}
+        <iframe
+          src={`/api/reports/${report.id}/pdf`}
+          className="w-full h-full border-0"
+          title={`Report REP-${String(report.numero).padStart(3, "0")}`}
+          onLoad={() => setLoading(false)}
+        />
       </div>
     </div>
   )

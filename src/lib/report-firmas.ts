@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase"
 import { hashContenidoReport, type FirmaEvidencia, type RolFirma } from "@/lib/firma-hash"
 
@@ -52,8 +53,9 @@ const COLUMNA: Record<RolFirma, "firma_conductor_url" | "firma_recepcion_url" | 
 // Trae las firmas del report (siempre desde la BD, no del objeto que llegue a
 // la vista previa — varias pantallas cargan solo algunas columnas) y verifica
 // que el contenido no haya cambiado desde que se firmó.
-export async function cargarFirmasReport(reportId: string): Promise<FirmasPdf> {
-  const supabase = createClient()
+// Acepta un cliente Supabase opcional — por defecto el de navegador, pero la
+// ruta /api/reports/[id]/pdf (generación server-side, ver ahí) pasa el suyo.
+export async function cargarFirmasReport(reportId: string, supabase: SupabaseClient = createClient()): Promise<FirmasPdf> {
   const { data: row, error } = await supabase.from("reports").select("*").eq("id", reportId).single()
   if (error || !row) {
     console.error("[report-firmas] error leyendo el report para las firmas:", error)

@@ -16,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
-import { resolveEffectiveClienteId } from "@/lib/inventario"
+import { resolveEffectiveClienteId, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea } from "@/lib/inventario"
 import { cn } from "@/lib/utils"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import { useAuth } from "@/contexts/auth-context"
@@ -31,20 +31,9 @@ import type {
   Movimiento,
 } from "@/types/database"
 
-const CATEGORIAS: InventarioCategoria[] = [
-  "Contenedor IMO", "Isotanque", "Residuo peligroso", "Carga general",
-]
-const UNIDADES = ["unidad", "pallets", "contenedor", "isotanque", "kg", "ton"]
-
-// El enum Área quedó obsoleto frente al catálogo real de instalaciones — se
-// sigue completando (columna NOT NULL) pero se infiere desde la instalación
-// elegida en vez de pedírselo al usuario dos veces.
-function inferArea(inst: InstalacionAlmacenamiento | undefined): InventarioArea {
-  if (!inst) return "Bodega General"
-  if (inst.codigo.toUpperCase().includes("RESPEL")) return "Zona RESPEL"
-  if (inst.tipo === "Patio") return "Zona Isotanques"
-  return "Bodega IMO"
-}
+const CATEGORIAS = INVENTARIO_CATEGORIAS
+const UNIDADES = INVENTARIO_UNIDADES
+const inferArea = inferInventarioArea
 
 const ESTADO_BADGE: Record<string, string> = {
   Normal:  "badge-success",

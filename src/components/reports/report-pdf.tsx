@@ -1,4 +1,5 @@
 import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer"
+import { ADP_LOGO_DATA_URI } from "@/lib/adp-logo-base64"
 import type { Report, ReportBodegajeItem } from "@/types/database"
 import type { FirmaPdf, FirmasPdf } from "@/lib/report-firmas"
 
@@ -193,17 +194,19 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
   const totalUnidades = items.reduce((sum, it) => sum + (it.sec3_numero_unidades ?? 0), 0)
 
   return (
-    // El título del documento PDF es lo que Chrome usa como nombre sugerido
-    // al descargar desde el propio botón del visor nativo (el de la barra de
-    // herramientas del iframe) — sin esto, ese botón descarga con el UUID
-    // del blob: en vez de "report-{numero}". El botón "Descargar" propio del
-    // modal ya fuerza este nombre por su cuenta (ver download-report-pdf.tsx).
+    // El título "report-{numero}" queda en los metadatos del PDF (lo usa el
+    // botón "Descargar" propio del modal — ver download-report-pdf.tsx — y
+    // algunos visores como nombre de pestaña), pero el botón de descarga del
+    // visor nativo embebido en el iframe no lo respeta: para un blob: URL cae
+    // al UUID del blob sin importar el título interno. Ese caso se resuelve
+    // sirviendo el PDF desde una ruta del servidor con Content-Disposition
+    // (ver /api/reports/[id]/pdf), no acá.
     <Document title={`report-${report.numero}`}>
       <Page size="A4" style={s.page}>
 
         {/* ── Header ── */}
         <View style={s.header}>
-          <Image style={s.headerLogo} src={`${window.location.origin}/adp_logo_hd.png`} />
+          <Image style={s.headerLogo} src={ADP_LOGO_DATA_URI} />
           <View style={s.headerCenter}>
             <Text style={s.headerTitle}>REPORT SERVICIO ALMACENAMIENTO</Text>
             <View style={s.headerNumRow}>
@@ -399,7 +402,7 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
         {isDespachado && (
           <View style={s.stamp}>
             <View style={s.stampInner} />
-            <Image style={s.stampLogo} src={`${window.location.origin}/adp_logo_hd.png`} />
+            <Image style={s.stampLogo} src={ADP_LOGO_DATA_URI} />
             <Text style={s.stampText}>DESPACHADO</Text>
             <View style={s.stampDivider} />
             <Text style={s.stampSub}>RUT 76.499.190-7</Text>

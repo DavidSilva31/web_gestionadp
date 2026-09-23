@@ -477,6 +477,20 @@ export default function DespachoPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
+  // Realtime: si otro usuario crea un report o lo envía/saca de la cola de
+  // despacho, esta vista se refresca sola — mismo patrón que ya usa la
+  // campanita de notificaciones (use-notifications.ts) sobre audit_logs.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel("reports-despacho-realtime")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "reports" }, () => fetchAll())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "reports" }, () => fetchAll())
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [fetchAll])
+
   async function handleDispatch(id: string, nombre: string, docPath: string | null): Promise<string | null> {
     // Sin try/catch acá, una excepción real (no un error devuelto por
     // Supabase) dejaba el botón de "Confirmando..." pegado para siempre en

@@ -157,6 +157,22 @@ export default function ReportsPage() {
 
   useEffect(() => { fetchReports() }, [fetchReports])
 
+  // Realtime: si otro usuario crea un report o le cambia el estado (lo
+  // despacha, lo anula, etc.), la lista se refresca sola — mismo patrón que
+  // ya usa la campanita de notificaciones (use-notifications.ts) sobre
+  // audit_logs. Se refresca la lista completa en vez de mezclar la fila que
+  // vino en el evento por simplicidad; si se siente lento, se puede afinar.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel("reports-list-realtime")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "reports" }, () => fetchReports())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "reports" }, () => fetchReports())
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [fetchReports])
+
   useCloseOnBack(dispatchFor !== null, () => closeDispatchModal())
 
   function closeDispatchModal() {

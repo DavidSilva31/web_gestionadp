@@ -1,4 +1,23 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import type { InventarioArea, InventarioCategoria, InstalacionAlmacenamiento } from "@/types/database"
+
+// Compartido entre /inventario (dialog de alta/edición) y el alta rápida de
+// producto nuevo desde Bodegaje en un report — un solo lugar para no
+// desincronizar las opciones entre ambos formularios.
+export const INVENTARIO_CATEGORIAS: InventarioCategoria[] = [
+  "Contenedor IMO", "Isotanque", "Residuo peligroso", "Carga general",
+]
+export const INVENTARIO_UNIDADES = ["unidad", "pallets", "contenedor", "isotanque", "kg", "ton"]
+
+// El enum Área quedó obsoleto frente al catálogo real de instalaciones — se
+// sigue completando (columna NOT NULL) pero se infiere desde la instalación
+// elegida en vez de pedírselo al usuario dos veces.
+export function inferInventarioArea(inst: InstalacionAlmacenamiento | undefined): InventarioArea {
+  if (!inst) return "Bodega General"
+  if (inst.codigo.toUpperCase().includes("RESPEL")) return "Zona RESPEL"
+  if (inst.tipo === "Patio") return "Zona Isotanques"
+  return "Bodega IMO"
+}
 
 // Recalcula peso_ton = peso_unitario_ton * stock_actual tras un cambio de
 // stock (movimiento o despacho de report). Sin esto, la ocupación en
