@@ -73,6 +73,7 @@ const EMPTY_FORM = (tipo: MovimientoTipo): MovimientoInsert => ({
   peso_envase:        null,
   tipo_envase:        null,
   posiciones:         null,
+  numero_pallet:      null,
   guia_numero:        null,
   orden_compra:       null,
   bodega:             null,
@@ -214,6 +215,7 @@ export default function MovimientosPage() {
       peso_envase:        m.peso_envase,
       tipo_envase:        m.tipo_envase,
       posiciones:         m.posiciones,
+      numero_pallet:      m.numero_pallet,
       guia_numero:        m.guia_numero,
       orden_compra:       m.orden_compra,
       bodega:             m.bodega,
@@ -229,7 +231,7 @@ export default function MovimientosPage() {
       setClienteTarifas([])
     }
     setError(null)
-    setManifiestoOpen(!!(m.codigo || m.imo || m.un || m.cas || m.lote || m.fecha_elaboracion || m.fecha_vencimiento || m.peso_envase || m.tipo_envase || m.posiciones || m.guia_numero || m.orden_compra || m.bodega))
+    setManifiestoOpen(!!(m.codigo || m.imo || m.un || m.cas || m.lote || m.fecha_elaboracion || m.fecha_vencimiento || m.peso_envase || m.tipo_envase || m.posiciones || m.numero_pallet || m.guia_numero || m.orden_compra || m.bodega))
     setDialog(m)
   }
 
@@ -883,6 +885,16 @@ export default function MovimientosPage() {
                         value={form.posiciones ?? ""}
                         onChange={e => setForm(p => ({ ...p, posiciones: e.target.value ? parseInt(e.target.value) : null }))}
                         placeholder="0"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Nr. Pallet</Label>
+                      <Input
+                        value={form.numero_pallet ?? ""}
+                        onChange={e => setForm(p => ({ ...p, numero_pallet: e.target.value || null }))}
+                        placeholder="Ej: P-12"
                         className="h-9"
                       />
                     </div>

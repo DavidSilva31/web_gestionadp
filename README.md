@@ -31,6 +31,8 @@ SUPABASE_SERVICE_ROLE_KEY=...
 NEXT_PUBLIC_SITE_URL=https://tu-sitio.netlify.app   # URL de producción (para redirects de auth)
 RESEND_API_KEY=...                                   # Envío de HES por correo (/api/hes/send-email)
 RESEND_FROM_EMAIL=...
+GEMINI_API_KEY=...                                   # Asistente virtual (/api/chatbot) — sin esta key el widget responde "no configurado"
+GEMINI_MODEL=gemini-3.1-flash-lite                   # Opcional, este es el default
 ```
 
 > **Importante:** `SUPABASE_SERVICE_ROLE_KEY` nunca se expone al cliente. Solo se usa en rutas API de servidor (`/api/admin/*`).
@@ -84,7 +86,8 @@ Control de ítems almacenados por cliente:
 - Exportar inventario del cliente a Excel
 - Indicadores de estado semánticos por cliente y por ítem
 - **Pool de stock compartido**: un cliente puede apuntar a `stock_compartido_con` otro (mismo inventario físico, facturación separada) — resuelto en cada punto de lectura/escritura vía `resolveEffectiveClienteId()`
-- **Vista "Detalle" (Kardex)**: activable por cliente (`usa_vista_kardex`) — toggle Resumen/Detalle junto al agregado habitual; muestra el historial transaccional real por lote/código con saldo corrido (posiciones y unidades) calculado en cliente a partir de `movimientos`, con selector de producto y celdas editables inline (fecha, tipo, IMO, UN, CAS, guía, OC, envase, report, bodega, etc.)
+- **Panel de clientes colapsable**: al seleccionar un cliente, la columna izquierda se recoge a un riel angosto de solo avatares (con botón para volver a expandir), liberando espacio en pantalla para la vista de Detalle
+- **Vista "Detalle" (Kardex)**: activable por cliente (`usa_vista_kardex`) — toggle Resumen/Detalle junto al agregado habitual; muestra el historial transaccional real **una sola grilla por producto** (agrupado por `carga`, no por lote/código individual) con saldo corrido (posiciones y unidades) calculado en cliente a partir de `movimientos`. Filtro de Producto con buscador tipo combobox (escribir para filtrar, sin el viejo `<select>` nativo); navegación solo con scroll nativo horizontal/vertical (barras más gruesas que el resto de la app, sin arrastre por clic). Columnas: **SKU** (código del producto, constante para cada uno), **Nr. Pallet**, fecha, tipo, IMO, **NU**, lote, CAS, guía, OC, fechas de elaboración/vencimiento, envase, report de origen, posiciones/unidades de ingreso y despacho, stock corrido y bodega — todas editables inline
 
 ### Movimientos (`/movimientos`)
 
@@ -94,6 +97,7 @@ Registro de ingresos y despachos de carga:
 - **4 stat cards**: total, ingresos, despachos y en proceso
 - Tabla con: código (MOV-001), servicio, cliente/carga, área, fecha y estado
 - Crear nuevo movimiento (ingreso o despacho) con validación de stock atómica: si el RPC `update_stock` falla se hace rollback del INSERT
+- Datos de manifiesto opcionales (colapsables): código/SKU, IMO, NU, CAS, lote, fechas de elaboración/vencimiento, envase, posiciones, **Nr. Pallet**, N° guía, orden de compra, bodega
 - Marcar "En proceso" → "Completado" desde la tabla
 - Exportar tabla filtrada a Excel
 
@@ -123,17 +127,24 @@ Informes de recepción de carga:
 - Lista con tabs: Todos / Pendiente despacho / Despachados / Borradores
 - **Semáforo de estado**: punto de color junto al badge de estado (en la lista y en el detalle) — amarillo = borrador (antecedentes listos), azul = pendiente de despacho (falta que el chofer vuelva a recepción con el físico), verde = despachado
 - **Crear report** (`/reports/nuevo`): formulario multi-sección con tabs navegables:
-  - Antecedentes (cliente, patente, conductor)
+  - Antecedentes (cliente, patente, conductor, **empresa de transporte** — combobox editable: admite escribir un valor nuevo y lo persiste en la tabla `empresas_transporte`, con ícono de eliminar + confirmación en la lista desplegable)
   - Sección 1 — Depósito de contenedores
   - Sección 2 — Consolidado / Desconsolidado / Otros (con dropzone/cámara para **evidencia fotográfica** cuando se marca consolidado o desconsolidado)
-  - Sección 3 — Bodegaje (vinculado a ítem de inventario)
+  - Sección 3 — Bodegaje: se completa en Operaciones, no en este formulario
+  - **Adjuntos**: una sola caja de adjuntar cubre tanto **HDS** como **Guía de despacho** (checkboxes independientes sobre el mismo dropzone)
   - **Firma del conductor**: recuadro con canvas táctil (pensado para tablet + lápiz) entre los servicios asociados y el cierre del report
 - **Detalle** (`/reports/[id]`): vista y edición completa; al pasar borrador → pendiente_despacho llama `update_stock` con rollback si falla
-- **Cola de despacho** (`/reports/despacho`): cards expandibles con upload de documento firmado y confirmación de salida de vehículo
-- Exportar report individual a **PDF** (con logotipo `adp_logo_hd.png` en cabecera)
-- Exportar listado filtrado a **Excel**
+  - **Sección 3 — Bodegaje admite múltiples productos** por report (tabla `report_bodegaje_items`, una fila por producto): Hora de inicio/término quedan a nivel de sección (compartidas), y cada producto tiene su propio Clase IMO/NU/N° bodega/pallets/unidades/lote/CAS/OC/fechas de elaboración-vencimiento y su **propia tarifa** derivada automáticamente por Clase IMO — se guarda con patrón "reemplazar todo" (se borran y reinsertan las filas del report). Al despachar, el trigger `create_movimiento_from_report()` genera un `movimiento` por producto, cada uno con su tarifa y datos de manifiesto propios (así el HES ya factura por línea de producto sin cambios adicionales)
+- **Cola de despacho** (`/reports/despacho`): cards expandibles con confirmación de salida de vehículo — **el documento firmado es opcional** en ambos flujos de despacho (cola completa y despacho rápido desde la lista), ya no bloquea el despacho si el report ya está firmado digitalmente
+- Exportar report individual a **PDF** (con logotipo `adp_logo_hd.png` en cabecera):
+  - Secciones 1/2/3 sin datos se colapsan a solo el nombre de la sección + "N/A — no aplica", en vez de mostrar todos los campos vacíos
+  - Sello **DESPACHADO** rediseñado: logo ADP + RUT 76.499.190-7 + fecha de despacho, con borde doble — ya no muestra el nombre del despachador
+  - El nombre de archivo de descarga es siempre `report-{numero}`, tanto desde el botón propio de la app como desde el botón de descarga del visor nativo de PDF del navegador
+- Exportar listado filtrado a **Excel** (incluye una hoja "Bodegaje - Detalle" con una fila por report × producto)
 - Registro de auditoría en cada acción
-- Adjuntos (HDS, evidencia fotográfica, firma) se guardan en el bucket privado `reports-firmados` de Supabase Storage
+- Adjuntos (HDS, guía de despacho, evidencia fotográfica, firma) se guardan en el bucket privado `reports-firmados` de Supabase Storage
+- **Los reports nunca se eliminan, solo se anulan** — no se pierde nada del historial. Botón "Anular" en el detalle (reemplaza al antiguo "Eliminar", bloqueado a nivel de RLS); un report anulado queda en su propia pestaña "Anulados" en la lista (no en "Todos"), congelado para el resto de los usuarios. Si ya estaba despachado, anularlo revierte automáticamente el stock que había movido y borra los movimientos que había generado (para que no se sigan contando en Kardex/HES)
+- **Edición total para `super_admin` y Javier Navarro**: estos dos pueden editar cualquier campo de cualquier report sin importar su estado (incluye despachado y anulado) — incluye poder "Des-anular" un report (restaurarlo exactamente a como estaba antes de anularse; si volvía a "despachado", el stock y los movimientos se regeneran solos). Para el resto de los usuarios, las reglas normales de bloqueo por estado siguen aplicando igual que siempre
 
 ### Transporte (`/transporte`)
 
@@ -198,6 +209,16 @@ Registro paginado (50/página) de todas las acciones sobre reports, inventario y
 - Editar permisos de módulos por usuario (incluye Inventario, Instalaciones, Movimientos, Clientes, Servicios, Analítica, HES, Reports, Despacho, Transporte, Transporte Incomex y Auditoría)
 - Eliminar usuario (con protección anti-autoborrado)
 
+### Asistente virtual (chatbot)
+
+Widget flotante disponible en todo el dashboard (`src/components/chatbot/chatbot-widget.tsx`), respaldado por Gemini vía `/api/chatbot`:
+
+- Responde preguntas sobre cómo usar cualquier módulo y guía paso a paso ("¿cómo lleno un report?", "¿dónde veo el historial de un movimiento?")
+- Puede consultar datos reales y en vivo del sistema (inventario, reports, clientes, viajes de Transporte ADP) mediante function calling de **solo lectura** (`src/lib/chatbot-tools.ts`)
+- **No ejecuta ninguna acción que modifique datos** — si el usuario le pide crear/editar/eliminar/despachar algo, indica en qué módulo y cómo hacerlo manualmente
+- La base de conocimiento (`src/lib/chatbot-knowledge.ts`) se envía como system instruction en cada turno y debe mantenerse al día con los módulos/flujos del sistema
+- Historial de conversación persistido en `sessionStorage` (por pestaña, no por servidor)
+
 ### Correos transaccionales
 
 Todos los correos salen por **Resend** con un template de marca compartido (`src/lib/email-brand.ts`: logo ADP embebido, borde celeste, footer) — Supabase Auth no envía ningún correo propio (los usuarios se crean con `email_confirm: true`):
@@ -227,6 +248,7 @@ Todas las rutas verifican sesión (`getUser()`) y rol antes de ejecutar operacio
 | `/api/hes/folio` | POST | autenticado | Asignar/consultar folio HES para un cliente/período |
 | `/api/hes/send-email` | POST | autenticado | Enviar HES generado por correo (Resend) al contacto comercial del cliente |
 | `/api/instalaciones/export` | GET | autenticado | Exportar catálogo de instalaciones a Excel |
+| `/api/chatbot` | POST | autenticado | Asistente virtual (Gemini) — solo lectura vía function calling, sin acciones que modifiquen datos |
 
 ---
 
@@ -294,10 +316,14 @@ src/
 │   │   ├── app-sidebar.tsx
 │   │   ├── topbar.tsx
 │   │   └── page-header.tsx
+│   ├── chatbot/
+│   │   └── chatbot-widget.tsx         # Widget flotante del asistente (solo lectura, sin acciones)
 │   ├── reports/
-│   │   ├── report-pdf.tsx             # Plantilla PDF
+│   │   ├── report-pdf.tsx             # Plantilla PDF (secciones N/A, sello DESPACHADO, tabla de Bodegaje)
 │   │   ├── report-form-sections.tsx   # Secciones reutilizables del formulario
-│   │   └── report-form-types.ts       # Tipos y mapper DB → form
+│   │   ├── report-form-widgets.tsx    # BodegajeItemsList, EmpresaTransporteCombobox, etc.
+│   │   ├── report-form-types.ts       # Tipos y mapper DB → form
+│   │   └── report-preview-modal.tsx   # Modal de previsualización/descarga del PDF
 │   └── ui/                            # Componentes shadcn/ui
 ├── contexts/auth-context.tsx          # Sesión y perfil de usuario
 ├── proxy.ts                           # Protección de rutas + control de roles (Next.js 16)
@@ -313,6 +339,10 @@ src/
     ├── temp-password.ts               # Generador de contraseña temporal
     ├── download-report-pdf.tsx        # Genera y descarga el PDF
     ├── export-reports-excel.ts        # Exporta reportes a Excel
+    ├── report-bodegaje.ts             # cargarBodegajeItems() — productos de la Sección 3
+    ├── firma-hash.ts                  # Huella SHA-256 del contenido firmable de un report
+    ├── chatbot-knowledge.ts           # Base de conocimiento (system prompt) del asistente
+    ├── chatbot-tools.ts               # Function calling de solo lectura para el asistente
     └── excel.ts                       # Helper genérico exportToExcel()
 ```
 
@@ -342,8 +372,10 @@ Tablas principales:
 | `servicios_cliente` | Servicios contratados por cliente |
 | `tarifas_cliente` | Tarifas de almacenaje por cliente/período/clase IMO |
 | `inventario_items` | Ítems en bodega con stock y mínimos |
-| `movimientos` | Ingresos y despachos de carga (incluye datos de manifiesto: lote, IMO, UN, CAS, envase, guía, OC, bodega) |
-| `reports` | Reports de recepción multi-sección (HDS, evidencia fotográfica, firma del conductor) |
+| `movimientos` | Ingresos y despachos de carga (incluye datos de manifiesto: código/SKU, IMO, NU, CAS, lote, envase, posiciones, N° de pallet, guía, OC, bodega) |
+| `reports` | Reports de recepción multi-sección (HDS, guía de despacho, evidencia fotográfica, firma del conductor) |
+| `report_bodegaje_items` | Productos de la Sección 3 (Bodegaje) de un report — una fila por producto, con su propia tarifa/manifiesto; inmutable una vez el report está despachado |
+| `empresas_transporte` | Catálogo editable de empresas de transporte (Antecedentes del report) — se alimenta también escribiendo un valor nuevo directo en el formulario |
 | `transporte_incomex` | Operaciones de transporte tercerizado por cliente |
 | `instalaciones_almacenamiento` / `instalacion_sustancias` | Catálogo de bodegas/patios y sustancias/clases IMO autorizadas por instalación |
 | `hes_folios` | Folios correlativos de HES generados por cliente/período |
@@ -363,7 +395,7 @@ Función RPC:
 El proyecto está configurado para desplegarse en Netlify usando `@netlify/plugin-nextjs`:
 
 1. Conectar el repositorio `DavidSilva31/web_gestionadp` en Netlify
-2. Configurar las 4 variables de entorno en **Site Settings → Environment variables**
+2. Configurar las variables de entorno (ver arriba) en **Site Settings → Environment variables**
 3. Actualizar en Supabase la **Site URL** y **Redirect URLs** con el dominio de producción
 4. El deploy se dispara automáticamente con cada push a `main`
 

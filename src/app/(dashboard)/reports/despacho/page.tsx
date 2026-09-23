@@ -12,6 +12,7 @@ import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { FirmaRecepcionDespacho } from "@/components/reports/firma-staff-block"
 import { cn } from "@/lib/utils"
+import type { ReportBodegajeItem } from "@/types/database"
 
 interface PendingReport {
   id:                   string
@@ -25,10 +26,10 @@ interface PendingReport {
   sec2_activa:          boolean
   sec3_activa:          boolean
   sec1_tipo_contenedor: string | null
-  sec3_producto:        string | null
   sec3_tipo:            string | null
-  sec3_numero_pallets:  number | null
-  sec3_inventario_item_id: string | null
+  // Bodegaje puede tener varios productos — uno por fila en
+  // report_bodegaje_items, traídos junto al report vía embed de PostgREST.
+  report_bodegaje_items: ReportBodegajeItem[]
   archivos_pendiente_despacho: string[] | null
 }
 
@@ -59,7 +60,7 @@ function SeccionTag({ active, label }: { active: boolean; label: string }) {
   )
 }
 
-function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport; stockActual: number | null; onDispatch: (id: string, nombre: string, docPath: string) => Promise<string | null> }) {
+function ReportCard({ report, stockPorItem, onDispatch }: { report: PendingReport; stockPorItem: Record<string, number>; onDispatch: (id: string, nombre: string, docPath: string | null) => Promise<string | null> }) {
   const [expanded,    setExpanded]    = useState(false)
   const [nombre,      setNombre]      = useState("")
   const [file,        setFile]        = useState<File | null>(null)
@@ -138,27 +139,32 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
   }
 
   async function handleConfirm() {
-    if (!nombre.trim() || !file || !firmado) return
+    if (!nombre.trim() || !firmado) return
     setUploadError(null)
-    const invalido = validateUploadFile(file)
-    if (invalido) { setUploadError(invalido); return }
+    // El documento firmado es opcional — si se adjuntó uno, se sube y valida;
+    // si no, se despacha igual sin él.
+    if (file) {
+      const invalido = validateUploadFile(file)
+      if (invalido) { setUploadError(invalido); return }
+    }
     setDispatching(true)
-    setUploading(true)
 
     try {
-      const ext  = sanitizeExt(file.name)
-      const path = `${report.numero}-${report.id}.${ext}`
       const supabase = createClient()
+      let path: string | null = null
 
-      const { error: uploadErr } = await supabase.storage
-        .from("reports-firmados")
-        .upload(path, file, { upsert: true })
-
-      setUploading(false)
-
-      if (uploadErr) {
-        setUploadError("Error al subir el archivo: " + uploadErr.message)
-        return
+      if (file) {
+        setUploading(true)
+        const ext = sanitizeExt(file.name)
+        path = `${report.numero}-${report.id}.${ext}`
+        const { error: uploadErr } = await supabase.storage
+          .from("reports-firmados")
+          .upload(path, file, { upsert: true })
+        setUploading(false)
+        if (uploadErr) {
+          setUploadError("Error al subir el archivo: " + uploadErr.message)
+          return
+        }
       }
 
       const dispatchErr = await onDispatch(report.id, nombre, path)
@@ -173,7 +179,7 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
   }
 
   const mins = minutosEsperando(report.created_at)
-  const canConfirm = nombre.trim().length > 0 && file !== null && firmado && !dispatching
+  const canConfirm = nombre.trim().length > 0 && firmado && !dispatching
 
   return (
     <div className="bg-card rounded-xl border shadow-sm overflow-hidden">
@@ -268,7 +274,11 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
         <Package className="h-3 w-3 text-muted-foreground" />
         <SeccionTag active={report.sec1_activa} label={`Dep. Contenedor${report.sec1_tipo_contenedor ? ` (${report.sec1_tipo_contenedor})` : ""}`} />
         <SeccionTag active={report.sec2_activa} label="Consol./Otros" />
-        <SeccionTag active={report.sec3_activa} label={report.sec3_producto ? `Bodega: ${report.sec3_producto}` : "Bodegaje"} />
+        <SeccionTag active={report.sec3_activa} label={
+          report.report_bodegaje_items.length === 1 ? `Bodega: ${report.report_bodegaje_items[0].sec3_producto}` :
+          report.report_bodegaje_items.length > 1  ? `Bodega: ${report.report_bodegaje_items.length} productos` :
+          "Bodegaje"
+        } />
         {report.nombre_operador && (
           <span className="text-[10px] text-muted-foreground ml-1">Operador: {report.nombre_operador}</span>
         )}
@@ -278,20 +288,26 @@ function ReportCard({ report, stockActual, onDispatch }: { report: PendingReport
         <div className="border-t bg-muted/30 px-5 py-4 space-y-4">
           <p className="text-xs font-semibold text-foreground">Confirmar salida del vehículo</p>
 
-          {report.sec3_tipo === "despacho" && report.sec3_numero_pallets != null && stockActual != null && report.sec3_numero_pallets > stockActual && (
-            <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-700 dark:text-amber-400">
-                Stock actual: <strong>{stockActual}</strong> — se despachan <strong>{report.sec3_numero_pallets}</strong>. El sistema puede estar desactualizado; puedes confirmar igual.
-              </p>
-            </div>
-          )}
+          {report.sec3_tipo === "despacho" && report.report_bodegaje_items
+            .filter(it => it.sec3_inventario_item_id && it.sec3_numero_pallets != null)
+            .map(it => {
+              const stockActual = stockPorItem[it.sec3_inventario_item_id!] ?? null
+              if (stockActual == null || it.sec3_numero_pallets! <= stockActual) return null
+              return (
+                <div key={it.id} className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    {it.sec3_producto ?? "Producto"} — stock actual: <strong>{stockActual}</strong> — se despachan <strong>{it.sec3_numero_pallets}</strong>. El sistema puede estar desactualizado; puedes confirmar igual.
+                  </p>
+                </div>
+              )
+            })}
 
-          {/* Paso 1: Documento firmado */}
+          {/* Paso 1: Documento firmado — opcional, no bloquea el despacho */}
           <div>
             <label className="block text-xs text-muted-foreground mb-1.5">
               <span className="font-medium text-foreground">1. Report firmado por el conductor</span>
-              <span className="text-red-500 ml-0.5">*</span>
+              <span className="text-muted-foreground ml-1 font-normal">(opcional)</span>
             </label>
             <input
               ref={fileRef}
@@ -421,7 +437,7 @@ export default function DespachoPage() {
     const [pendingRes, dispatchedRes] = await Promise.all([
       supabase
         .from("reports")
-        .select("id, numero, cliente, patente, conductor, created_at, nombre_operador, sec1_activa, sec2_activa, sec3_activa, sec1_tipo_contenedor, sec3_producto, sec3_tipo, sec3_numero_pallets, sec3_inventario_item_id, archivos_pendiente_despacho")
+        .select("id, numero, cliente, patente, conductor, created_at, nombre_operador, sec1_activa, sec2_activa, sec3_activa, sec1_tipo_contenedor, sec3_tipo, archivos_pendiente_despacho, report_bodegaje_items(*)")
         .eq("estado", "pendiente_despacho")
         .order("created_at", { ascending: true }),
 
@@ -444,7 +460,10 @@ export default function DespachoPage() {
 
     // Stock actual de los ítems que se van a despachar, para avisar si no alcanza.
     const itemIds = [...new Set(
-      pendingData.filter(r => r.sec3_tipo === "despacho" && r.sec3_inventario_item_id).map(r => r.sec3_inventario_item_id!)
+      pendingData
+        .filter(r => r.sec3_tipo === "despacho")
+        .flatMap(r => r.report_bodegaje_items.map(it => it.sec3_inventario_item_id))
+        .filter((id): id is string => !!id)
     )]
     if (itemIds.length > 0) {
       const { data: items } = await supabase.from("inventario_items").select("id, stock_actual").in("id", itemIds)
@@ -458,7 +477,7 @@ export default function DespachoPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  async function handleDispatch(id: string, nombre: string, docPath: string): Promise<string | null> {
+  async function handleDispatch(id: string, nombre: string, docPath: string | null): Promise<string | null> {
     // Sin try/catch acá, una excepción real (no un error devuelto por
     // Supabase) dejaba el botón de "Confirmando..." pegado para siempre en
     // ReportCard.handleConfirm, sin mensaje y sin forma de reintentar salvo
@@ -500,22 +519,26 @@ export default function DespachoPage() {
         usuario_id:     user?.id,
         usuario_nombre: nombre,
       })
-      // El stock recién se mueve acá (trigger reports_sync_inventario en la
-      // transición a 'despachado') — el log de auditoría de stock va en el
-      // mismo momento, no al crear/editar el report.
-      if (r?.sec3_activa && r.sec3_inventario_item_id && r.sec3_tipo) {
-        const delta     = Number(r.sec3_numero_pallets) || 0
-        const invAccion = r.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
-        const invDesc   = `Stock ${r.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${r.sec3_producto ?? ""}`
-        logAudit({
-          tabla:          "inventario_items",
-          registro_id:    r.sec3_inventario_item_id,
-          accion:         invAccion,
-          descripcion:    `${invDesc} via Report #${r.numero}`,
-          usuario_id:     user?.id,
-          usuario_nombre: nombre,
-        })
-        await syncPesoTon(supabase, r.sec3_inventario_item_id)
+      // El stock recién se mueve acá (trigger reports_sync_bodegaje_stock_change
+      // en la transición a 'despachado') — el log de auditoría de stock va en
+      // el mismo momento, no al crear/editar el report. Un report puede tener
+      // varios productos de Bodegaje, uno por fila en report_bodegaje_items.
+      if (r?.sec3_activa && r.sec3_tipo) {
+        for (const it of r.report_bodegaje_items) {
+          if (!it.sec3_inventario_item_id) continue
+          const delta     = it.sec3_numero_pallets ?? 0
+          const invAccion = r.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
+          const invDesc   = `Stock ${r.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${it.sec3_producto ?? ""}`
+          logAudit({
+            tabla:          "inventario_items",
+            registro_id:    it.sec3_inventario_item_id,
+            accion:         invAccion,
+            descripcion:    `${invDesc} via Report #${r.numero}`,
+            usuario_id:     user?.id,
+            usuario_nombre: nombre,
+          })
+          await syncPesoTon(supabase, it.sec3_inventario_item_id)
+        }
       }
       setPending(prev => prev.filter(x => x.id !== id))
       return null
@@ -580,7 +603,7 @@ export default function DespachoPage() {
                 <ReportCard
                   key={r.id}
                   report={r}
-                  stockActual={r.sec3_inventario_item_id ? stockPorItem[r.sec3_inventario_item_id] ?? null : null}
+                  stockPorItem={stockPorItem}
                   onDispatch={handleDispatch}
                 />
               ))

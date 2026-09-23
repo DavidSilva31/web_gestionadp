@@ -13,6 +13,8 @@ export type AuditAccion =
   | "report.confirmar_despacho"
   | "report.despachar"
   | "report.eliminar"
+  | "report.anular"
+  | "report.desanular"
   | "report.firmar"
   | "inventario.ingreso"
   | "inventario.despacho"
@@ -54,6 +56,8 @@ const ACCION_LABEL: Record<AuditAccion, string> = {
   "report.confirmar_despacho":   "Despacho confirmado",
   "report.despachar":            "Despacho confirmado con documento firmado",
   "report.eliminar":             "Report eliminado",
+  "report.anular":               "Report anulado",
+  "report.desanular":            "Report restaurado desde anulado",
   "report.firmar":               "Report firmado",
   "inventario.ingreso":          "Ingreso registrado en inventario",
   "inventario.despacho":         "Despacho registrado en inventario",
@@ -88,6 +92,8 @@ export const ACCION_STYLE: Record<string, { icon: LucideIcon; pill: string }> = 
   "report.confirmar_despacho":  { icon: Truck,         pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
   "report.despachar":           { icon: ScanLine,      pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
   "report.eliminar":            { icon: Trash2,        pill: "bg-red-100     text-red-700     dark:bg-red-900/30   dark:text-red-400"     },
+  "report.anular":              { icon: Trash2,        pill: "bg-gray-200    text-gray-600    dark:bg-gray-800     dark:text-gray-400"    },
+  "report.desanular":           { icon: FilePen,       pill: "bg-blue-100    text-blue-700    dark:bg-blue-900/30  dark:text-blue-400"    },
   "report.firmar":              { icon: FilePen,       pill: "bg-indigo-100  text-indigo-700  dark:bg-indigo-900/30 dark:text-indigo-400"  },
   "inventario.ingreso":         { icon: PackagePlus,   pill: "bg-sky-100     text-sky-700     dark:bg-sky-900/30   dark:text-sky-400"     },
   "inventario.despacho":        { icon: PackageMinus,  pill: "bg-violet-100  text-violet-700  dark:bg-violet-900/30 dark:text-violet-400"  },
@@ -118,6 +124,8 @@ export const NOTIFY_ACCIONES: AuditAccion[] = [
   "report.enviar_despacho",
   "report.despachar",
   "report.eliminar",
+  "report.anular",
+  "report.desanular",
   "inventario.ingreso",
   "inventario.despacho",
   "inventario.crear_item",

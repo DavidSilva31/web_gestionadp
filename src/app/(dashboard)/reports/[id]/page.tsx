@@ -24,19 +24,17 @@ import { firmarReport } from "@/lib/report-firmas"
 import type { FirmaEvidencia } from "@/lib/firma-hash"
 import type { AuditLog } from "@/lib/audit"
 import type { ReportEstado } from "@/types/database"
-import { dbToForm } from "@/components/reports/report-form-types"
-import type { ReportFormData } from "@/components/reports/report-form-types"
+import { dbToForm, emptyBodegajeItem, bodegajeItemFromDb } from "@/components/reports/report-form-types"
+import type { ReportFormData, BodegajeItemFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
 import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
-import { ClienteCombobox, ProductoCombobox, FirmaCanvas, ServiciosSection, type InventarioItemOption, type ServicioSeleccionado, type TarifaOption } from "@/components/reports/report-form-widgets"
+import { ClienteCombobox, FirmaCanvas, ServiciosSection, EmpresaTransporteCombobox, BodegajeItemsList, type ServicioSeleccionado, type TarifaOption } from "@/components/reports/report-form-widgets"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 
 interface FormData extends ReportFormData {
-  cliente_id:              string
-  sec3_inventario_item_id: string
-  tarifa_cliente_id:       string
+  cliente_id: string
 }
 
 const ACCION_ICON: Record<string, React.ReactNode> = {
@@ -46,17 +44,8 @@ const ACCION_ICON: Record<string, React.ReactNode> = {
   "report.enviar_despacho":    <FileCheck2 className="h-4 w-4 text-amber-500"   />,
   "report.confirmar_despacho": <Truck      className="h-4 w-4 text-emerald-600" />,
   "report.despachar":          <ScanLine   className="h-4 w-4 text-emerald-600" />,
-  "report.eliminar":           <Trash2     className="h-4 w-4 text-red-500"     />,
-}
-
-// La Clase IMO de un ítem de inventario es un valor suelto ("2.2", "8"...),
-// pero la de una tarifa/contrato agrupa varias en un solo texto libre ("Clases
-// 2.1, 2.2, 2.3 y 3", "Clase 8"...) — tokeniza ese texto y compara contra el
-// valor exacto del ítem en vez de un match literal de todo el string.
-function tarifaCubreClase(tarifaClase: string | null, itemClase: string | null): boolean {
-  if (!tarifaClase || !itemClase) return false
-  const tokens = tarifaClase.replace(/clases?/gi, "").split(/,| y /i).map(t => t.trim()).filter(Boolean)
-  return tokens.includes(itemClase.trim())
+  "report.anular":             <Trash2     className="h-4 w-4 text-red-500"     />,
+  "report.desanular":          <History    className="h-4 w-4 text-blue-500"    />,
 }
 
 const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> = {
@@ -64,6 +53,7 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   pendiente_operaciones: { label: "Pend. operaciones", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
   pendiente_despacho:    { label: "Pend. despacho",    className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
   despachado:            { label: "Despachado",        className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+  anulado:               { label: "Anulado",           className: "bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400 line-through" },
 }
 
 export default function ReportDetailPage() {
@@ -74,9 +64,12 @@ export default function ReportDetailPage() {
 
   const [form,      setForm]     = useState<FormData | null>(null)
   const [estado,    setEstado]   = useState<ReportEstado>("borrador")
-  // Tarifa/Contrato ya no se elige a mano — se deriva sola comparando la
-  // Clase IMO del producto que Operaciones elige en Bodegaje contra la Clase
-  // IMO de cada contrato del cliente (ver ProductoCombobox.onSelect abajo).
+  // Estado en el que estaba justo antes de anularse — permite a super_admin/
+  // Javier Navarro "des-anular" restaurándolo exactamente a donde estaba.
+  const [estadoPrevioAnulacion, setEstadoPrevioAnulacion] = useState<ReportEstado | null>(null)
+  // Tarifa/Contrato ya no se elige a mano — se deriva sola por cada producto
+  // de Bodegaje, comparando su Clase IMO contra la de cada contrato del
+  // cliente (ver BodegajeItemsList en report-form-widgets.tsx).
   const [tarifasCliente, setTarifasCliente] = useState<TarifaOption[]>([])
   // Servicios del catálogo del cliente asociados a este report — se
   // muestran arriba de "Servicio Adicional" en Bodegaje (Sec3Content,
@@ -86,6 +79,21 @@ export default function ReportDetailPage() {
   // elegida (ver buildPayload) — el HES cuenta esas repeticiones.
   const [servicioSeleccion, setServicioSeleccion] = useState<ServicioSeleccionado[]>([])
   const [serviciosManual, setServiciosManual] = useState<string[]>([])
+
+  // Productos de Bodegaje — un report puede tener varios, cada uno con su
+  // propia tarifa derivada de su Clase IMO (ver BodegajeItemsList). Se
+  // cargan/guardan aparte, en report_bodegaje_items — no son parte de `form`.
+  const [bodegajeItems, setBodegajeItems] = useState<BodegajeItemFormData[]>([])
+
+  function changeBodegajeItem(index: number, patch: Partial<BodegajeItemFormData>) {
+    setBodegajeItems(prev => prev.map((it, i) => i === index ? { ...it, ...patch } : it))
+  }
+  function addBodegajeItem() {
+    setBodegajeItems(prev => [...prev, emptyBodegajeItem()])
+  }
+  function removeBodegajeItem(index: number) {
+    setBodegajeItems(prev => prev.filter((_, i) => i !== index))
+  }
 
   function toggleServicio(id: string) {
     setServicioSeleccion(prev =>
@@ -105,8 +113,8 @@ export default function ReportDetailPage() {
   const [loading, setLoading] = useState(true)
   const [saving,        setSaving]        = useState(false)
   const [error,         setError]         = useState<string | null>(null)
-  const [deleting,      setDeleting]      = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [anulando,      setAnulando]      = useState(false)
+  const [confirmAnular, setConfirmAnular] = useState(false)
   const [notFound,      setNotFound]      = useState(false)
   const [historialOpen, setHistorialOpen] = useState(false)
   const [auditLogs,    setAuditLogs]    = useState<AuditLog[]>([])
@@ -124,15 +132,24 @@ export default function ReportDetailPage() {
   const [previewFile,            setPreviewFile]            = useState<File | null>(null)
   const sec2EvidenciaFileRef = useRef<HTMLInputElement>(null)
 
-  // Documentos HDS — mismo patrón de dos fases que la evidencia fotográfica.
-  // Antes de este fix, reports/[id] no tenía ninguna forma de adjuntar o
-  // reemplazar el HDS al editar (solo reports/nuevo lo permitía).
-  const [existingHdsPaths, setExistingHdsPaths] = useState<string[]>([])
+  // Adjuntos de Antecedentes — mismo patrón de dos fases que la evidencia
+  // fotográfica, pero HDS y Guía de despacho comparten una sola caja (ver
+  // adjuntoFiles): cualquiera de los dos checkboxes la despliega, y los
+  // archivos nuevos que se suban quedan referenciados en hds_archivos y/o
+  // guia_despacho_archivos según cuál checkbox esté marcado. Los ya
+  // existentes se guardan por separado en cada columna (así lo dejó el
+  // guardado original) y se muestran acá como una sola lista sin duplicados.
+  const [existingHdsPaths,          setExistingHdsPaths]          = useState<string[]>([])
+  const [existingGuiaDespachoPaths, setExistingGuiaDespachoPaths] = useState<string[]>([])
   // Archivos adjuntos del report (cualquier estado) — se guardan al instante desde ReportArchivosPanel.
   const [archivosAdjuntos, setArchivosAdjuntos] = useState<string[]>([])
-  const [hdsFiles,         setHdsFiles]         = useState<File[]>([])
-  const [hdsDragOver,      setHdsDragOver]      = useState(false)
-  const hdsFileRef = useRef<HTMLInputElement>(null)
+  const [adjuntoFiles,     setAdjuntoFiles]     = useState<File[]>([])
+  const [adjuntoDragOver,  setAdjuntoDragOver]  = useState(false)
+  const adjuntoFileRef = useRef<HTMLInputElement>(null)
+  const existingAdjuntoPaths = useMemo(
+    () => Array.from(new Set([...existingHdsPaths, ...existingGuiaDespachoPaths])),
+    [existingHdsPaths, existingGuiaDespachoPaths]
+  )
 
   // Firma del conductor — firmaPath es lo que ya está guardado en BD (si el
   // report ya fue firmado antes); firmaDataUrl es una firma NUEVA dibujada
@@ -197,35 +214,44 @@ export default function ReportDetailPage() {
     setSec2DragOver(false)
     if (e.dataTransfer.files?.length) addSec2EvidenciaFiles(e.dataTransfer.files)
   }
-  function addHdsFiles(list: FileList | File[]) {
-    setHdsFiles(prev => [...prev, ...Array.from(list)])
+  function addAdjuntoFiles(list: FileList | File[]) {
+    setAdjuntoFiles(prev => [...prev, ...Array.from(list)])
   }
-  function removeHdsFile(index: number) {
-    setHdsFiles(prev => prev.filter((_, i) => i !== index))
+  function removeAdjuntoFile(index: number) {
+    setAdjuntoFiles(prev => prev.filter((_, i) => i !== index))
   }
-  function onHdsDrop(e: React.DragEvent<HTMLDivElement>) {
+  function onAdjuntoDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
-    setHdsDragOver(false)
-    if (e.dataTransfer.files?.length) addHdsFiles(e.dataTransfer.files)
+    setAdjuntoDragOver(false)
+    if (e.dataTransfer.files?.length) addAdjuntoFiles(e.dataTransfer.files)
   }
   const [docExpanded,  setDocExpanded]  = useState(false)
   const [showPreview,   setShowPreview]   = useState(false)
   const [previewReport, setPreviewReport] = useState<import("@/types/database").Report | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
 
-  useCloseOnBack(confirmDelete, () => setConfirmDelete(false))
+  useCloseOnBack(confirmAnular, () => setConfirmAnular(false))
   useCloseOnBack(previewFile !== null, () => setPreviewFile(null))
+
+  // Javier Navarro (operador) tiene el mismo permiso de edición total que
+  // super_admin sobre reports — puede editar cualquier campo sin importar el
+  // estado (incluye despachado/anulado). Espejo del bypass es_editor_total_reports()
+  // del lado de la base de datos (migration_reports_anular.sql) — si algún día
+  // cambia quién tiene este permiso, hay que actualizar los dos lados.
+  const JAVIER_NAVARRO_ID = "d0ef84af-0d9b-43b6-83bf-76f5b99b7e6f"
+  const editorTotal = profile?.role === "super_admin" || user?.id === JAVIER_NAVARRO_ID
 
   // El formulario ya no se bloquea todo junto: Recepción llena Antecedentes +
   // Sección 1 mientras es "borrador"; al guardar pasa a "pendiente_operaciones"
   // y esa mitad se congela mientras se habilita la Sección 2 + 3 para que
   // Operaciones las complete. Servicios/Firma/Nombre operador quedan
   // editables en ambas mitades (recién se congelan al entrar a despacho).
-  const leftReadOnly   = estado !== "borrador"
-  const rightReadOnly  = estado !== "pendiente_operaciones"
-  const sharedReadOnly = estado === "pendiente_despacho" || estado === "despachado"
+  // super_admin y Javier Navarro se saltan todos estos candados.
+  const leftReadOnly   = !editorTotal && estado !== "borrador"
+  const rightReadOnly  = !editorTotal && estado !== "pendiente_operaciones"
+  const sharedReadOnly = !editorTotal && (estado === "pendiente_despacho" || estado === "despachado" || estado === "anulado")
   // Las firmas se pueden aplicar/rehacer hasta que el report se despacha.
-  const firmaBloqueada = estado === "despachado"
+  const firmaBloqueada = !editorTotal && (estado === "despachado" || estado === "anulado")
 
   useEffect(() => {
     if (!historialOpen || logsLoaded) return
@@ -261,14 +287,15 @@ export default function ReportDetailPage() {
       const { data, error } = await supabase.from("reports").select("*").eq("id", id).single()
       if (error || !data) { setNotFound(true); setLoading(false); return }
       setEstado(data.estado as ReportEstado)
+      setEstadoPrevioAnulacion((data.estado_previo_anulacion as ReportEstado | null) ?? null)
       setNumero(data.numero)
       const base = dbToForm(data as Record<string, unknown>)
-      setForm({
-        ...base,
-        cliente_id:              "",
-        tarifa_cliente_id:       (data.tarifa_cliente_id as string | null) ?? "",
-        sec3_inventario_item_id: (data.sec3_inventario_item_id as string | null) ?? "",
-      })
+      setForm({ ...base, cliente_id: "" })
+
+      const { data: items, error: itemsErr } = await supabase
+        .from("report_bodegaje_items").select("*").eq("report_id", id).order("orden")
+      if (itemsErr) console.error("[reports/id] error obteniendo productos de Bodegaje:", itemsErr)
+      setBodegajeItems(((items as Record<string, unknown>[] | null) ?? []).map(bodegajeItemFromDb))
       // servicios_ids es un uuid[] plano — un servicio usado 2 veces quedó
       // repetido 2 veces; se reconstruye la cantidad contando ocurrencias.
       const counts = new Map<string, number>()
@@ -278,6 +305,7 @@ export default function ReportDetailPage() {
       if (data.documento_firmado_url) setDocPath(data.documento_firmado_url as string)
       setExistingEvidenciaPaths((data.sec2_evidencia_archivos as string[] | null) ?? [])
       setExistingHdsPaths((data.hds_archivos as string[] | null) ?? [])
+      setExistingGuiaDespachoPaths((data.guia_despacho_archivos as string[] | null) ?? [])
       setArchivosAdjuntos((data.archivos_pendiente_despacho as string[] | null) ?? [])
       if (data.firma_conductor_url) setFirmaPath(data.firma_conductor_url as string)
       setRecepcionPath((data.firma_recepcion_url as string | null) ?? null)
@@ -349,17 +377,13 @@ export default function ReportDetailPage() {
     // ahora viven en Antecedentes (los llena Recepción en TODO report, incluso
     // sin Bodegaje), así que ya no sirven como señal de que Bodegaje se usó.
     const sec3Activa = !!(
-      form.sec3_producto || form.sec3_clase_imo || form.sec3_nu || form.sec3_hora_inicio ||
-      form.sec3_hora_termino || form.sec3_numero_bodega || form.sec3_tipo ||
-      form.sec3_numero_pallets || form.sec3_numero_unidades ||
-      form.sec3_lote || form.sec3_cas || form.sec3_orden_compra ||
-      form.sec3_fecha_elaboracion || form.sec3_fecha_vencimiento || form.sec3_observaciones
+      bodegajeItems.length > 0 || form.sec3_hora_inicio || form.sec3_hora_termino ||
+      form.sec3_tipo || form.sec3_observaciones
     )
 
     return {
       estado:             newEstado,
       cliente:            form.cliente,
-      tarifa_cliente_id:  form.tarifa_cliente_id || null,
       fecha:              form.fecha,
       patente:            form.patente,
       conductor:          form.conductor,
@@ -367,6 +391,7 @@ export default function ReportDetailPage() {
       empresa_transporte: form.transporte_tipo === "propio" ? null : (form.empresa_transporte || null),
       transporte_tipo:    form.transporte_tipo,
       hds_header:         form.hds_header,
+      guia_despacho_header: form.guia_despacho_header,
       observaciones:      form.observaciones || null,
       sec1_activa:          sec1Activa,
       sec1_tipo_movimiento: form.sec1_tipo_movimiento || null,
@@ -393,24 +418,13 @@ export default function ReportDetailPage() {
       sec2_sigla_numero:   form.sec2_sigla_numero   || null,
       sec2_observaciones:  form.sec2_observaciones  || null,
       sec3_activa:              sec3Activa,
-      sec3_inventario_item_id:  form.sec3_inventario_item_id || null,
-      sec3_producto:       form.sec3_producto       || null,
-      sec3_clase_imo:      form.sec3_clase_imo      || null,
       sec3_hora_inicio:    form.sec3_hora_inicio    || null,
       sec3_hora_termino:   form.sec3_hora_termino   || null,
-      sec3_numero_bodega:  form.sec3_numero_bodega  || null,
-      sec3_nu:             form.sec3_nu             || null,
       sec3_tipo:           form.sec3_tipo           || null,
-      sec3_numero_pallets: form.sec3_numero_pallets ? Number(form.sec3_numero_pallets) : null,
-      sec3_numero_unidades: form.sec3_numero_unidades ? Number(form.sec3_numero_unidades) : null,
       sec3_numero_guia:    form.sec3_numero_guia    || null,
       sec3_solicitado_por: form.sec3_solicitado_por || null,
+      sec3_cuyd:           form.sec3_cuyd,
       sec3_cuyd_detalle:   form.sec3_cuyd_detalle   || null,
-      sec3_lote:               form.sec3_lote              || null,
-      sec3_cas:                form.sec3_cas               || null,
-      sec3_orden_compra:       form.sec3_orden_compra      || null,
-      sec3_fecha_elaboracion:  form.sec3_fecha_elaboracion || null,
-      sec3_fecha_vencimiento:  form.sec3_fecha_vencimiento || null,
       sec3_observaciones:  form.sec3_observaciones  || null,
       sec3_servicio_adicional: form.sec3_servicio_adicional,
       nombre_operador:     form.nombre_operador     || null,
@@ -420,34 +434,95 @@ export default function ReportDetailPage() {
     }
   }
 
-  async function handleDelete() {
-    setDeleting(true)
+  // Los reports se anulan, nunca se eliminan — así no se pierde nada (queda
+  // el registro completo, solo con estado "anulado"). Si el report ya estaba
+  // despachado, el trigger sync_bodegaje_stock_on_reports_change revierte el
+  // stock que había movido y borra los movimientos que había auto-generado
+  // (para que Kardex/HES no los sigan contando) — acá solo hay que
+  // resincronizar peso_ton después.
+  async function handleAnular() {
+    if (!form) return
+    setAnulando(true)
     try {
       const supabase = createClient()
-      const { error: delErr } = await supabase.from("reports").delete().eq("id", id)
-      if (delErr) {
-        setError(`No se pudo eliminar: ${delErr.message}`)
+      const itemIds = Array.from(new Set(
+        bodegajeItems.map(it => it.sec3_inventario_item_id).filter(Boolean)
+      ))
+      const { error: updErr } = await supabase.from("reports").update({
+        estado:                   "anulado",
+        estado_previo_anulacion:  estado,
+        anulado_at:               new Date().toISOString(),
+        anulado_por:              user?.id ?? null,
+        updated_at:               new Date().toISOString(),
+      }).eq("id", id)
+      if (updErr) {
+        setError(`No se pudo anular: ${updErr.message}`)
         return
       }
-      // El trigger reports_sync_inventario revierte el stock del ítem de sec3 al
-      // borrar el report — sincronizar peso_ton para que no quede desactualizado.
-      if (form?.sec3_activa && form.sec3_inventario_item_id) {
-        await syncPesoTon(supabase, form.sec3_inventario_item_id)
+      if (form.sec3_activa) {
+        for (const itemId of itemIds) await syncPesoTon(supabase, itemId)
       }
       logAudit({
         tabla:          "reports",
         registro_id:    id,
-        accion:         "report.eliminar",
-        descripcion:    `Report #${numero} — ${form?.cliente} (${form?.patente}) eliminado`,
+        accion:         "report.anular",
+        descripcion:    `Report #${numero} — ${form.cliente} (${form.patente}) anulado`,
         usuario_id:     user?.id,
         usuario_nombre: profile?.nombre ?? user?.email,
       })
-      router.push("/reports")
+      setEstadoPrevioAnulacion(estado)
+      setEstado("anulado")
+      setConfirmAnular(false)
     } catch (err) {
-      console.error("[reports/id] error inesperado al eliminar:", err)
+      console.error("[reports/id] error inesperado al anular:", err)
       setError("No se pudo conectar con el servidor. Intenta de nuevo.")
     } finally {
-      setDeleting(false)
+      setAnulando(false)
+    }
+  }
+
+  // Solo super_admin/Javier Navarro llegan a ver este botón (editorTotal) —
+  // restaura el report exactamente al estado en que estaba antes de
+  // anularse. Si volvía a "despachado", los mismos triggers que revirtieron
+  // el stock al anular lo vuelven a aplicar y regeneran los movimientos.
+  async function handleDesanular() {
+    if (!form) return
+    setAnulando(true)
+    try {
+      const supabase = createClient()
+      const target = estadoPrevioAnulacion ?? "pendiente_despacho"
+      const { error: updErr } = await supabase.from("reports").update({
+        estado:                   target,
+        estado_previo_anulacion:  null,
+        anulado_at:               null,
+        anulado_por:              null,
+        updated_at:               new Date().toISOString(),
+      }).eq("id", id)
+      if (updErr) {
+        setError(`No se pudo restaurar: ${updErr.message}`)
+        return
+      }
+      if (form.sec3_activa) {
+        const itemIds = Array.from(new Set(
+          bodegajeItems.map(it => it.sec3_inventario_item_id).filter(Boolean)
+        ))
+        for (const itemId of itemIds) await syncPesoTon(supabase, itemId)
+      }
+      logAudit({
+        tabla:          "reports",
+        registro_id:    id,
+        accion:         "report.desanular",
+        descripcion:    `Report #${numero} — ${form.cliente} (${form.patente}) restaurado desde anulado`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
+      setEstado(target)
+      setEstadoPrevioAnulacion(null)
+    } catch (err) {
+      console.error("[reports/id] error inesperado al des-anular:", err)
+      setError("No se pudo conectar con el servidor. Intenta de nuevo.")
+    } finally {
+      setAnulando(false)
     }
   }
 
@@ -474,38 +549,84 @@ export default function ReportDetailPage() {
       return
     }
 
-    // Subir documentos HDS nuevos (si se adjuntó alguno) y sumarlos a los que
-    // ya tenía el report — mismo patrón de dos fases que en reports/nuevo.
-    let hdsFailed = hdsFiles.some(f => validateUploadFile(f))
-    if (hdsFiles.length > 0) {
+    // Productos de Bodegaje: reemplazar todo (borrar + reinsertar) es más
+    // simple que diferenciar altas/bajas/ediciones para el puñado de
+    // productos típico por report — mismo patrón "dos pasos" que ya usan
+    // adjuntos/evidencia acá abajo. Solo corre mientras es editable
+    // (!rightReadOnly): una vez despachado, report_bodegaje_items_lock
+    // rechazaría el intento, y no hay nada que reemplazar de todas formas.
+    if (!rightReadOnly) {
+      const { error: delItemsErr } = await supabase.from("report_bodegaje_items").delete().eq("report_id", id)
+      if (delItemsErr) { setError(delItemsErr.message); return }
+      if (bodegajeItems.length > 0) {
+        const { error: insItemsErr } = await supabase.from("report_bodegaje_items").insert(
+          bodegajeItems.map((it, index) => ({
+            report_id: id,
+            orden: index,
+            sec3_inventario_item_id: it.sec3_inventario_item_id || null,
+            sec3_producto:           it.sec3_producto           || null,
+            sec3_clase_imo:          it.sec3_clase_imo          || null,
+            sec3_nu:                 it.sec3_nu                 || null,
+            sec3_numero_bodega:      it.sec3_numero_bodega      || null,
+            sec3_numero_pallets:     it.sec3_numero_pallets     ? Number(it.sec3_numero_pallets)  : null,
+            sec3_numero_unidades:    it.sec3_numero_unidades    ? Number(it.sec3_numero_unidades) : null,
+            sec3_lote:               it.sec3_lote               || null,
+            sec3_cas:                it.sec3_cas                || null,
+            sec3_orden_compra:       it.sec3_orden_compra       || null,
+            sec3_fecha_elaboracion:  it.sec3_fecha_elaboracion  || null,
+            sec3_fecha_vencimiento:  it.sec3_fecha_vencimiento  || null,
+            tarifa_cliente_id:       it.tarifa_cliente_id       || null,
+          }))
+        )
+        if (insItemsErr) { setError(insItemsErr.message); return }
+      }
+    }
+
+    // Si se escribió una empresa de transporte nueva, queda guardada en el
+    // catálogo para aparecer como sugerencia en los próximos reports — no
+    // bloquea el guardado del report si esto falla (ej. nombre duplicado).
+    if (form.transporte_tipo === "externo" && form.empresa_transporte.trim()) {
+      supabase.from("empresas_transporte")
+        .upsert({ nombre: form.empresa_transporte.trim(), created_by: user?.id ?? null }, { onConflict: "nombre", ignoreDuplicates: true })
+        .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/id] error guardando empresa de transporte en el catálogo:", catalogErr) })
+    }
+
+    // Subir adjuntos nuevos de Antecedentes (HDS y/o Guía de despacho
+    // comparten la misma caja) y sumarlos a los que ya tenía el report en
+    // cada columna correspondiente — mismo patrón de dos fases que en
+    // reports/nuevo.
+    let adjuntoFailed = adjuntoFiles.some(f => validateUploadFile(f))
+    if (adjuntoFiles.length > 0) {
       const uploadedPaths: string[] = []
-      for (let i = 0; i < hdsFiles.length && !hdsFailed; i++) {
-        const file = hdsFiles[i]
+      for (let i = 0; i < adjuntoFiles.length && !adjuntoFailed; i++) {
+        const file = adjuntoFiles[i]
         const ext  = sanitizeExt(file.name)
-        const path = `hds-${numero}-${id}-${existingHdsPaths.length + i}.${ext}`
+        const path = `adjunto-${numero}-${id}-${existingAdjuntoPaths.length + i}.${ext}`
         const { error: uploadErr } = await supabase.storage
           .from("reports-firmados")
           .upload(path, file, { upsert: true })
         if (uploadErr) {
-          console.error("[reports/id] error subiendo documento HDS:", uploadErr)
-          hdsFailed = true
+          console.error("[reports/id] error subiendo adjunto de Antecedentes:", uploadErr)
+          adjuntoFailed = true
         } else {
           uploadedPaths.push(path)
         }
       }
       if (uploadedPaths.length > 0) {
-        const nuevosPaths = [...existingHdsPaths, ...uploadedPaths]
-        const { error: hdsUpdateErr } = await supabase
+        const updatePayload: Record<string, string[]> = {}
+        if (form.hds_header)           updatePayload.hds_archivos           = [...existingHdsPaths, ...uploadedPaths]
+        if (form.guia_despacho_header) updatePayload.guia_despacho_archivos = [...existingGuiaDespachoPaths, ...uploadedPaths]
+        const { error: adjuntoUpdateErr } = await supabase
           .from("reports")
-          .update({ hds_archivos: nuevosPaths })
+          .update(updatePayload)
           .eq("id", id)
-        if (hdsUpdateErr) {
-          console.error("[reports/id] error guardando referencia de los HDS:", hdsUpdateErr)
-          hdsFailed = true
+        if (adjuntoUpdateErr) {
+          console.error("[reports/id] error guardando referencia de los adjuntos:", adjuntoUpdateErr)
+          adjuntoFailed = true
         }
       }
-      if (hdsFailed) {
-        setError("No se pudo subir el documento HDS. Vuelve a intentarlo antes de guardar.")
+      if (adjuntoFailed) {
+        setError("No se pudo subir el archivo adjunto. Vuelve a intentarlo antes de guardar.")
         return
       }
     }
@@ -556,8 +677,11 @@ export default function ReportDetailPage() {
     // sigue en borrador/pendiente_despacho no toca stock. syncPesoTon corre
     // igual siempre que haya ítem vinculado para no dejar peso_ton
     // desactualizado en ediciones que no cambian de estado.
-    if (form.sec3_activa && form.sec3_inventario_item_id) {
-      await syncPesoTon(supabase, form.sec3_inventario_item_id)
+    if (form.sec3_activa) {
+      const itemIds = Array.from(new Set(
+        bodegajeItems.map(it => it.sec3_inventario_item_id).filter(Boolean)
+      ))
+      for (const itemId of itemIds) await syncPesoTon(supabase, itemId)
     }
 
     logAudit({
@@ -607,28 +731,30 @@ export default function ReportDetailPage() {
       />
     )}
 
-    <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+    <AlertDialog open={confirmAnular} onOpenChange={setConfirmAnular}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-destructive/10">
               <Trash2 className="h-4 w-4 text-destructive" />
             </span>
-            ¿Eliminar este report?
+            ¿Anular este report?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            Estás a punto de eliminar el report <strong>#{numero}</strong> ({form?.cliente}). Esta acción no se puede deshacer.
+            El report <strong>#{numero}</strong> ({form?.cliente}) queda marcado como <strong>Anulado</strong> — no se elimina,
+            todos sus datos se conservan y queda visible en la pestaña "Anulados".
+            {estado === "despachado" && " Como ya estaba despachado, el stock que movió se revierte y sus movimientos generados se eliminan."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel disabled={anulando}>Cancelar</AlertDialogCancel>
           <AlertDialogAction
-            disabled={deleting}
+            disabled={anulando}
             className="gap-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
-            onClick={handleDelete}
+            onClick={handleAnular}
           >
-            {deleting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Eliminar
+            {anulando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Anular
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -664,7 +790,7 @@ export default function ReportDetailPage() {
           <Button
             variant="outline" size="sm"
             className="gap-1.5 h-8 text-xs"
-            disabled={saving || deleting || previewLoading}
+            disabled={saving || anulando || previewLoading}
             onClick={async () => {
               setPreviewLoading(true)
               setError(null)
@@ -685,15 +811,29 @@ export default function ReportDetailPage() {
             Vista previa
           </Button>
 
-          <Button
-            variant="ghost" size="sm"
-            className="gap-1.5 h-8 text-xs text-red-500 hover:text-red-700 hover:bg-red-50"
-            disabled={deleting || saving}
-            onClick={() => setConfirmDelete(true)}
-          >
-            {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-            Eliminar
-          </Button>
+          {estado === "anulado" ? (
+            editorTotal && (
+              <Button
+                variant="outline" size="sm"
+                className="gap-1.5 h-8 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
+                disabled={anulando || saving}
+                onClick={handleDesanular}
+              >
+                {anulando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
+                Des-anular
+              </Button>
+            )
+          ) : (
+            <Button
+              variant="ghost" size="sm"
+              className="gap-1.5 h-8 text-xs text-red-500 hover:text-red-700 hover:bg-red-50"
+              disabled={anulando || saving}
+              onClick={() => setConfirmAnular(true)}
+            >
+              {anulando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Anular
+            </Button>
+          )}
 
           {estado === "borrador" && (
             <>
@@ -730,13 +870,37 @@ export default function ReportDetailPage() {
               Report despachado
             </div>
           )}
+
+          {/* super_admin y Javier Navarro pueden guardar ediciones en
+              cualquier estado, incluidos despachado/anulado donde nadie más
+              tiene un botón de guardar disponible. */}
+          {editorTotal && (estado === "despachado" || estado === "anulado" || estado === "pendiente_despacho") && (
+            <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" disabled={saving} onClick={() => handleSave(estado)}>
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Guardar cambios
+            </Button>
+          )}
         </div>
       </div>
 
-      {(estado === "pendiente_despacho" || estado === "despachado") && (
+      {!editorTotal && (estado === "pendiente_despacho" || estado === "despachado") && (
         <div className="flex items-center gap-2 px-6 py-2 bg-amber-50 dark:bg-amber-900/20 border-b text-xs text-amber-700 dark:text-amber-400 flex-shrink-0">
           <Eye className="h-3.5 w-3.5 flex-shrink-0" />
           Este report está en modo lectura — solo se puede editar mientras Recepción u Operaciones lo están llenando.
+        </div>
+      )}
+
+      {estado === "anulado" && (
+        <div className="flex items-center gap-2 px-6 py-2 bg-gray-100 dark:bg-gray-800/40 border-b text-xs text-gray-600 dark:text-gray-400 flex-shrink-0">
+          <Trash2 className="h-3.5 w-3.5 flex-shrink-0" />
+          Este report está anulado{!editorTotal && " — modo lectura"}.
+        </div>
+      )}
+
+      {editorTotal && estado !== "borrador" && estado !== "pendiente_operaciones" && estado !== "anulado" && (
+        <div className="flex items-center gap-2 px-6 py-2 bg-blue-50 dark:bg-blue-900/20 border-b text-xs text-blue-700 dark:text-blue-400 flex-shrink-0">
+          <FilePen className="h-3.5 w-3.5 flex-shrink-0" />
+          Edición habilitada para tu rol — este report normalmente estaría bloqueado en este estado.
         </div>
       )}
 
@@ -755,16 +919,11 @@ export default function ReportDetailPage() {
                     value={form.cliente}
                     onChange={v => set("cliente", v)}
                     onChangeId={cid => {
-                      setForm(prev => prev ? {
-                        ...prev,
-                        cliente_id: cid,
-                        tarifa_cliente_id: "",
-                        sec3_inventario_item_id: "",
-                        sec3_producto: "",
-                        sec3_clase_imo: "",
-                        sec3_nu: "",
-                      } : prev)
+                      setForm(prev => prev ? { ...prev, cliente_id: cid } : prev)
                       setServicioSeleccion([])
+                      // El catálogo de productos es por cliente — si cambia,
+                      // los productos ya elegidos ya no aplican.
+                      setBodegajeItems([])
                     }}
                     readOnly={leftReadOnly}
                   />
@@ -795,6 +954,22 @@ export default function ReportDetailPage() {
                     <option value="operaciones">Operaciones</option>
                   </select>
                 </Field>
+                <div className="flex items-center gap-2 col-span-1 sm:col-span-2">
+                  <Checkbox
+                    id="sec3_cuyd"
+                    checked={form.sec3_cuyd}
+                    disabled={leftReadOnly}
+                    onCheckedChange={v => {
+                      const checked = v === true
+                      set("sec3_cuyd", checked)
+                      if (!checked) set("sec3_cuyd_detalle", "")
+                    }}
+                  />
+                  <label htmlFor="sec3_cuyd" className="text-xs text-foreground/80 cursor-pointer">CUyD</label>
+                  {form.sec3_cuyd && (
+                    <Input value={form.sec3_cuyd_detalle} onChange={e => set("sec3_cuyd_detalle", e.target.value)} placeholder="Detalle" className="h-7 text-xs flex-1 max-w-[220px]" disabled={leftReadOnly} />
+                  )}
+                </div>
                 <Field label="Transporte" className="col-span-1 sm:col-span-2">
                   <div className="h-8 flex items-center">
                     <RadioGroup
@@ -809,21 +984,59 @@ export default function ReportDetailPage() {
                     />
                   </div>
                 </Field>
+                <Field label="Tipo de movimiento">
+                  <div className="h-8 flex items-center">
+                    <RadioGroup
+                      value={form.sec3_tipo}
+                      onChange={v => !leftReadOnly && set("sec3_tipo", v)}
+                      options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]}
+                      readOnly={leftReadOnly}
+                    />
+                  </div>
+                </Field>
                 {form.transporte_tipo === "externo" && (
                   <Field label="Empresa de transporte" className="col-span-1 sm:col-span-2">
-                    <Input value={form.empresa_transporte} onChange={e => set("empresa_transporte", e.target.value.toUpperCase())} placeholder="Razón social" className="h-8 text-xs" disabled={leftReadOnly} />
+                    <EmpresaTransporteCombobox value={form.empresa_transporte} onChange={v => set("empresa_transporte", v)} readOnly={leftReadOnly} />
                   </Field>
                 )}
-                <div className="col-span-1 sm:col-span-3 flex items-center gap-2">
-                  <Checkbox id="hds_header" checked={form.hds_header} onCheckedChange={v => !leftReadOnly && set("hds_header", v === true)} className="h-3.5 w-3.5" disabled={leftReadOnly} />
-                  <label htmlFor="hds_header" className="text-xs font-bold text-foreground cursor-pointer">HDS (Hoja de datos de seguridad presente)</label>
+                <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center gap-x-5 gap-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="hds_header" checked={form.hds_header} onCheckedChange={v => {
+                      if (leftReadOnly) return
+                      const checked = v === true
+                      set("hds_header", checked)
+                      if (!checked && !form.guia_despacho_header) {
+                        setAdjuntoFiles([])
+                        if (adjuntoFileRef.current) adjuntoFileRef.current.value = ""
+                      }
+                    }} className="h-3.5 w-3.5" disabled={leftReadOnly} />
+                    <label htmlFor="hds_header" className="text-xs font-bold text-foreground cursor-pointer">HDS (Hoja de datos de seguridad presente)</label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="guia_despacho_header"
+                      checked={form.guia_despacho_header}
+                      onCheckedChange={v => {
+                        if (leftReadOnly) return
+                        const checked = v === true
+                        set("guia_despacho_header", checked)
+                        if (!checked && !form.hds_header) {
+                          setAdjuntoFiles([])
+                          if (adjuntoFileRef.current) adjuntoFileRef.current.value = ""
+                        }
+                      }}
+                      className="h-3.5 w-3.5"
+                      disabled={leftReadOnly}
+                    />
+                    <label htmlFor="guia_despacho_header" className="text-xs font-bold text-foreground cursor-pointer">Guía de despacho</label>
+                  </div>
                 </div>
-                {form.hds_header && (
+                {(form.hds_header || form.guia_despacho_header) && (
                   <div className="col-span-1 sm:col-span-3 flex flex-col gap-1.5">
-                    {existingHdsPaths.length > 0 && (
+                    {existingAdjuntoPaths.length > 0 && (
                       <div className="flex flex-col gap-1.5">
-                        {existingHdsPaths.map((path, i) => (
-                          <EvidenciaExistenteLink key={path} path={path} index={i} label="HDS" />
+                        {existingAdjuntoPaths.map((path, i) => (
+                          <EvidenciaExistenteLink key={path} path={path} index={i} label="Adjunto" />
                         ))}
                       </div>
                     )}
@@ -831,20 +1044,20 @@ export default function ReportDetailPage() {
                     {!leftReadOnly && (
                       <>
                         <input
-                          ref={hdsFileRef}
+                          ref={adjuntoFileRef}
                           type="file"
                           multiple
                           accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*"
                           className="hidden"
-                          onChange={e => { if (e.target.files) addHdsFiles(e.target.files); e.target.value = "" }}
+                          onChange={e => { if (e.target.files) addAdjuntoFiles(e.target.files); e.target.value = "" }}
                         />
                         <div
-                          onClick={() => hdsFileRef.current?.click()}
-                          onDragOver={e => { e.preventDefault(); setHdsDragOver(true) }}
-                          onDragLeave={e => { e.preventDefault(); setHdsDragOver(false) }}
-                          onDrop={onHdsDrop}
+                          onClick={() => adjuntoFileRef.current?.click()}
+                          onDragOver={e => { e.preventDefault(); setAdjuntoDragOver(true) }}
+                          onDragLeave={e => { e.preventDefault(); setAdjuntoDragOver(false) }}
+                          onDrop={onAdjuntoDrop}
                           className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 py-3 text-center cursor-pointer transition-colors ${
-                            hdsDragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/40"
+                            adjuntoDragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/40"
                           }`}
                         >
                           <Paperclip className="h-4 w-4 text-muted-foreground" />
@@ -852,9 +1065,9 @@ export default function ReportDetailPage() {
                             Arrastra archivos aquí o <span className="text-primary underline underline-offset-2">selecciona</span>
                           </p>
                         </div>
-                        {hdsFiles.length > 0 && (
+                        {adjuntoFiles.length > 0 && (
                           <div className="flex flex-col gap-1.5">
-                            {hdsFiles.map((file, i) => (
+                            {adjuntoFiles.map((file, i) => (
                               <div key={i} className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1.5">
                                 <FileText className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
                                 <button
@@ -866,7 +1079,7 @@ export default function ReportDetailPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => removeHdsFile(i)}
+                                  onClick={() => removeAdjuntoFile(i)}
                                   className="text-muted-foreground hover:text-foreground flex-shrink-0"
                                 >
                                   <X className="h-3.5 w-3.5" />
@@ -982,43 +1195,16 @@ export default function ReportDetailPage() {
                 readOnly={rightReadOnly}
                 toUpperCase
                 hideActivation
-                productoNode={
-                  <>
-                    <ProductoCombobox
-                      clienteId={form.cliente_id}
-                      value={form.sec3_producto}
-                      onChange={v => set("sec3_producto", v)}
-                      onSelect={(item: InventarioItemOption) => setForm(prev => prev ? ({
-                        ...prev,
-                        sec3_inventario_item_id: item.id,
-                        sec3_producto:           item.descripcion,
-                        sec3_clase_imo:          item.clase_imo ?? "",
-                        sec3_nu:                 item.nu        ?? "",
-                        // Tarifa/contrato ya no se elige a mano — se deriva sola
-                        // comparando la Clase IMO del producto contra la de cada
-                        // contrato del cliente (mismo valor, dos tablas distintas).
-                        tarifa_cliente_id: tarifasCliente.find(t => tarifaCubreClase(t.clase_imo, item.clase_imo))?.id ?? "",
-                      }) : prev)}
-                      onClear={() => setForm(prev => prev ? ({
-                        ...prev,
-                        sec3_inventario_item_id: "",
-                        sec3_clase_imo:          "",
-                        sec3_nu:                 "",
-                        tarifa_cliente_id:       "",
-                      }) : prev)}
-                      readOnly={rightReadOnly}
-                    />
-                    {form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
-                      <p className="text-[10px] text-amber-600 mt-1">
-                        No vinculado al catálogo — este report no actualizará el stock.
-                      </p>
-                    )}
-                    {form.sec3_inventario_item_id && tarifasCliente.length > 1 && !form.tarifa_cliente_id && (
-                      <p className="text-[10px] text-amber-600 mt-1">
-                        Ningún contrato de este cliente coincide con la Clase IMO &quot;{form.sec3_clase_imo || "—"}&quot; — revisa antes de enviar a despacho.
-                      </p>
-                    )}
-                  </>
+                itemsNode={
+                  <BodegajeItemsList
+                    clienteId={form.cliente_id}
+                    items={bodegajeItems}
+                    onChange={changeBodegajeItem}
+                    onAdd={addBodegajeItem}
+                    onRemove={removeBodegajeItem}
+                    tarifasCliente={tarifasCliente}
+                    readOnly={rightReadOnly}
+                  />
                 }
                 serviciosNode={
                   <ServiciosSection

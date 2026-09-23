@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import {
-  Package, Plus, Search, RefreshCw, ChevronRight, ArrowLeft,
+  Package, Plus, Search, RefreshCw, ChevronRight, ChevronLeft, ArrowLeft,
   Loader2, Pencil, Warehouse, Trash2, Download, AlertCircle, Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -152,15 +152,9 @@ function KardexCell({
   function cancel() { setDraft(value == null ? "" : String(value)); setEditing(false); setErr(null) }
 
   if (!editing) {
-    // Ojo: NO usar el atributo `disabled` nativo acá — un <button disabled>
-    // deja de emitir mousedown/mouseover, así que el arrastre para mover la
-    // vista de Detalle (que escucha mousedown en el contenedor padre) nunca
-    // se entera del gesto sobre esas celdas. En vez de eso, el bloqueo se
-    // marca con data-kardex-locked y se ignora el click a mano.
     return (
-      <button type="button" data-kardex-locked={disabled ? "true" : undefined}
-        onClick={() => { if (!disabled) setEditing(true) }}
-        style={disabled ? { cursor: "inherit" } : undefined}
+      <button type="button" disabled={disabled}
+        onClick={() => setEditing(true)}
         className={cn(
           "block w-full whitespace-nowrap text-left px-2 py-1.5 transition-colors",
           disabled ? "" : "hover:bg-primary/10 cursor-pointer",
@@ -192,6 +186,72 @@ function KardexCell({
   )
 }
 
+// Combobox con búsqueda por texto — para listas largas (ej. productos del
+// Kardex) donde un <select> nativo obliga a scrollear una a una.
+function SearchableSelect({ value, onChange, options, placeholder, className }: {
+  value: string
+  onChange: (v: string) => void
+  options: { value: string; label: string }[]
+  placeholder: string
+  className?: string
+}) {
+  const [open,  setOpen]  = useState(false)
+  const [query, setQuery] = useState("")
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQuery("") }
+    }
+    document.addEventListener("mousedown", onClickOutside)
+    return () => document.removeEventListener("mousedown", onClickOutside)
+  }, [])
+
+  const selectedLabel = options.find(o => o.value === value)?.label ?? ""
+  const filtered = query
+    ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
+    : options
+
+  return (
+    <div ref={ref} className={cn("relative", className)}>
+      <Input
+        value={open ? query : selectedLabel}
+        onChange={e => { setQuery(e.target.value); setOpen(true) }}
+        onFocus={() => { setQuery(""); setOpen(true) }}
+        placeholder={placeholder}
+        className="h-8 text-[12px]"
+        autoComplete="off"
+      />
+      {open && (
+        <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-56 overflow-y-auto">
+          <button
+            type="button"
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => { onChange(""); setOpen(false); setQuery("") }}
+            className="w-full px-3 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-muted transition-colors"
+          >
+            {placeholder}
+          </button>
+          {filtered.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onChange(o.value); setOpen(false); setQuery("") }}
+              className="w-full px-3 py-1.5 text-left text-[12px] hover:bg-muted transition-colors"
+            >
+              {o.label}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="px-3 py-2 text-[11px] text-muted-foreground">Sin coincidencias</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Inner component (requiere useSearchParams → envuelto en Suspense) ──────────
 function InventarioContent() {
   const { user, profile } = useAuth()
@@ -201,6 +261,10 @@ function InventarioContent() {
   const [clientes,     setClientes]     = useState<Cliente[]>([])
   const [clienteItems, setClienteItems] = useState<Record<string, InventarioItem[]>>({})
   const [selected,     setSelected]     = useState<Cliente | null>(null)
+  // En desktop, al elegir un cliente la columna de clientes se recoge a una
+  // franja angosta (solo avatares) para dejarle más espacio a la tabla de
+  // productos — en mobile ya se ocultaba entera, eso no cambia.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [loading,      setLoading]      = useState(true)
   const [loadingItems, setLoadingItems] = useState(false)
   const [search,       setSearch]       = useState("")
@@ -236,46 +300,6 @@ function InventarioContent() {
   // clic consciente que vuelva a bloquear la tabla.
   const [kardexEditing, setKardexEditing] = useState(false)
   const [kardexDirty,   setKardexDirty]   = useState(false)
-  // Arrastrar para mover la vista de Detalle (como un canvas): clic sostenido
-  // sobre una zona no interactiva y el cursor cambia a "mano" mientras
-  // desplaza el scroll vertical general y el horizontal de la tabla bajo el cursor.
-  const kardexScrollRef = useRef<HTMLDivElement>(null)
-  const [kardexPanning, setKardexPanning] = useState(false)
-
-  function handleKardexPanStart(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.button !== 0) return
-    const target = e.target as HTMLElement
-    const interactive = target.closest<HTMLElement>("button, input, select, a, textarea")
-    // Las celdas del Kardex bloqueadas (ver KardexCell) se marcan con
-    // data-kardex-locked en vez de `disabled` para seguir recibiendo
-    // mousedown y permitir arrastrar la vista desde encima de un valor.
-    if (interactive && interactive.dataset.kardexLocked !== "true") return
-    const outer = kardexScrollRef.current
-    if (!outer) return
-    const inner = target.closest<HTMLElement>(".kardex-hscroll")
-    const startX = e.clientX
-    const startY = e.clientY
-    const startScrollTop = outer.scrollTop
-    const startScrollLeft = inner?.scrollLeft ?? 0
-    let dragging = false
-
-    function onMove(ev: MouseEvent) {
-      const dx = ev.clientX - startX
-      const dy = ev.clientY - startY
-      if (!dragging && Math.hypot(dx, dy) > 4) { dragging = true; setKardexPanning(true) }
-      if (dragging) {
-        outer!.scrollTop = startScrollTop - dy
-        if (inner) inner.scrollLeft = startScrollLeft - dx
-      }
-    }
-    function onUp() {
-      window.removeEventListener("mousemove", onMove)
-      window.removeEventListener("mouseup", onUp)
-      setKardexPanning(false)
-    }
-    window.addEventListener("mousemove", onMove)
-    window.addEventListener("mouseup", onUp)
-  }
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)
@@ -337,6 +361,7 @@ function InventarioContent() {
       const found = clientes.find(c => c.id === clienteParam)
       if (found) {
         setSelected(found)
+        setSidebarCollapsed(true)
         fetchItemsForCliente(found.id)
       }
     }
@@ -344,6 +369,7 @@ function InventarioContent() {
 
   function selectCliente(c: Cliente) {
     setSelected(c)
+    setSidebarCollapsed(true)
     setVista("resumen")
     setKardexProducto(null)
     setKardexImoFiltro(null)
@@ -378,13 +404,15 @@ function InventarioContent() {
     }
   }, [vista, selected, kardexMovs, fetchKardexForCliente])
 
-  // Agrupa por lote (código) y calcula el saldo corrido fila a fila, igual
-  // que el Kardex en excel del cliente — el saldo nunca se guarda en BD.
+  // Agrupa por producto (carga) — una sola grilla por producto, sin separar
+  // por lote/código, con saldo corrido fila a fila igual que el Kardex en
+  // excel del cliente (el saldo nunca se guarda en BD). El lote de cada
+  // movimiento sigue viéndose en su propia columna dentro de la tabla.
   const kardexGroups = useMemo(() => {
     const movs = selected ? (kardexMovs[selected.id] ?? []) : []
     const groups = new Map<string, typeof movs>()
     for (const m of movs) {
-      const key = m.codigo || m.lote || m.carga
+      const key = m.carga
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key)!.push(m)
     }
@@ -396,14 +424,12 @@ function InventarioContent() {
         else                      { stockPos -= m.posiciones ?? 0; stockUnd -= m.unidades ?? 0 }
         return { ...m, stockPos, stockUnd }
       })
-      return { key, carga: groupMovs[0].carga, lote: groupMovs[0].lote, codigo: groupMovs[0].codigo, rows }
+      return { key, carga: groupMovs[0].carga, rows }
     })
   }, [selected, kardexMovs])
 
   const kardexProductos = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const g of kardexGroups) counts.set(g.carga, (counts.get(g.carga) ?? 0) + 1)
-    return [...counts.entries()].map(([carga, lotes]) => ({ carga, lotes })).sort((a, b) => a.carga.localeCompare(b.carga))
+    return kardexGroups.map(g => ({ carga: g.carga })).sort((a, b) => a.carga.localeCompare(b.carga))
   }, [kardexGroups])
 
   // IMOs distintos presentes en los movimientos del cliente — permite buscar
@@ -600,12 +626,14 @@ function InventarioContent() {
     if (!selected || kardexGroups.length === 0) return null
     const groups: KardexExportGroup[] = kardexGroups.map(g => ({
       carga: g.carga,
-      subtitulo: [g.codigo && `Código ${g.codigo}`, g.lote && `Lote ${g.lote}`].filter(Boolean).join(" · ") || "Movimientos",
+      subtitulo: `${g.rows.length} movimiento${g.rows.length !== 1 ? "s" : ""}`,
       rows: g.rows.map(m => ({
+        "SKU":                 m.codigo ?? "",
+        "Nr. Pallet":          m.numero_pallet ?? "",
         "Fecha":               m.fecha.slice(0, 10),
         "Tipo":                m.tipo === "ingreso" ? "Ingreso" : "Despacho",
         "IMO":                 m.imo ?? "",
-        "N° UN":               m.un ?? "",
+        "N° NU":               m.un ?? "",
         "Lote":                m.lote ?? "",
         "N° CAS":              m.cas ?? "",
         "N° Guía":             m.guia_numero ?? "",
@@ -694,83 +722,138 @@ function InventarioContent() {
           {/* ── Panel izquierdo: lista de clientes ── */}
           <div className={cn(
             "flex-shrink-0 border-b md:border-b-0 md:border-r flex flex-col bg-muted/10",
-            "w-full md:w-72",
+            selected && sidebarCollapsed ? "w-full md:w-14" : "w-full md:w-72",
             selected ? "hidden md:flex" : "flex"
           )}>
-            <div className="p-3 border-b">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar cliente..."
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  className="pl-8 h-8 text-xs bg-background"
-                />
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              {loading ? (
-                <div className="flex items-center justify-center h-32">
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            {selected && sidebarCollapsed ? (
+              /* Franja colapsada — solo avatares, para dejarle más espacio a
+                 la tabla de productos una vez elegido un cliente. */
+              <>
+                <div className="p-2 border-b flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setSidebarCollapsed(false)}
+                    title="Mostrar lista de clientes"
+                    className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
                 </div>
-              ) : filteredClientes.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-8">Sin clientes activos</p>
-              ) : (
-                <div className="p-2 space-y-0.5">
+                <div className="flex-1 overflow-y-auto py-2 flex flex-col items-center gap-1.5">
                   {filteredClientes.map((c, idx) => {
-                    const cItems   = clienteItems[c.id] ?? []
-                    const estado   = getClienteEstado(cItems)
-                    const isSel    = selected?.id === c.id
+                    const isSel = selected?.id === c.id
                     return (
                       <button
                         key={c.id}
+                        type="button"
                         onClick={() => selectCliente(c)}
+                        title={c.nombre}
                         className={cn(
-                          "w-full text-left px-3 py-2.5 rounded-lg flex items-center gap-2.5 transition-colors group",
-                          isSel
-                            ? "bg-primary text-primary-foreground"
-                            : "hover:bg-muted/60 text-foreground"
+                          "rounded-full flex-shrink-0 transition-shadow",
+                          isSel && "ring-2 ring-primary ring-offset-1"
                         )}
                       >
-                        <Avatar className="h-7 w-7 flex-shrink-0">
+                        <Avatar className="h-8 w-8">
                           <AvatarFallback className={cn(
                             "text-[10px] font-bold",
-                            isSel ? "bg-white/20 text-white" : AVATAR_COLORS[idx % AVATAR_COLORS.length]
+                            isSel ? "bg-primary text-primary-foreground" : AVATAR_COLORS[idx % AVATAR_COLORS.length]
                           )}>
                             {initials(c.nombre)}
                           </AvatarFallback>
                         </Avatar>
-
-                        <div className="flex-1 min-w-0">
-                          <p className={cn("text-xs font-semibold truncate", isSel ? "text-white" : "")}>
-                            {c.nombre}
-                          </p>
-                          <p className={cn("text-[10px]", isSel ? "text-white/70" : "text-muted-foreground")}>
-                            {clienteItems[c.id] !== undefined
-                              ? `${cItems.length} ítem${cItems.length !== 1 ? "s" : ""}`
-                              : "—"}
-                          </p>
-                        </div>
-
-                        {estado && (
-                          <span className={cn(
-                            "flex-shrink-0 h-2 w-2 rounded-full",
-                            estado === "Crítico" ? "bg-red-500" :
-                            estado === "Bajo"    ? "bg-amber-500" : "bg-emerald-500"
-                          )} />
-                        )}
-
-                        <ChevronRight className={cn(
-                          "h-3.5 w-3.5 flex-shrink-0 transition-opacity",
-                          isSel ? "text-white/70 opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"
-                        )} />
                       </button>
                     )
                   })}
                 </div>
-              )}
-            </div>
+              </>
+            ) : (
+              <>
+                <div className="p-3 border-b flex items-center gap-1.5">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar cliente..."
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      className="pl-8 h-8 text-xs bg-background"
+                    />
+                  </div>
+                  {selected && (
+                    <button
+                      type="button"
+                      onClick={() => setSidebarCollapsed(true)}
+                      title="Recoger lista de clientes"
+                      className="hidden md:flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                  {loading ? (
+                    <div className="flex items-center justify-center h-32">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    </div>
+                  ) : filteredClientes.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-8">Sin clientes activos</p>
+                  ) : (
+                    <div className="p-2 space-y-0.5">
+                      {filteredClientes.map((c, idx) => {
+                        const cItems   = clienteItems[c.id] ?? []
+                        const estado   = getClienteEstado(cItems)
+                        const isSel    = selected?.id === c.id
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() => selectCliente(c)}
+                            className={cn(
+                              "w-full text-left px-3 py-2.5 rounded-lg flex items-center gap-2.5 transition-colors group",
+                              isSel
+                                ? "bg-primary text-primary-foreground"
+                                : "hover:bg-muted/60 text-foreground"
+                            )}
+                          >
+                            <Avatar className="h-7 w-7 flex-shrink-0">
+                              <AvatarFallback className={cn(
+                                "text-[10px] font-bold",
+                                isSel ? "bg-white/20 text-white" : AVATAR_COLORS[idx % AVATAR_COLORS.length]
+                              )}>
+                                {initials(c.nombre)}
+                              </AvatarFallback>
+                            </Avatar>
+
+                            <div className="flex-1 min-w-0">
+                              <p className={cn("text-xs font-semibold truncate", isSel ? "text-white" : "")}>
+                                {c.nombre}
+                              </p>
+                              <p className={cn("text-[10px]", isSel ? "text-white/70" : "text-muted-foreground")}>
+                                {clienteItems[c.id] !== undefined
+                                  ? `${cItems.length} ítem${cItems.length !== 1 ? "s" : ""}`
+                                  : "—"}
+                              </p>
+                            </div>
+
+                            {estado && (
+                              <span className={cn(
+                                "flex-shrink-0 h-2 w-2 rounded-full",
+                                estado === "Crítico" ? "bg-red-500" :
+                                estado === "Bajo"    ? "bg-amber-500" : "bg-emerald-500"
+                              )} />
+                            )}
+
+                            <ChevronRight className={cn(
+                              "h-3.5 w-3.5 flex-shrink-0 transition-opacity",
+                              isSel ? "text-white/70 opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"
+                            )} />
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* ── Panel derecho: inventario del cliente seleccionado ── */}
@@ -781,7 +864,7 @@ function InventarioContent() {
             {/* Botón volver — solo móvil */}
             {selected && (
               <button
-                onClick={() => setSelected(null)}
+                onClick={() => { setSelected(null); setSidebarCollapsed(false) }}
                 className="md:hidden flex items-center gap-1.5 px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground border-b bg-muted/5 flex-shrink-0"
               >
                 <ArrowLeft className="h-4 w-4" />
@@ -843,18 +926,17 @@ function InventarioContent() {
                 {vista === "kardex" && kardexProductos.length > 0 && (
                   <div className="px-6 py-2.5 border-b bg-muted/5 flex items-center gap-2 flex-shrink-0">
                     <Label className="text-[11px] text-muted-foreground font-medium">Producto</Label>
-                    <select value={kardexProducto ?? ""}
-                      onChange={e => {
-                        setKardexProducto(e.target.value || null)
+                    <SearchableSelect
+                      value={kardexProducto ?? ""}
+                      onChange={v => {
+                        setKardexProducto(v || null)
                         setKardexImoFiltro(null)
                         setKardexEditing(false); setKardexDirty(false)
                       }}
-                      className="h-8 flex-1 max-w-sm rounded-md border border-input bg-background px-2.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring">
-                      <option value="">Selecciona un producto…</option>
-                      {kardexProductos.map(p => (
-                        <option key={p.carga} value={p.carga}>{p.carga}{p.lotes > 1 ? ` (${p.lotes} lotes)` : ""}</option>
-                      ))}
-                    </select>
+                      options={kardexProductos.map(p => ({ value: p.carga, label: p.carga }))}
+                      placeholder="Selecciona un producto…"
+                      className="flex-1 max-w-sm"
+                    />
                     <Label className="text-[11px] text-muted-foreground font-medium">IMO</Label>
                     <select value={kardexImoFiltro ?? ""}
                       onChange={e => {
@@ -922,30 +1004,25 @@ function InventarioContent() {
                         <p className="text-sm font-medium">Sin productos para el IMO {kardexImoFiltro}</p>
                       </div>
                     ) : (
-                      <div
-                        ref={kardexScrollRef}
-                        onMouseDown={handleKardexPanStart}
-                        className={cn(
-                          "h-full overflow-y-auto overflow-x-auto p-4 space-y-5",
-                          kardexPanning ? "cursor-grabbing select-none" : "cursor-grab"
-                        )}
-                      >
+                      <div className="h-full overflow-y-auto overflow-x-auto p-4 space-y-5 kardex-scroll">
                         {kardexGroupsFiltered.map(group => (
                           <div key={group.key} className="rounded-lg border border-border/40 overflow-hidden">
                             <div className="px-3 py-2 bg-muted/40 border-b border-border/30 flex items-baseline gap-2 flex-wrap">
                               <span className="text-xs font-bold">{group.carga}</span>
                               <span className="text-[10px] text-muted-foreground">
-                                {[group.codigo && `Código ${group.codigo}`, group.lote && `Lote ${group.lote}`].filter(Boolean).join(" · ")}
+                                {group.rows.length} movimiento{group.rows.length !== 1 ? "s" : ""}
                               </span>
                             </div>
                             <div className="kardex-hscroll overflow-x-auto">
-                              <table className="text-[11px] min-w-[1400px] w-full">
+                              <table className="text-[11px] min-w-[1600px] w-full">
                                 <thead className="bg-muted/20 border-b border-border/20">
                                   <tr className="text-left text-muted-foreground">
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">SKU</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Nr. Pallet</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Fecha</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Tipo</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">IMO</th>
-                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">UN</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">NU</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Lote</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">CAS</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Guía</th>
@@ -969,6 +1046,12 @@ function InventarioContent() {
                                     const vencido = m.fecha_vencimiento && m.fecha_vencimiento < new Date().toISOString().slice(0, 10)
                                     return (
                                       <tr key={m.id} className={cn("border-b border-border/10 last:border-0", i % 2 !== 0 && "bg-muted/10")}>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.codigo} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "codigo", v as string | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.numero_pallet} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "numero_pallet", v as string | null)} />
+                                        </td>
                                         <td className="p-0 whitespace-nowrap tabular-nums">
                                           <KardexCell kind="date" value={m.fecha.slice(0, 10)} disabled={!kardexEditing}
                                             onSave={async v => {

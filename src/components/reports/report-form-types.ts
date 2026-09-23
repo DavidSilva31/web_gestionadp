@@ -1,6 +1,6 @@
 export type TipoMovimiento = "ingreso" | "despacho"
 export type TipoContenedor = "20ft" | "40ft" | "isotanque"
-export type SolicitadoPor  = "clientes" | "hds" | "operaciones" | "cuyd"
+export type SolicitadoPor  = "clientes" | "hds" | "operaciones"
 export type TransporteTipo = "propio" | "externo"
 
 export interface ReportFormData {
@@ -12,6 +12,7 @@ export interface ReportFormData {
   empresa_transporte: string
   transporte_tipo:    TransporteTipo
   hds_header:         boolean
+  guia_despacho_header: boolean
   observaciones:      string
 
   sec1_activa:          boolean
@@ -40,28 +41,76 @@ export interface ReportFormData {
   sec2_sigla_numero:   string
   sec2_observaciones:  string
 
+  // Sección 3 — campos únicos por sección (compartidos entre todos los
+  // productos de Bodegaje). Los campos por producto (Producto, Clase IMO,
+  // NU, N° Bodega, Pallets, Unidades, Lote, CAS, OC, Elab., Venc., tarifa)
+  // viven ahora en BodegajeItemFormData, uno por producto — ver más abajo.
   sec3_activa:         boolean
-  sec3_producto:       string
-  sec3_clase_imo:      string
   sec3_hora_inicio:    string
   sec3_hora_termino:   string
-  sec3_numero_bodega:  string
-  sec3_nu:             string
   sec3_tipo:           TipoMovimiento | ""
-  sec3_numero_pallets: string
-  sec3_numero_unidades: string
   sec3_numero_guia:    string
   sec3_solicitado_por: SolicitadoPor | ""
+  // CUyD es independiente de "Solicitado por" — checkbox propio con su
+  // detalle, no una de las opciones del select.
+  sec3_cuyd:           boolean
   sec3_cuyd_detalle:   string
+  sec3_observaciones:  string
+  sec3_servicio_adicional: boolean
+
+  nombre_operador: string
+}
+
+// Un producto de Bodegaje — un report puede tener varios. `id` presente
+// significa que ya está guardado en report_bodegaje_items; ausente/undefined
+// significa fila nueva todavía no persistida.
+export interface BodegajeItemFormData {
+  id?: string
+  sec3_inventario_item_id: string
+  sec3_producto:           string
+  sec3_clase_imo:          string
+  sec3_nu:                 string
+  sec3_numero_bodega:      string
+  sec3_numero_pallets:     string
+  sec3_numero_unidades:    string
   sec3_lote:               string
   sec3_cas:                string
   sec3_orden_compra:       string
   sec3_fecha_elaboracion:  string
   sec3_fecha_vencimiento:  string
-  sec3_observaciones:  string
-  sec3_servicio_adicional: boolean
+  // Tarifa/contrato derivada por línea (Clase IMO de ESTE producto contra
+  // los contratos del cliente) — no una sola por report.
+  tarifa_cliente_id:       string
+}
 
-  nombre_operador: string
+export function emptyBodegajeItem(): BodegajeItemFormData {
+  return {
+    sec3_inventario_item_id: "", sec3_producto: "", sec3_clase_imo: "", sec3_nu: "",
+    sec3_numero_bodega: "", sec3_numero_pallets: "", sec3_numero_unidades: "",
+    sec3_lote: "", sec3_cas: "", sec3_orden_compra: "",
+    sec3_fecha_elaboracion: "", sec3_fecha_vencimiento: "", tarifa_cliente_id: "",
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function bodegajeItemFromDb(data: Record<string, any>): BodegajeItemFormData {
+  const s = (v: unknown) => (v ?? "") as string
+  return {
+    id: data.id,
+    sec3_inventario_item_id: s(data.sec3_inventario_item_id),
+    sec3_producto:           s(data.sec3_producto),
+    sec3_clase_imo:          s(data.sec3_clase_imo),
+    sec3_nu:                 s(data.sec3_nu),
+    sec3_numero_bodega:      s(data.sec3_numero_bodega),
+    sec3_numero_pallets:     data.sec3_numero_pallets  != null ? String(data.sec3_numero_pallets)  : "",
+    sec3_numero_unidades:    data.sec3_numero_unidades != null ? String(data.sec3_numero_unidades) : "",
+    sec3_lote:               s(data.sec3_lote),
+    sec3_cas:                s(data.sec3_cas),
+    sec3_orden_compra:       s(data.sec3_orden_compra),
+    sec3_fecha_elaboracion:  s(data.sec3_fecha_elaboracion),
+    sec3_fecha_vencimiento:  s(data.sec3_fecha_vencimiento),
+    tarifa_cliente_id:       s(data.tarifa_cliente_id),
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,6 +123,7 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
     empresa_transporte: s(data.empresa_transporte),
     transporte_tipo: (s(data.transporte_tipo) || "externo") as TransporteTipo,
     hds_header: b(data.hds_header),
+    guia_despacho_header: b(data.guia_despacho_header),
     observaciones: s(data.observaciones),
     sec1_activa: b(data.sec1_activa),
     sec1_tipo_movimiento: s(data.sec1_tipo_movimiento) as TipoMovimiento | "",
@@ -89,18 +139,13 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
     sec2_otro: b(data.sec2_otro),
     sec2_hora_inicio: s(data.sec2_hora_inicio), sec2_hora_termino: s(data.sec2_hora_termino),
     sec2_sigla_numero: s(data.sec2_sigla_numero), sec2_observaciones: s(data.sec2_observaciones),
-    sec3_activa: b(data.sec3_activa), sec3_producto: s(data.sec3_producto),
-    sec3_clase_imo: s(data.sec3_clase_imo),
+    sec3_activa: b(data.sec3_activa),
     sec3_hora_inicio: s(data.sec3_hora_inicio), sec3_hora_termino: s(data.sec3_hora_termino),
-    sec3_numero_bodega: s(data.sec3_numero_bodega), sec3_nu: s(data.sec3_nu),
     sec3_tipo: s(data.sec3_tipo) as TipoMovimiento | "",
-    sec3_numero_pallets: data.sec3_numero_pallets != null ? String(data.sec3_numero_pallets) : "",
-    sec3_numero_unidades: data.sec3_numero_unidades != null ? String(data.sec3_numero_unidades) : "",
     sec3_numero_guia: s(data.sec3_numero_guia),
     sec3_solicitado_por: s(data.sec3_solicitado_por) as SolicitadoPor | "",
+    sec3_cuyd: b(data.sec3_cuyd),
     sec3_cuyd_detalle: s(data.sec3_cuyd_detalle),
-    sec3_lote: s(data.sec3_lote), sec3_cas: s(data.sec3_cas), sec3_orden_compra: s(data.sec3_orden_compra),
-    sec3_fecha_elaboracion: s(data.sec3_fecha_elaboracion), sec3_fecha_vencimiento: s(data.sec3_fecha_vencimiento),
     sec3_observaciones: s(data.sec3_observaciones),
     sec3_servicio_adicional: b(data.sec3_servicio_adicional),
     nombre_operador: s(data.nombre_operador),

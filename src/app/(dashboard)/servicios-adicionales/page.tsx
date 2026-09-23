@@ -171,6 +171,7 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   pendiente_operaciones: { label: "Pend. operaciones", className: "badge-info" },
   pendiente_despacho:    { label: "Pend. despacho",    className: "badge-warning" },
   despachado:            { label: "Despachado",        className: "badge-success" },
+  anulado:               { label: "Anulado",           className: "badge-neutral line-through" },
 }
 
 export default function ServiciosAdicionalesPage() {

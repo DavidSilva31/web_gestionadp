@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Truck, X, Eye, Paperclip } from "lucide-react"
+import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Truck, X, Eye, Paperclip, Ban } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -21,6 +21,7 @@ import { FirmaRecepcionDespacho } from "@/components/reports/firma-staff-block"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
+import type { ReportBodegajeItem } from "@/types/database"
 
 type Tab = "todos" | ReportEstado
 
@@ -35,10 +36,10 @@ interface ReportRow {
   sec1_activa: boolean
   sec2_activa: boolean
   sec3_activa: boolean
-  sec3_tipo:               string | null
-  sec3_numero_pallets:     number | null
-  sec3_inventario_item_id: string | null
-  sec3_producto:           string | null
+  sec3_tipo:   string | null
+  // Bodegaje puede tener varios productos — uno por fila en
+  // report_bodegaje_items, traídos junto al report vía embed de PostgREST.
+  report_bodegaje_items: ReportBodegajeItem[]
   archivos_pendiente_despacho: string[] | null
 }
 
@@ -48,6 +49,9 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "pendiente_operaciones",  label: "Pend. operaciones", icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "pendiente_despacho",     label: "Pend. despacho",    icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "despachado",             label: "Despachados",       icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+  // Los reports se anulan, no se eliminan — quedan aparte en su propia
+  // pestaña para no ensuciar el flujo operativo normal (no aparecen en "Todos").
+  { key: "anulado",                label: "Anulados",          icon: <Ban className="h-3.5 w-3.5" /> },
 ]
 
 const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> = {
@@ -55,6 +59,7 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   pendiente_operaciones: { label: "Pend. operaciones", className: "badge-info" },
   pendiente_despacho:    { label: "Pend. despacho",    className: "badge-warning" },
   despachado:            { label: "Despachado",        className: "badge-success" },
+  anulado:               { label: "Anulado",           className: "badge-neutral line-through" },
 }
 
 function seccionesTag(r: ReportRow) {
@@ -90,7 +95,7 @@ export default function ReportsPage() {
   const [filesFor, setFilesFor] = useState<ReportRow | null>(null)
   useCloseOnBack(filesFor !== null, () => setFilesFor(null))
 
-  const SELECT_COLS = "id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa, sec3_tipo, sec3_numero_pallets, sec3_inventario_item_id, sec3_producto, archivos_pendiente_despacho"
+  const SELECT_COLS = "id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa, sec3_tipo, archivos_pendiente_despacho, report_bodegaje_items(*)"
 
   // La grilla solo muestra los últimos 6 meses por defecto (va a seguir
   // creciendo indefinidamente si no se acota) — lo anterior queda
@@ -203,11 +208,11 @@ export default function ReportsPage() {
       const ids = filtered.map(r => r.id)
       const { data, error } = await supabase
         .from("reports")
-        .select("*")
+        .select("*, report_bodegaje_items(*)")
         .in("id", ids)
         .order("numero", { ascending: true })
       if (error) throw error
-      if (data && data.length > 0) await exportReportsToExcel(data as Report[])
+      if (data && data.length > 0) await exportReportsToExcel(data as (Report & { report_bodegaje_items: ReportBodegajeItem[] })[])
     } catch (err) {
       console.error("[reports] error exportando Excel:", err)
       setActionError("No se pudo exportar a Excel. Intenta de nuevo.")
@@ -247,22 +252,26 @@ export default function ReportsPage() {
         usuario_id:     user?.id,
         usuario_nombre: profile?.nombre ?? dispatchNombre,
       })
-      // El stock recién se mueve acá (trigger reports_sync_inventario en la
-      // transición a 'despachado') — el log de auditoría de stock va en el
-      // mismo momento, no al crear/editar el report.
-      if (dispatchFor.sec3_activa && dispatchFor.sec3_inventario_item_id && dispatchFor.sec3_tipo) {
-        const delta     = Number(dispatchFor.sec3_numero_pallets) || 0
-        const invAccion = dispatchFor.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
-        const invDesc   = `Stock ${dispatchFor.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${dispatchFor.sec3_producto ?? ""}`
-        await logAudit({
-          tabla:          "inventario_items",
-          registro_id:    dispatchFor.sec3_inventario_item_id,
-          accion:         invAccion,
-          descripcion:    `${invDesc} via Report #${dispatchFor.numero}`,
-          usuario_id:     user?.id,
-          usuario_nombre: profile?.nombre ?? dispatchNombre,
-        })
-        await syncPesoTon(supabase, dispatchFor.sec3_inventario_item_id)
+      // El stock recién se mueve acá (trigger reports_sync_bodegaje_stock_change
+      // en la transición a 'despachado') — el log de auditoría de stock va en
+      // el mismo momento, no al crear/editar el report. Un report puede tener
+      // varios productos de Bodegaje, uno por fila en report_bodegaje_items.
+      if (dispatchFor.sec3_activa && dispatchFor.sec3_tipo) {
+        for (const it of dispatchFor.report_bodegaje_items) {
+          if (!it.sec3_inventario_item_id) continue
+          const delta     = it.sec3_numero_pallets ?? 0
+          const invAccion = dispatchFor.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho"
+          const invDesc   = `Stock ${dispatchFor.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${it.sec3_producto ?? ""}`
+          await logAudit({
+            tabla:          "inventario_items",
+            registro_id:    it.sec3_inventario_item_id,
+            accion:         invAccion,
+            descripcion:    `${invDesc} via Report #${dispatchFor.numero}`,
+            usuario_id:     user?.id,
+            usuario_nombre: profile?.nombre ?? dispatchNombre,
+          })
+          await syncPesoTon(supabase, it.sec3_inventario_item_id)
+        }
       }
 
       closeDispatchModal()
@@ -280,7 +289,9 @@ export default function ReportsPage() {
     // de los últimos 6 meses) — solo falta aplicarle la pestaña activa.
     const combined = search.trim().length >= 2 ? [...reports, ...archiveResults] : reports
     return combined.filter(r => {
-      if (activeTab !== "todos" && r.estado !== activeTab) return false
+      // "Todos" no incluye anulados — quedan aparte en su propia pestaña.
+      if (activeTab === "todos") { if (r.estado === "anulado") return false }
+      else if (r.estado !== activeTab) return false
       if (search) {
         const q = search.toLowerCase()
         return r.patente.toLowerCase().includes(q) ||
@@ -293,11 +304,12 @@ export default function ReportsPage() {
   }, [reports, archiveResults, activeTab, search])
 
   const counts = useMemo(() => ({
-    todos:                 reports.length,
+    todos:                 reports.filter(r => r.estado !== "anulado").length,
     pendiente_operaciones: reports.filter(r => r.estado === "pendiente_operaciones").length,
     pendiente_despacho:    reports.filter(r => r.estado === "pendiente_despacho").length,
     despachado:            reports.filter(r => r.estado === "despachado").length,
     borrador:              reports.filter(r => r.estado === "borrador").length,
+    anulado:               reports.filter(r => r.estado === "anulado").length,
   }), [reports])
 
   return (

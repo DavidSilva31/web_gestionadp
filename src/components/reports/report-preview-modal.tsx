@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Download, X, Loader2, FileText } from "lucide-react"
+import { createClient } from "@/lib/supabase"
 import { cargarFirmasReport } from "@/lib/report-firmas"
+import { cargarBodegajeItems } from "@/lib/report-bodegaje"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { Report } from "@/types/database"
 
@@ -46,8 +48,17 @@ export function ReportPreviewModal({ report, onClose, onDownload }: Props) {
         const { pdf }       = await import("@react-pdf/renderer")
         const { ReportPDF } = await import("@/components/reports/report-pdf")
 
-        const firmas = await cargarFirmasReport(report.id)
-        const blob   = await pdf(<ReportPDF report={report} firmas={firmas} />).toBlob()
+        // Recarga el report fresco en vez del que llegó por prop — ese puede
+        // venir de una lista que no se refrescó tras el último guardado, y
+        // quedaría desincronizado con la huella de las firmas (que sí se
+        // recalcula fresca), mostrando "El report fue modificado después de
+        // esta firma" aunque en la BD ya no sea cierto.
+        const [{ data: fresh }, firmas, items] = await Promise.all([
+          createClient().from("reports").select("*").eq("id", report.id).single(),
+          cargarFirmasReport(report.id),
+          cargarBodegajeItems(report.id),
+        ])
+        const blob   = await pdf(<ReportPDF report={(fresh as Report) ?? report} firmas={firmas} items={items} />).toBlob()
         objectUrl   = URL.createObjectURL(blob)
         setUrl(objectUrl)
       } catch (err) {

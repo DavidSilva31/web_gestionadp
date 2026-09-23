@@ -1,5 +1,5 @@
 import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer"
-import type { Report } from "@/types/database"
+import type { Report, ReportBodegajeItem } from "@/types/database"
 import type { FirmaPdf, FirmasPdf } from "@/lib/report-firmas"
 
 const BLUE = "#1a3a5c"
@@ -31,16 +31,29 @@ const s = StyleSheet.create({
   // Section box
   secBox: { border: "0.5 solid #000", padding: 6, marginBottom: 6 },
   secTitle: { fontSize: 9, fontFamily: "Helvetica-Bold", textDecoration: "underline", marginBottom: 5 },
+  // Sección sin datos (no activa) — reemplaza todos sus campos por un solo
+  // "N/A" en vez de mostrar la grilla completa vacía.
+  secNA: { fontSize: 8, fontFamily: "Helvetica-Oblique", color: "#666" },
 
   // Checkbox row
   cbRow: { flexDirection: "row", alignItems: "center", marginRight: 10, marginBottom: 2 },
   cb: { width: 9, height: 9, border: "1 solid #000", marginRight: 3, alignItems: "center", justifyContent: "center" },
-  cbCheck: { fontSize: 8, fontFamily: "Helvetica-Bold", marginTop: -1 },
+  // Relleno sólido en vez de un glyph "✓" — Helvetica (la única fuente que
+  // usa este PDF) no tiene ese carácter en su set, así que el check nunca se
+  // dibujaba y todas las casillas se veían vacías sin importar el valor real.
+  cbFill: { width: 5, height: 5, backgroundColor: "#000" },
   cbLabel: { fontSize: 7.5 },
 
   // Obs box
   obsBox: { border: "0.5 solid #000", minHeight: 28, padding: 3, marginTop: 3 },
   obsText: { fontSize: 7.5 },
+
+  // Sección 3 — tabla de productos de Bodegaje (puede haber varios)
+  sec3TableHeaderRow: { flexDirection: "row", borderBottom: "0.75 solid #000", paddingBottom: 2, marginTop: 4, marginBottom: 2 },
+  sec3TableHeaderCell: { fontSize: 6, fontFamily: "Helvetica-Bold", paddingRight: 4 },
+  sec3TableRow: { flexDirection: "row", borderBottom: "0.5 solid #999", paddingVertical: 2 },
+  sec3TableCell: { fontSize: 6.5, paddingRight: 4 },
+  sec3TableCellNum: { fontSize: 6.5, textAlign: "right", paddingRight: 4 },
 
   // Signatures
   sigRow: { flexDirection: "row", marginTop: 4 },
@@ -48,26 +61,33 @@ const s = StyleSheet.create({
   sigLabel: { fontSize: 7 },
   sigLine: { borderBottom: "0.5 solid #000", marginTop: 8 },
 
-  // Stamp
+  // Stamp — sello oficial de DESPACHADO: doble borde tipo timbre, logo ADP,
+  // RUT de la empresa (no el nombre del despachador) y fecha de despacho.
   stamp: {
-    position: "absolute", bottom: 22, right: 22,
-    border: "2 solid #e53e3e", padding: "6 10", transform: "rotate(-15deg)",
-    alignItems: "center",
+    position: "absolute", bottom: 24, right: 24, width: 150,
+    border: "1.5 solid #b91c3c", borderRadius: 3, padding: 6,
+    transform: "rotate(-6deg)", alignItems: "center",
+    backgroundColor: "#fffbfb",
   },
-  stampText: { fontSize: 14, fontFamily: "Helvetica-Bold", color: "#e53e3e", letterSpacing: 2 },
-  stampSub: { fontSize: 7, color: "#e53e3e" },
+  stampInner: {
+    position: "absolute", top: 3, left: 3, right: 3, bottom: 3,
+    border: "0.5 solid #b91c3c", borderRadius: 2,
+  },
+  stampLogo: { width: 72, height: 30, objectFit: "contain", marginBottom: 4 },
+  stampText: { fontSize: 12.5, fontFamily: "Helvetica-Bold", color: "#b91c3c", letterSpacing: 2.5 },
+  stampDivider: { borderBottom: "0.5 solid #b91c3c", width: 56, marginVertical: 4 },
+  stampSub: { fontSize: 6, fontFamily: "Helvetica-Bold", color: "#b91c3c", letterSpacing: 0.3 },
 
   // Firma del conductor (imagen capturada en el canvas)
   firmaImg: { height: 45, maxWidth: 160, objectFit: "contain", marginTop: 2 },
   firmaSello: { fontSize: 5.5, color: "#555", marginTop: 2 },
-  firmaSelloAlerta: { fontSize: 5.5, color: "#c53030", marginTop: 1, fontFamily: "Helvetica-Bold" },
   firmaLegal: { fontSize: 5.5, color: "#777", marginTop: 4 },
 })
 
 function CB({ checked }: { checked: boolean }) {
   return (
     <View style={s.cb}>
-      {checked && <Text style={s.cbCheck}>✓</Text>}
+      {checked && <View style={s.cbFill} />}
     </View>
   )
 }
@@ -109,24 +129,76 @@ function BloqueFirma({ titulo, nombre, firma }: { titulo: string; nombre: string
         : <View style={s.sigLine} />
       }
       {firma?.at ? (
-        <>
-          <Text style={s.firmaSello}>
-            Firmado electrónicamente por {firma.nombre} · {fechaFirma(firma.at)} · Cód. {firma.codigo}
-          </Text>
-          {firma.modificado && (
-            <Text style={s.firmaSelloAlerta}>El report fue modificado después de esta firma</Text>
-          )}
-        </>
+        <Text style={s.firmaSello}>
+          Firmado electrónicamente por {firma.nombre} · {fechaFirma(firma.at)} · Cód. {firma.codigo}
+        </Text>
       ) : null}
     </View>
   )
 }
 
-export function ReportPDF({ report, firmas = {} }: { report: Report; firmas?: FirmasPdf }) {
+// Columnas de la tabla de productos de Bodegaje — flex ratios pensados para
+// el ancho de contenido de una A4 con padding 22 (~551pt).
+const SEC3_COLS: { key: keyof ReportBodegajeItem; label: string; flex: number; num?: boolean }[] = [
+  { key: "sec3_producto",          label: "Producto",  flex: 2.2 },
+  { key: "sec3_clase_imo",         label: "Cl. IMO",   flex: 0.6 },
+  { key: "sec3_nu",                label: "NU",         flex: 0.6 },
+  { key: "sec3_numero_bodega",     label: "Bodega",     flex: 0.6 },
+  { key: "sec3_numero_pallets",    label: "Pallets",    flex: 0.5, num: true },
+  { key: "sec3_numero_unidades",   label: "Unid.",      flex: 0.5, num: true },
+  { key: "sec3_lote",              label: "Lote",       flex: 0.8 },
+  { key: "sec3_cas",               label: "CAS",        flex: 0.6 },
+  { key: "sec3_orden_compra",      label: "OC",         flex: 0.7 },
+  { key: "sec3_fecha_elaboracion", label: "Elab.",      flex: 0.7 },
+  { key: "sec3_fecha_vencimiento", label: "Venc.",      flex: 0.7 },
+]
+
+// Tabla compacta de productos de Bodegaje — un report puede tener varios,
+// cada uno en su fila. Cabe cómodo en A4 para el rango realista de 1-5
+// productos por report.
+function TablaBodegaje({ items }: { items: ReportBodegajeItem[] }) {
+  return (
+    <View>
+      <View style={s.sec3TableHeaderRow}>
+        {SEC3_COLS.map(col => (
+          <Text key={col.key} style={[s.sec3TableHeaderCell, { flex: col.flex, textAlign: col.num ? "right" : "left" }]}>
+            {col.label}
+          </Text>
+        ))}
+      </View>
+      {items.length === 0 ? (
+        <View style={s.sec3TableRow}>
+          {SEC3_COLS.map(col => (
+            <Text key={col.key} style={[col.num ? s.sec3TableCellNum : s.sec3TableCell, { flex: col.flex }]}>—</Text>
+          ))}
+        </View>
+      ) : (
+        items.map(item => (
+          <View key={item.id} style={s.sec3TableRow}>
+            {SEC3_COLS.map(col => (
+              <Text key={col.key} style={[col.num ? s.sec3TableCellNum : s.sec3TableCell, { flex: col.flex }]}>
+                {item[col.key] ?? ""}
+              </Text>
+            ))}
+          </View>
+        ))
+      )}
+    </View>
+  )
+}
+
+export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report; firmas?: FirmasPdf; items?: ReportBodegajeItem[] }) {
   const isDespachado = report.estado === "despachado"
+  const totalPallets  = items.reduce((sum, it) => sum + (it.sec3_numero_pallets  ?? 0), 0)
+  const totalUnidades = items.reduce((sum, it) => sum + (it.sec3_numero_unidades ?? 0), 0)
 
   return (
-    <Document>
+    // El título del documento PDF es lo que Chrome usa como nombre sugerido
+    // al descargar desde el propio botón del visor nativo (el de la barra de
+    // herramientas del iframe) — sin esto, ese botón descarga con el UUID
+    // del blob: en vez de "report-{numero}". El botón "Descargar" propio del
+    // modal ya fuerza este nombre por su cuenta (ver download-report-pdf.tsx).
+    <Document title={`report-${report.numero}`}>
       <Page size="A4" style={s.page}>
 
         {/* ── Header ── */}
@@ -159,17 +231,19 @@ export function ReportPDF({ report, firmas = {} }: { report: Report; firmas?: Fi
               <CB checked={report.hds_header} />
               <Text style={s.cbLabel}>HDS.</Text>
             </View>
+            <Text style={[s.cbLabel, { marginRight: 4 }]}>Tipo de movimiento:</Text>
+            <CbItem checked={report.sec3_tipo === "ingreso"}  label="Ingreso" />
+            <CbItem checked={report.sec3_tipo === "despacho"} label="Despacho" />
           </View>
           <View style={s.row}>
             <Field label="N° Guía:" value={report.sec3_numero_guia} med />
             <Text style={[s.cbLabel, { marginRight: 4 }]}>Solicitado por:</Text>
             <CbItem checked={report.sec3_solicitado_por === "clientes"}    label="Clientes" />
-            <CbItem checked={report.sec3_solicitado_por === "hds"}        label="HDS." />
             <CbItem checked={report.sec3_solicitado_por === "operaciones"} label="Operaciones" />
-            <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
-              <Text style={s.cbLabel}>CUyD </Text>
-              <Text style={[s.fVal, s.fValShort]}>{report.sec3_cuyd_detalle ?? ""}</Text>
-            </View>
+            <CbItem checked={report.sec3_cuyd} label="CUyD" />
+            {report.sec3_cuyd && report.sec3_cuyd_detalle && (
+              <Text style={[s.cbLabel, { marginLeft: 2 }]}>({report.sec3_cuyd_detalle})</Text>
+            )}
           </View>
         </View>
 
@@ -177,6 +251,10 @@ export function ReportPDF({ report, firmas = {} }: { report: Report; firmas?: Fi
         <View style={s.secBox}>
           <Text style={s.secTitle}>1.  Deposito Contenedores</Text>
 
+          {!report.sec1_activa ? (
+            <Text style={s.secNA}>N/A — no aplica</Text>
+          ) : (
+          <>
           <View style={s.row}>
             <View style={{ flex: 1 }}>
               <CbItem checked={report.sec1_tipo_movimiento === "ingreso"} label="1.1  Ingreso" />
@@ -226,12 +304,18 @@ export function ReportPDF({ report, firmas = {} }: { report: Report; firmas?: Fi
           <View style={[s.row, { marginTop: 3 }]}>
             <Field label="1.6  Interchange N°:" value={report.sec1_interchange} long />
           </View>
+          </>
+          )}
         </View>
 
         {/* ── Sección 2: Consolidado ── */}
         <View style={s.secBox}>
           <Text style={s.secTitle}>2.  Consolidado - Desconsolidado - Otros</Text>
 
+          {!report.sec2_activa ? (
+            <Text style={s.secNA}>N/A — no aplica</Text>
+          ) : (
+          <>
           <View style={s.row}>
             <View style={{ flex: 1 }}>
               <CbItem checked={report.sec2_consolidado}    label="2.1  Consolidado" />
@@ -259,53 +343,42 @@ export function ReportPDF({ report, firmas = {} }: { report: Report; firmas?: Fi
             <Text style={[s.cbLabel, { marginBottom: 2 }]}>Obs:</Text>
             <Text style={s.obsText}>{report.sec2_observaciones ?? ""}</Text>
           </View>
+          </>
+          )}
         </View>
 
         {/* ── Sección 3: Bodegaje ── */}
         <View style={s.secBox}>
           <Text style={s.secTitle}>3.  Bodegaje</Text>
 
+          {!report.sec3_activa ? (
+            <Text style={s.secNA}>N/A — no aplica</Text>
+          ) : (
+          <>
           <View style={s.row}>
-            <Field label="Producto:" value={report.sec3_producto} med />
-            <Field label="Clase IMO:" value={report.sec3_clase_imo} short />
             <Field label="H. Inicio:" value={report.sec3_hora_inicio} short />
-          </View>
-          <View style={[s.row, { marginTop: 2 }]}>
-            <Field label="N° de Bodega:" value={report.sec3_numero_bodega} short />
-            <Field label="NU:" value={report.sec3_nu} short />
             <Field label="H. Termino:" value={report.sec3_hora_termino} short />
           </View>
+
           <View style={[s.row, { marginTop: 2 }]}>
-            <Field label="Lote:" value={report.sec3_lote} short />
-            <Field label="CAS:" value={report.sec3_cas} short />
-            <Field label="OC:" value={report.sec3_orden_compra} short />
-          </View>
-          <View style={[s.row, { marginTop: 2 }]}>
-            <Field label="Elab.:" value={report.sec3_fecha_elaboracion} short />
-            <Field label="Venc.:" value={report.sec3_fecha_vencimiento} short />
+            <View style={{ flexDirection: "row", alignItems: "center", marginRight: 16 }}>
+              <CbItem checked={report.sec3_tipo === "ingreso"} label="3.1  Ingreso" />
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", marginRight: 16 }}>
+              <CbItem checked={report.sec3_tipo === "despacho"} label="3.2  Despacho" />
+            </View>
+            <Field label="Total Pallets" value={String(totalPallets)} short />
+            <Field label="Total Unidades" value={String(totalUnidades)} short />
           </View>
 
-          <View style={[s.row, { marginTop: 4 }]}>
-            {/* Left col: movement + pallets/unidades */}
-            <View style={{ flex: 1.2 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2 }}>
-                <CbItem checked={report.sec3_tipo === "ingreso"} label="3.1  Ingreso" />
-                <Field label="N° Pallets" value={report.sec3_tipo === "ingreso" ? String(report.sec3_numero_pallets ?? "") : ""} short />
-                <Field label="N° Unidades" value={report.sec3_tipo === "ingreso" ? String(report.sec3_numero_unidades ?? "") : ""} short />
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <CbItem checked={report.sec3_tipo === "despacho"} label="3.2  Despacho" />
-                <Field label="N° Pallets" value={report.sec3_tipo === "despacho" ? String(report.sec3_numero_pallets ?? "") : ""} short />
-                <Field label="N° Unidades" value={report.sec3_tipo === "despacho" ? String(report.sec3_numero_unidades ?? "") : ""} short />
-              </View>
-            </View>
+          <TablaBodegaje items={items} />
 
-            {/* Right col: obs */}
-            <View style={[s.obsBox, { flex: 1, marginTop: 0 }]}>
-              <Text style={[s.cbLabel, { marginBottom: 2 }]}>Obs:</Text>
-              <Text style={s.obsText}>{report.sec3_observaciones ?? ""}</Text>
-            </View>
+          <View style={s.obsBox}>
+            <Text style={[s.cbLabel, { marginBottom: 2 }]}>Obs:</Text>
+            <Text style={s.obsText}>{report.sec3_observaciones ?? ""}</Text>
           </View>
+          </>
+          )}
         </View>
 
         {/* ── Firmas ── */}
@@ -325,13 +398,14 @@ export function ReportPDF({ report, firmas = {} }: { report: Report; firmas?: Fi
         {/* ── Sello DESPACHADO ── */}
         {isDespachado && (
           <View style={s.stamp}>
+            <View style={s.stampInner} />
+            <Image style={s.stampLogo} src={`${window.location.origin}/adp_logo_hd.png`} />
             <Text style={s.stampText}>DESPACHADO</Text>
-            {report.nombre_despachador && (
-              <Text style={s.stampSub}>Nombre: {report.nombre_despachador}</Text>
-            )}
+            <View style={s.stampDivider} />
+            <Text style={s.stampSub}>RUT 76.499.190-7</Text>
             {report.fecha_despacho && (
               <Text style={s.stampSub}>
-                Fecha: {new Date(report.fecha_despacho).toLocaleDateString("es-CL")}
+                {new Date(report.fecha_despacho).toLocaleDateString("es-CL")}
               </Text>
             )}
           </View>

@@ -1,14 +1,17 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Loader2, Wrench, Plus, Minus, X, ChevronDown, ChevronUp } from "lucide-react"
+import { Loader2, Wrench, Plus, Minus, X, ChevronDown, ChevronUp, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import { resolveEffectiveClienteId } from "@/lib/inventario"
+import { Field } from "./report-form-sections"
+import type { BodegajeItemFormData } from "./report-form-types"
 
 // Widgets compartidos entre reports/nuevo y reports/[id] — misma vista para
 // crear y editar un report, ambos con el mismo vínculo real a cliente/
@@ -87,6 +90,147 @@ export function ClienteCombobox({ value, onChange, onChangeId, readOnly }: {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// Catálogo real en empresas_transporte (no una lista fija) — mismo patrón
+// de sugerencia que ClienteCombobox, sin bloquear texto libre: una empresa
+// nueva que se escriba y guarde en un report queda además insertada acá
+// (ver handleSave en reports/nuevo y reports/[id]) y aparece como sugerencia
+// en los próximos reports. Cada opción tiene su propio ícono de eliminar
+// (desactiva la fila, no borra los reports que ya la usan).
+export interface EmpresaTransporteOption { id: string; nombre: string }
+
+export function EmpresaTransporteCombobox({ value, onChange, readOnly }: {
+  value: string
+  onChange: (v: string) => void
+  readOnly?: boolean
+}) {
+  const [empresas, setEmpresas] = useState<EmpresaTransporteOption[]>([])
+  const [open,     setOpen]     = useState(false)
+  const [query,    setQuery]    = useState(value)
+  const [deleting,     setDeleting]     = useState<EmpresaTransporteOption | null>(null)
+  const [deletingBusy, setDeletingBusy] = useState(false)
+  const [deleteError,  setDeleteError]  = useState<string | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+
+  function fetchEmpresas() {
+    createClient()
+      .from("empresas_transporte")
+      .select("id, nombre")
+      .eq("activo", true)
+      .order("nombre", { ascending: true })
+      .then(({ data }) => { if (data) setEmpresas(data as EmpresaTransporteOption[]) })
+  }
+
+  useEffect(() => { fetchEmpresas() }, [])
+  useEffect(() => { setQuery(value) }, [value])
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onClickOutside)
+    return () => document.removeEventListener("mousedown", onClickOutside)
+  }, [])
+
+  const filtered = query
+    ? empresas.filter(e => e.nombre.includes(query.toUpperCase()))
+    : empresas
+
+  function select(nombre: string) {
+    setQuery(nombre)
+    onChange(nombre)
+    setOpen(false)
+  }
+
+  async function handleDelete() {
+    if (!deleting) return
+    setDeletingBusy(true)
+    setDeleteError(null)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.from("empresas_transporte").update({ activo: false }).eq("id", deleting.id)
+      if (error) { setDeleteError(error.message); return }
+      setEmpresas(prev => prev.filter(e => e.id !== deleting.id))
+      if (query === deleting.nombre) { setQuery(""); onChange("") }
+      setDeleting(null)
+    } catch (err) {
+      console.error("[EmpresaTransporteCombobox] error eliminando:", err)
+      setDeleteError("Ocurrió un error inesperado al eliminar.")
+    } finally {
+      setDeletingBusy(false)
+    }
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <Input
+        value={query}
+        onChange={e => { const v = e.target.value.toUpperCase(); setQuery(v); onChange(v); setOpen(true) }}
+        onFocus={() => !readOnly && setOpen(true)}
+        placeholder="Seleccionar o escribir empresa"
+        className="h-8 text-xs"
+        autoComplete="off"
+        disabled={readOnly}
+      />
+      {open && !readOnly && filtered.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+          {filtered.map(e => (
+            <div key={e.id} className="group flex items-center justify-between hover:bg-muted transition-colors">
+              <button
+                type="button"
+                onMouseDown={ev => ev.preventDefault()}
+                onClick={() => select(e.nombre)}
+                className="flex-1 min-w-0 px-3 py-2 text-xs text-left truncate"
+              >
+                {e.nombre}
+              </button>
+              <button
+                type="button"
+                onMouseDown={ev => ev.preventDefault()}
+                onClick={ev => { ev.stopPropagation(); setDeleting(e) }}
+                className="px-2.5 py-2 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-colors flex-shrink-0"
+                aria-label={`Eliminar ${e.nombre}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <AlertDialog open={deleting !== null} onOpenChange={o => { if (!o) { setDeleting(null); setDeleteError(null) } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </span>
+              Eliminar empresa de transporte
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará <span className="font-semibold text-foreground">{deleting?.nombre}</span> de la lista de sugerencias.
+              Los reports que ya la usan no se ven afectados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError && (
+            <p className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg border border-destructive/20">{deleteError}</p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletingBusy}
+              onClick={handleDelete}
+              className="bg-destructive text-white hover:bg-destructive/90 gap-1.5"
+            >
+              {deletingBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -183,6 +327,134 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-sm px-3 py-2 text-xs text-muted-foreground">
           Sin coincidencias — se usará el texto ingresado
         </div>
+      )}
+    </div>
+  )
+}
+
+// Deriva si una tarifa cubre la Clase IMO de un producto — compara el texto
+// libre de Clase IMO de la tarifa (ej. "Clases 2.1, 2.2, 2.3 y 3") contra el
+// valor exacto de Clase IMO del producto. Antes vivía en reports/[id]/page.tsx
+// para el único producto del report; ahora se aplica por línea acá.
+export function tarifaCubreClase(tarifaClase: string | null, itemClase: string | null): boolean {
+  if (!tarifaClase || !itemClase) return false
+  const tokens = tarifaClase.replace(/clases?/gi, "").split(/,| y /i).map(t => t.trim()).filter(Boolean)
+  return tokens.includes(itemClase.trim())
+}
+
+// Lista repetible de productos de Bodegaje — un report puede tener varios,
+// cada uno con su propia tarifa derivada de su Clase IMO (ver
+// tarifaCubreClase). Reutiliza ProductoCombobox sin cambios, una instancia
+// por fila. Hora inicio/término, Servicios y Observaciones son de la
+// sección completa y viven en Sec3Content, no acá.
+export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove, tarifasCliente, readOnly }: {
+  clienteId: string
+  items: BodegajeItemFormData[]
+  onChange: (index: number, patch: Partial<BodegajeItemFormData>) => void
+  onAdd: () => void
+  onRemove: (index: number) => void
+  tarifasCliente: TarifaOption[]
+  readOnly?: boolean
+}) {
+  return (
+    <div className="space-y-2">
+      {items.length === 0 && (
+        <p className="text-xs text-muted-foreground">Sin productos agregados.</p>
+      )}
+      {items.map((item, index) => (
+        <div key={item.id ?? `nuevo-${index}`} className="relative border border-border/60 rounded-lg p-2.5 space-y-2 bg-muted/20">
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => onRemove(index)}
+              className="absolute top-2 right-2 text-muted-foreground hover:text-destructive"
+              aria-label="Quitar producto"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <div className="pr-6">
+            <Field label="Producto">
+              <ProductoCombobox
+                clienteId={clienteId}
+                value={item.sec3_producto}
+                onChange={v => onChange(index, { sec3_producto: v })}
+                onSelect={selected => onChange(index, {
+                  sec3_inventario_item_id: selected.id,
+                  sec3_producto:           selected.descripcion,
+                  sec3_clase_imo:          selected.clase_imo ?? "",
+                  sec3_nu:                 selected.nu ?? "",
+                  tarifa_cliente_id: tarifasCliente.find(t => tarifaCubreClase(t.clase_imo, selected.clase_imo))?.id ?? "",
+                })}
+                onClear={() => onChange(index, {
+                  sec3_inventario_item_id: "", sec3_clase_imo: "", sec3_nu: "", tarifa_cliente_id: "",
+                })}
+                readOnly={readOnly}
+              />
+            </Field>
+            {item.sec3_producto.trim() && !item.sec3_inventario_item_id && (
+              <p className="text-[10px] text-amber-600 mt-1">
+                No vinculado al catálogo — este producto no actualizará el stock.
+              </p>
+            )}
+            {item.sec3_inventario_item_id && tarifasCliente.length > 1 && !item.tarifa_cliente_id && (
+              <p className="text-[10px] text-amber-600 mt-1">
+                Ningún contrato de este cliente coincide con la Clase IMO &quot;{item.sec3_clase_imo || "—"}&quot; — revisa antes de enviar a despacho.
+              </p>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <Field label="Clase IMO">
+              <Input value={item.sec3_clase_imo} onChange={e => onChange(index, { sec3_clase_imo: e.target.value })}
+                placeholder="Clase IMO si aplica" className="h-8 text-xs" disabled={readOnly} />
+            </Field>
+            <Field label="NU">
+              <Input value={item.sec3_nu} onChange={e => onChange(index, { sec3_nu: e.target.value })}
+                className="h-8 text-xs font-mono" disabled={readOnly} />
+            </Field>
+            <Field label="N° Bodega">
+              <Input value={item.sec3_numero_bodega} onChange={e => onChange(index, { sec3_numero_bodega: e.target.value })}
+                placeholder="Número de bodega" className="h-8 text-xs" disabled={readOnly} />
+            </Field>
+            <Field label="N° Pallets">
+              <Input type="number" min={0} value={item.sec3_numero_pallets}
+                onChange={e => onChange(index, { sec3_numero_pallets: e.target.value })}
+                placeholder="0" className="h-8 text-xs" disabled={readOnly} />
+            </Field>
+            <Field label="N° Unidades">
+              <Input type="number" min={0} value={item.sec3_numero_unidades}
+                onChange={e => onChange(index, { sec3_numero_unidades: e.target.value })}
+                placeholder="0" className="h-8 text-xs" disabled={readOnly} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <Field label="Lote">
+              <Input value={item.sec3_lote} onChange={e => onChange(index, { sec3_lote: e.target.value })}
+                placeholder="N° de lote" className="h-8 text-xs" disabled={readOnly} />
+            </Field>
+            <Field label="CAS">
+              <Input value={item.sec3_cas} onChange={e => onChange(index, { sec3_cas: e.target.value })}
+                className="h-8 text-xs font-mono" disabled={readOnly} />
+            </Field>
+            <Field label="OC">
+              <Input value={item.sec3_orden_compra} onChange={e => onChange(index, { sec3_orden_compra: e.target.value })}
+                placeholder="Orden de compra" className="h-8 text-xs" disabled={readOnly} />
+            </Field>
+            <Field label="Elab.">
+              <Input type="date" value={item.sec3_fecha_elaboracion}
+                onChange={e => onChange(index, { sec3_fecha_elaboracion: e.target.value })} className="h-8 text-xs" disabled={readOnly} />
+            </Field>
+            <Field label="Venc.">
+              <Input type="date" value={item.sec3_fecha_vencimiento}
+                onChange={e => onChange(index, { sec3_fecha_vencimiento: e.target.value })} className="h-8 text-xs" disabled={readOnly} />
+            </Field>
+          </div>
+        </div>
+      ))}
+      {!readOnly && (
+        <Button type="button" variant="outline" size="sm" onClick={onAdd} className="gap-1.5 text-xs h-7">
+          <Plus className="h-3.5 w-3.5" /> Agregar producto
+        </Button>
       )}
     </div>
   )

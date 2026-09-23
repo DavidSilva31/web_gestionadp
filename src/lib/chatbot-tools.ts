@@ -31,7 +31,7 @@ export const CHATBOT_TOOLS: FunctionDeclaration[] = [
       properties: {
         cliente: { type: Type.STRING, description: "Nombre parcial del cliente." },
         patente: { type: Type.STRING, description: "Patente del camión, parcial o completa." },
-        estado:  { type: Type.STRING, description: "Estado exacto del report.", enum: ["borrador", "pendiente_operaciones", "pendiente_despacho", "despachado"] },
+        estado:  { type: Type.STRING, description: "Estado exacto del report.", enum: ["borrador", "pendiente_operaciones", "pendiente_despacho", "despachado", "anulado"] },
         fecha_desde: { type: Type.STRING, description: "Fecha mínima en formato YYYY-MM-DD." },
         fecha_hasta: { type: Type.STRING, description: "Fecha máxima en formato YYYY-MM-DD." },
       },
@@ -64,7 +64,7 @@ export const CHATBOT_TOOLS: FunctionDeclaration[] = [
 
 const ESTADO_LABEL: Record<string, string> = {
   borrador: "Ingresado", pendiente_operaciones: "Pendiente operaciones",
-  pendiente_despacho: "Pendiente despacho", despachado: "Despachado",
+  pendiente_despacho: "Pendiente despacho", despachado: "Despachado", anulado: "Anulado",
 }
 
 function estadoStock(item: { stock_actual: number; stock_minimo: number }): string {

@@ -13,6 +13,7 @@ const SEMAFORO_COLOR: Record<ReportEstado, string> = {
   pendiente_operaciones: "bg-orange-500",
   pendiente_despacho:    "bg-blue-500",
   despachado:            "bg-emerald-500",
+  anulado:               "bg-gray-400",
 }
 
 const SEMAFORO_TITLE: Record<ReportEstado, string> = {
@@ -20,6 +21,7 @@ const SEMAFORO_TITLE: Record<ReportEstado, string> = {
   pendiente_operaciones: "Esperando a Operaciones — Consolidado/Desconsolidado y Bodegaje",
   pendiente_despacho:    "Operador de carga listo — esperando devolución del físico en recepción",
   despachado:            "Cerrado",
+  anulado:               "Anulado — no cuenta para stock ni facturación",
 }
 
 export function EstadoSemaforo({ estado, className }: { estado: ReportEstado; className?: string }) {

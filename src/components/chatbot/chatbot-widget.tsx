@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { usePathname } from "next/navigation"
 import { Sparkles, X, Send, Loader2, Bot } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
@@ -40,6 +41,7 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
 
 export function ChatbotWidget() {
   const { user } = useAuth()
+  const pathname = usePathname()
   const [open,     setOpen]     = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME])
   const [input,    setInput]    = useState("")
@@ -77,7 +79,7 @@ export function ChatbotWidget() {
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next }),
+        body: JSON.stringify({ messages: next, page: pathname }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Error al consultar el asistente.")

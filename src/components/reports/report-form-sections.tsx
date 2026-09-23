@@ -260,12 +260,15 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc, hideActivati
 
 // ── Sec3Content ────────────────────────────────────────────────────────────────
 
-export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode, operadorNode, serviciosNode, hideActivation }: {
+export function Sec3Content({ form, set, readOnly, toUpperCase: uc, itemsNode, operadorNode, serviciosNode, hideActivation }: {
   form: ReportFormData
   set: FormSetter
   readOnly?: boolean
   toUpperCase?: boolean
-  productoNode: React.ReactNode
+  // Lista repetible de productos de Bodegaje (BodegajeItemsList) — los
+  // campos por producto (Producto, Clase IMO, NU, N° Bodega, Pallets,
+  // Unidades, Lote, CAS, OC, Elab., Venc.) viven ahí, no en este componente.
+  itemsNode: React.ReactNode
   operadorNode?: React.ReactNode
   serviciosNode?: React.ReactNode
   hideActivation?: boolean
@@ -287,23 +290,8 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode
         </div>
       )}
 
-      <div className={cn("space-y-2 transition-opacity", !hideActivation && !form.sec3_activa && "opacity-40 pointer-events-none")}>
+      <div className={cn("space-y-3 transition-opacity", !hideActivation && !form.sec3_activa && "opacity-40 pointer-events-none")}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <Field label="Producto" className="col-span-1 sm:col-span-3">
-            {productoNode}
-          </Field>
-          <Field label="Clase IMO">
-            <Input value={form.sec3_clase_imo} onChange={str("sec3_clase_imo")}
-              placeholder="Clase IMO si aplica" className="h-8 text-xs" disabled={readOnly} />
-          </Field>
-          <Field label="NU">
-            <Input value={form.sec3_nu} onChange={str("sec3_nu")}
-              className="h-8 text-xs font-mono" disabled={readOnly} />
-          </Field>
-          <Field label="N° Bodega">
-            <Input value={form.sec3_numero_bodega} onChange={str("sec3_numero_bodega")}
-              placeholder="Número de bodega" className="h-8 text-xs" disabled={readOnly} />
-          </Field>
           <Field label="Hora inicio">
             <Input type="time" value={form.sec3_hora_inicio}
               onChange={e => set("sec3_hora_inicio", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
@@ -312,66 +300,26 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, productoNode
             <Input type="time" value={form.sec3_hora_termino}
               onChange={e => set("sec3_hora_termino", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
-          <Field label="Tipo de movimiento">
-            <RadioGroup<TipoMovimiento>
-              value={form.sec3_tipo}
-              onChange={v => set("sec3_tipo", v)}
-              options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]}
-              readOnly={readOnly}
-            />
-          </Field>
-          <Field label="N° Pallets">
-            <Input type="number" min={0} value={form.sec3_numero_pallets}
-              onChange={e => set("sec3_numero_pallets", e.target.value)}
-              placeholder="0" className="h-8 text-xs" disabled={readOnly} />
-          </Field>
-          <Field label="N° Unidades">
-            <Input type="number" min={0} value={form.sec3_numero_unidades}
-              onChange={e => set("sec3_numero_unidades", e.target.value)}
-              placeholder="0" className="h-8 text-xs" disabled={readOnly} />
-          </Field>
-          <Field label="Lote">
-            <Input value={form.sec3_lote} onChange={str("sec3_lote")}
-              placeholder="N° de lote" className="h-8 text-xs" disabled={readOnly} />
-          </Field>
-          <Field label="CAS">
-            <Input value={form.sec3_cas} onChange={str("sec3_cas")}
-              className="h-8 text-xs font-mono" disabled={readOnly} />
-          </Field>
-          <Field label="OC">
-            <Input value={form.sec3_orden_compra} onChange={str("sec3_orden_compra")}
-              placeholder="Orden de compra" className="h-8 text-xs" disabled={readOnly} />
-          </Field>
-          <Field label="Elab.">
-            <Input type="date" value={form.sec3_fecha_elaboracion}
-              onChange={e => set("sec3_fecha_elaboracion", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
-          </Field>
-          <Field label="Venc.">
-            <Input type="date" value={form.sec3_fecha_vencimiento}
-              onChange={e => set("sec3_fecha_vencimiento", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
-          </Field>
-
-          {serviciosNode && (
-            <div className="col-span-1 sm:col-span-3">
-              {serviciosNode}
-            </div>
-          )}
-
-          <div className="col-span-1 sm:col-span-3 flex items-center gap-2">
-            <Checkbox id="sec3_servicio_adicional" checked={form.sec3_servicio_adicional}
-              onCheckedChange={v => !readOnly && set("sec3_servicio_adicional", v === true)}
-              className="h-3.5 w-3.5" disabled={readOnly} />
-            <label htmlFor="sec3_servicio_adicional" className="text-xs font-medium text-foreground cursor-pointer">
-              Servicio Adicional
-            </label>
-          </div>
-
-          <Field label="Observaciones" className="col-span-1 sm:col-span-3">
-            <textarea value={form.sec3_observaciones} onChange={str("sec3_observaciones")}
-              placeholder="Observaciones adicionales..." rows={2} disabled={readOnly}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50" />
-          </Field>
         </div>
+
+        {itemsNode}
+
+        {serviciosNode}
+
+        <div className="flex items-center gap-2">
+          <Checkbox id="sec3_servicio_adicional" checked={form.sec3_servicio_adicional}
+            onCheckedChange={v => !readOnly && set("sec3_servicio_adicional", v === true)}
+            className="h-3.5 w-3.5" disabled={readOnly} />
+          <label htmlFor="sec3_servicio_adicional" className="text-xs font-medium text-foreground cursor-pointer">
+            Servicio Adicional
+          </label>
+        </div>
+
+        <Field label="Observaciones">
+          <textarea value={form.sec3_observaciones} onChange={str("sec3_observaciones")}
+            placeholder="Observaciones adicionales..." rows={2} disabled={readOnly}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50" />
+        </Field>
 
         {operadorNode && (
           <div className="border-t pt-2">

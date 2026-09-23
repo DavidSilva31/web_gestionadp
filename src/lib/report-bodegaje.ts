@@ -1,0 +1,12 @@
+import { createClient } from "@/lib/supabase"
+import type { ReportBodegajeItem } from "@/types/database"
+
+// Trae los productos de Bodegaje de un report — mismo patrón que
+// cargarFirmasReport en report-firmas.ts, para pasarlos al PDF junto a las
+// firmas (ver download-report-pdf.tsx / report-preview-modal.tsx).
+export async function cargarBodegajeItems(reportId: string): Promise<ReportBodegajeItem[]> {
+  const { data, error } = await createClient()
+    .from("report_bodegaje_items").select("*").eq("report_id", reportId).order("orden")
+  if (error) { console.error("[report-bodegaje] error leyendo ítems:", error); return [] }
+  return (data as ReportBodegajeItem[]) ?? []
+}

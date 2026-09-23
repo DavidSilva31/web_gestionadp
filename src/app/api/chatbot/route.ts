@@ -7,7 +7,7 @@ import { CHATBOT_TOOLS, runChatbotTool } from "@/lib/chatbot-tools"
 export const runtime = "nodejs"
 
 interface ChatMessage { role: "user" | "model"; text: string }
-interface ReqBody { messages: ChatMessage[] }
+interface ReqBody { messages: ChatMessage[]; page?: string }
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite"
 const MAX_TOOL_ROUNDS = 5
@@ -78,7 +78,10 @@ async function handleChat(req: NextRequest) {
 
   const contents: Content[] = trimmed.map(m => ({ role: m.role, parts: [{ text: m.text }] }))
 
-  const systemInstruction = `${SYSTEM_KNOWLEDGE}\n\nUsuario actual: ${profile?.nombre ?? "desconocido"} (rol: ${profile?.role ?? "desconocido"}).`
+  const page = typeof body.page === "string" ? body.page.slice(0, 200) : null
+  const systemInstruction = `${SYSTEM_KNOWLEDGE}\n\nUsuario actual: ${profile?.nombre ?? "desconocido"} (rol: ${profile?.role ?? "desconocido"}).${
+    page ? `\nPantalla que el usuario tiene abierta ahora mismo: ${page} — si la pregunta es genérica ("¿qué hago acá?", "¿cómo funciona esto?", "explícame esta pantalla"), respóndela en base a ese módulo específico antes que nada.` : ""
+  }`
 
   let finalText = ""
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {

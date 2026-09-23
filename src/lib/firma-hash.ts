@@ -15,9 +15,17 @@ const CAMPOS_BASE = [
 // Recepción llena Antecedentes + Sección 1 y ese lado queda congelado al pasar
 // a Operaciones; lo que Operaciones completa después (Sección 2/3, nombre del
 // operador) no debe invalidar la firma de Recepción.
+//
+// nombre_operador es además el nombre que se MUESTRA para la firma de
+// "Encargado de bodega" (ver BloqueFirma en report-pdf.tsx) — typear/corregir
+// el propio nombre justo antes o después de aplicar esa firma es parte del
+// mismo gesto, no una modificación posterior del report, así que tampoco
+// invalida la firma de bodega (a diferencia de Recepción, bodega sigue
+// cubriendo Sección 2/3 completas — es su propio ámbito).
 function esCampoFirmable(key: string, rol: RolFirma): boolean {
   if (/_(archivos|url)$/.test(key)) return false
   if (rol === "recepcion") return (CAMPOS_BASE.includes(key) && key !== "nombre_operador") || key.startsWith("sec1_")
+  if (rol === "bodega")    return (CAMPOS_BASE.includes(key) && key !== "nombre_operador") || /^sec[123]_/.test(key)
   return CAMPOS_BASE.includes(key) || /^sec[123]_/.test(key)
 }
 

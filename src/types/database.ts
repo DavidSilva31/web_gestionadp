@@ -1,4 +1,4 @@
-export type ReportEstado = 'borrador' | 'pendiente_operaciones' | 'pendiente_despacho' | 'despachado'
+export type ReportEstado = 'borrador' | 'pendiente_operaciones' | 'pendiente_despacho' | 'despachado' | 'anulado'
 export type InventarioCategoria = 'Contenedor IMO' | 'Isotanque' | 'Residuo peligroso' | 'Carga general'
 export type InventarioArea = 'Bodega IMO' | 'Zona Isotanques' | 'Zona RESPEL' | 'Bodega General'
 export type MovimientoTipo = 'ingreso' | 'despacho'
@@ -6,7 +6,7 @@ export type MovimientoServicio = 'Almacenaje' | 'Transporte' | 'Porteo' | 'Logí
 export type MovimientoEstado = 'en_proceso' | 'completado'
 export type TipoMovimiento = 'ingreso' | 'despacho'
 export type TipoContenedor = '20ft' | '40ft' | 'isotanque'
-export type SolicitadoPor = 'clientes' | 'hds' | 'operaciones' | 'cuyd'
+export type SolicitadoPor = 'clientes' | 'hds' | 'operaciones'
 export type TransporteTipo = 'propio' | 'externo'
 export type TipoEnvase = 'Tambor' | 'Bidón' | 'IBC' | 'Saco' | 'Caja' | 'Pallet' | 'Granel' | 'Maxisaco' | 'Tineta' | 'Cilindro' | 'Cuñete' | 'Otro'
 
@@ -57,28 +57,36 @@ export interface Report {
   sec2_observaciones: string | null
   sec2_evidencia_archivos: string[]
 
-  // Sección 3
+  // Sección 3 — campos únicos por sección (compartidos entre todos los
+  // productos de Bodegaje, ver ReportBodegajeItem más abajo).
   sec3_activa: boolean
+  sec3_hora_inicio: string | null
+  sec3_hora_termino: string | null
+  sec3_tipo: TipoMovimiento | null
+  sec3_numero_guia: string | null
+  sec3_solicitado_por: SolicitadoPor | null
+  // CUyD es independiente de sec3_solicitado_por — checkbox propio.
+  sec3_cuyd: boolean
+  sec3_cuyd_detalle: string | null
+  sec3_observaciones: string | null
+  sec3_servicio_adicional: boolean
+
+  // Legacy — un report tenía un solo producto de Bodegaje; ahora vive en
+  // report_bodegaje_items (uno o varios por report). Estas columnas quedan
+  // congeladas con los datos históricos de antes del cambio, sin escritura
+  // nueva desde la app — no usar para reports creados después.
   sec3_inventario_item_id: string | null
   sec3_producto: string | null
   sec3_clase_imo: string | null
-  sec3_hora_inicio: string | null
-  sec3_hora_termino: string | null
   sec3_numero_bodega: string | null
   sec3_nu: string | null
-  sec3_tipo: TipoMovimiento | null
   sec3_numero_pallets: number | null
   sec3_numero_unidades: number | null
-  sec3_numero_guia: string | null
-  sec3_solicitado_por: SolicitadoPor | null
-  sec3_cuyd_detalle: string | null
   sec3_lote: string | null
   sec3_cas: string | null
   sec3_orden_compra: string | null
   sec3_fecha_elaboracion: string | null
   sec3_fecha_vencimiento: string | null
-  sec3_observaciones: string | null
-  sec3_servicio_adicional: boolean
 
   // Firmas
   firma_conductor_url: string | null
@@ -94,8 +102,16 @@ export interface Report {
   dispatched_by: string | null
   updated_at: string
 
+  // Anulación — los reports se anulan, nunca se eliminan, para no perder
+  // nada. estado_previo_anulacion guarda a qué estado volver si se des-anula.
+  anulado_at: string | null
+  anulado_por: string | null
+  estado_previo_anulacion: ReportEstado | null
+
   // A qué tarifa/clase del cliente pertenece (clientes con más de un
-  // contrato en paralelo) — se propaga al movimiento auto-creado al despachar.
+  // contrato en paralelo) — se propaga al movimiento auto-creado al despachar
+  // para Sección 1/2. Para Bodegaje (Sección 3) la tarifa ya no es una sola
+  // por report: cada producto en report_bodegaje_items tiene la suya.
   tarifa_cliente_id: string | null
 
   // Servicios asociados a este report — del catálogo del cliente o agregados
@@ -105,6 +121,30 @@ export interface Report {
 }
 
 export type ReportInsert = Omit<Report, 'id' | 'numero' | 'created_at' | 'updated_at'>
+
+// Un producto de Bodegaje — un report puede tener varios (report_bodegaje_items).
+// Reemplaza los sec3_* de producto que quedaron congelados en `Report` arriba
+// como respaldo histórico.
+export interface ReportBodegajeItem {
+  id:                      string
+  report_id:               string
+  orden:                   number
+  sec3_inventario_item_id: string | null
+  sec3_producto:           string | null
+  sec3_clase_imo:          string | null
+  sec3_nu:                 string | null
+  sec3_numero_bodega:      string | null
+  sec3_numero_pallets:     number | null
+  sec3_numero_unidades:    number | null
+  sec3_lote:               string | null
+  sec3_cas:                string | null
+  sec3_orden_compra:       string | null
+  sec3_fecha_elaboracion:  string | null
+  sec3_fecha_vencimiento:  string | null
+  tarifa_cliente_id:       string | null
+  created_at:              string
+  updated_at:              string
+}
 
 export interface Cliente {
   id:         string
@@ -198,6 +238,7 @@ export interface Movimiento {
   peso_envase:        number | null
   tipo_envase:        TipoEnvase | null
   posiciones:         number | null
+  numero_pallet:      string | null
   guia_numero:        string | null
   orden_compra:       string | null
   bodega:             string | null

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
-import { Truck, Search, FileText, Clock, CheckCircle2, Loader2, RefreshCw, Download, Eye } from "lucide-react"
+import { Truck, Search, FileText, Clock, CheckCircle2, Loader2, RefreshCw, Download, Eye, Ban } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -34,6 +34,7 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "pendiente_operaciones", label: "Pend. operaciones", icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "pendiente_despacho",    label: "Pend. despacho",    icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "despachado",            label: "Despachados",       icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+  { key: "anulado",               label: "Anulados",          icon: <Ban className="h-3.5 w-3.5" /> },
 ]
 
 const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> = {
@@ -41,6 +42,7 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   pendiente_operaciones: { label: "Pend. operaciones", className: "badge-info" },
   pendiente_despacho:    { label: "Pend. despacho",    className: "badge-warning" },
   despachado:            { label: "Despachado",        className: "badge-success" },
+  anulado:               { label: "Anulado",           className: "badge-neutral line-through" },
 }
 
 function seccionesTag(r: ReportRow) {
@@ -112,7 +114,8 @@ export default function TransportePage() {
   }
 
   const filtered = useMemo(() => reports.filter(r => {
-    if (activeTab !== "todos" && r.estado !== activeTab) return false
+    if (activeTab === "todos") { if (r.estado === "anulado") return false }
+    else if (r.estado !== activeTab) return false
     if (search) {
       const q = search.toLowerCase()
       return r.patente.toLowerCase().includes(q) ||
@@ -124,11 +127,12 @@ export default function TransportePage() {
   }), [reports, activeTab, search])
 
   const counts = useMemo(() => ({
-    todos:                 reports.length,
+    todos:                 reports.filter(r => r.estado !== "anulado").length,
     pendiente_operaciones: reports.filter(r => r.estado === "pendiente_operaciones").length,
     pendiente_despacho:    reports.filter(r => r.estado === "pendiente_despacho").length,
     despachado:            reports.filter(r => r.estado === "despachado").length,
     borrador:              reports.filter(r => r.estado === "borrador").length,
+    anulado:               reports.filter(r => r.estado === "anulado").length,
   }), [reports])
 
   return (

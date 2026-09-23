@@ -10,32 +10,27 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { createClient } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
-import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
-import { ClienteCombobox, ProductoCombobox, ServiciosSection, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
+import { ClienteCombobox, ServiciosSection, EmpresaTransporteCombobox, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 
 interface FormData extends ReportFormData {
-  cliente_id:              string
-  sec3_inventario_item_id: string
-  tarifa_cliente_id:       string
+  cliente_id: string
 }
 
 const INITIAL: FormData = {
-  cliente: "", cliente_id: "", tarifa_cliente_id: "", fecha: new Date().toISOString().split("T")[0], patente: "", conductor: "",
-  rut_conductor: "", empresa_transporte: "", transporte_tipo: "externo", hds_header: false, observaciones: "",
+  cliente: "", cliente_id: "", fecha: new Date().toISOString().split("T")[0], patente: "", conductor: "",
+  rut_conductor: "", empresa_transporte: "", transporte_tipo: "externo", hds_header: false, guia_despacho_header: false, observaciones: "",
   sec1_activa: false, sec1_tipo_movimiento: "", sec1_tipo_contenedor: "", sec1_carga_normal: false,
   sec1_carga_imo: false, sec1_clase_imo: "", sec1_nu: "", sec1_hora_inicio: "", sec1_hora_termino: "",
   sec1_sigla: "", sec1_guia_numero: "", sec1_interchange: "", sec1_hds: false,
   sec2_activa: false, sec2_consolidado: false, sec2_desconsolidado: false, sec2_picking: false,
   sec2_paletizado: false, sec2_etiquetado: false, sec2_otro: false, sec2_hora_inicio: "",
   sec2_hora_termino: "", sec2_sigla_numero: "", sec2_observaciones: "",
-  sec3_activa: false, sec3_inventario_item_id: "", sec3_producto: "", sec3_clase_imo: "",
-  sec3_hora_inicio: "", sec3_hora_termino: "", sec3_numero_bodega: "", sec3_nu: "", sec3_tipo: "",
-  sec3_numero_pallets: "", sec3_numero_unidades: "", sec3_numero_guia: "", sec3_solicitado_por: "", sec3_cuyd_detalle: "",
-  sec3_lote: "", sec3_cas: "", sec3_orden_compra: "", sec3_fecha_elaboracion: "", sec3_fecha_vencimiento: "",
+  sec3_activa: false, sec3_hora_inicio: "", sec3_hora_termino: "", sec3_tipo: "",
+  sec3_numero_guia: "", sec3_solicitado_por: "", sec3_cuyd: false, sec3_cuyd_detalle: "",
   sec3_observaciones: "", sec3_servicio_adicional: false,
   nombre_operador: "",
 }
@@ -46,10 +41,15 @@ export default function NuevoReportPage() {
   const [form,    setForm]    = useState<FormData>(INITIAL)
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
-  const [hdsFiles,    setHdsFiles]    = useState<File[]>([])
-  const [dragOver,    setDragOver]    = useState(false)
-  const [previewFile, setPreviewFile] = useState<File | null>(null)
-  const hdsFileRef = useRef<HTMLInputElement>(null)
+  // Adjuntos de Antecedentes — una sola caja compartida entre HDS y Guía de
+  // despacho (cualquiera de los dos checkboxes la despliega); al guardar, los
+  // mismos archivos subidos quedan referenciados en hds_archivos y/o
+  // guia_despacho_archivos según cuál checkbox esté marcado. Se suben recién
+  // después de crear el report, porque el path usa el número/id ya asignado.
+  const [adjuntoFiles,    setAdjuntoFiles]    = useState<File[]>([])
+  const [dragOver,        setDragOver]        = useState(false)
+  const [previewFile,     setPreviewFile]     = useState<File | null>(null)
+  const adjuntoFileRef = useRef<HTMLInputElement>(null)
 
   // Servicios del catálogo del cliente elegidos ya al ingresar el report —
   // se muestran arriba de "Servicio Adicional" en Bodegaje (serviciosNode).
@@ -84,18 +84,18 @@ export default function NuevoReportPage() {
   const previewUrl = useMemo(() => previewFile ? URL.createObjectURL(previewFile) : null, [previewFile])
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
-  function addHdsFiles(list: FileList | File[]) {
-    setHdsFiles(prev => [...prev, ...Array.from(list)])
+  function addAdjuntoFiles(list: FileList | File[]) {
+    setAdjuntoFiles(prev => [...prev, ...Array.from(list)])
   }
 
-  function removeHdsFile(index: number) {
-    setHdsFiles(prev => prev.filter((_, i) => i !== index))
+  function removeAdjuntoFile(index: number) {
+    setAdjuntoFiles(prev => prev.filter((_, i) => i !== index))
   }
 
-  function onHdsDrop(e: React.DragEvent<HTMLDivElement>) {
+  function onAdjuntoDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     setDragOver(false)
-    if (e.dataTransfer.files?.length) addHdsFiles(e.dataTransfer.files)
+    if (e.dataTransfer.files?.length) addAdjuntoFiles(e.dataTransfer.files)
   }
 
   function addSec2EvidenciaFiles(list: FileList | File[]) {
@@ -149,16 +149,9 @@ export default function NuevoReportPage() {
       form.sec2_paletizado || form.sec2_etiquetado || form.sec2_otro ||
       form.sec2_hora_inicio || form.sec2_hora_termino || form.sec2_sigla_numero || form.sec2_observaciones
     )
-    // sec3_numero_guia/sec3_solicitado_por/sec3_cuyd_detalle quedaron fuera:
-    // ahora viven en Antecedentes (los llena Recepción en TODO report, incluso
-    // sin Bodegaje), así que ya no sirven como señal de que Bodegaje se usó.
-    const sec3Activa = !!(
-      form.sec3_producto || form.sec3_clase_imo || form.sec3_nu || form.sec3_hora_inicio ||
-      form.sec3_hora_termino || form.sec3_numero_bodega || form.sec3_tipo ||
-      form.sec3_numero_pallets || form.sec3_numero_unidades ||
-      form.sec3_lote || form.sec3_cas || form.sec3_orden_compra ||
-      form.sec3_fecha_elaboracion || form.sec3_fecha_vencimiento || form.sec3_observaciones
-    )
+    // Sección 3 (Bodegaje) es de solo lectura acá — la completa Operaciones
+    // después, en reports/[id] — así que nunca queda activa al crear.
+    const sec3Activa = false
 
     // Depósito de Contenedores (Sección 1) con Ingreso/Despacho elegido es
     // una operación que Operaciones no necesita tocar (no hay Bodegaje ni
@@ -172,7 +165,6 @@ export default function NuevoReportPage() {
     return {
       estado,
       cliente:            form.cliente,
-      tarifa_cliente_id:  form.tarifa_cliente_id || null,
       fecha:              form.fecha,
       patente:            form.patente,
       conductor:          form.conductor,
@@ -180,6 +172,7 @@ export default function NuevoReportPage() {
       empresa_transporte: form.transporte_tipo === "propio" ? null : (form.empresa_transporte || null),
       transporte_tipo:    form.transporte_tipo,
       hds_header:         form.hds_header,
+      guia_despacho_header: form.guia_despacho_header,
       observaciones:      form.observaciones || null,
       // Sección 1
       sec1_activa:          sec1Activa,
@@ -209,24 +202,13 @@ export default function NuevoReportPage() {
       sec2_observaciones:  form.sec2_observaciones || null,
       // Sección 3
       sec3_activa:              sec3Activa,
-      sec3_inventario_item_id:  form.sec3_inventario_item_id || null,
-      sec3_producto:            form.sec3_producto      || null,
-      sec3_clase_imo:      form.sec3_clase_imo     || null,
       sec3_hora_inicio:    form.sec3_hora_inicio   || null,
       sec3_hora_termino:   form.sec3_hora_termino  || null,
-      sec3_numero_bodega:  form.sec3_numero_bodega || null,
-      sec3_nu:             form.sec3_nu            || null,
       sec3_tipo:           form.sec3_tipo          || null,
-      sec3_numero_pallets: form.sec3_numero_pallets ? Number(form.sec3_numero_pallets) : null,
-      sec3_numero_unidades: form.sec3_numero_unidades ? Number(form.sec3_numero_unidades) : null,
       sec3_numero_guia:    form.sec3_numero_guia   || null,
       sec3_solicitado_por: form.sec3_solicitado_por || null,
+      sec3_cuyd:           form.sec3_cuyd,
       sec3_cuyd_detalle:   form.sec3_cuyd_detalle  || null,
-      sec3_lote:               form.sec3_lote              || null,
-      sec3_cas:                form.sec3_cas               || null,
-      sec3_orden_compra:       form.sec3_orden_compra      || null,
-      sec3_fecha_elaboracion:  form.sec3_fecha_elaboracion || null,
-      sec3_fecha_vencimiento:  form.sec3_fecha_vencimiento || null,
       sec3_observaciones:  form.sec3_observaciones || null,
       sec3_servicio_adicional: form.sec3_servicio_adicional,
       nombre_operador:     form.nombre_operador    || null,
@@ -265,43 +247,56 @@ export default function NuevoReportPage() {
       return
     }
 
-    // Subir los documentos HDS adjuntos, si el usuario seleccionó alguno.
-    // No bloquea la creación del report en sí, pero si falla se detiene acá
-    // (sin redirigir) para no perder el aviso — el report #inserted.numero ya
+    // Si se escribió una empresa de transporte nueva, queda guardada en el
+    // catálogo para aparecer como sugerencia en los próximos reports — no
+    // bloquea el guardado del report si esto falla (ej. nombre duplicado).
+    if (form.transporte_tipo === "externo" && form.empresa_transporte.trim()) {
+      supabase.from("empresas_transporte")
+        .upsert({ nombre: form.empresa_transporte.trim(), created_by: user?.id ?? null }, { onConflict: "nombre", ignoreDuplicates: true })
+        .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/nuevo] error guardando empresa de transporte en el catálogo:", catalogErr) })
+    }
+
+    // Subir los adjuntos de Antecedentes (HDS y/o Guía de despacho comparten
+    // la misma caja — ver adjuntoFiles), si el usuario seleccionó alguno. No
+    // bloquea la creación del report en sí, pero si falla se detiene acá (sin
+    // redirigir) para no perder el aviso — el report #inserted.numero ya
     // quedó guardado de todas formas.
-    let hdsFailed = false
-    if (form.hds_header && hdsFiles.length > 0) {
-      if (hdsFiles.some(f => validateUploadFile(f))) hdsFailed = true
+    let adjuntoFailed = false
+    if ((form.hds_header || form.guia_despacho_header) && adjuntoFiles.length > 0) {
+      if (adjuntoFiles.some(f => validateUploadFile(f))) adjuntoFailed = true
       const uploadedPaths: string[] = []
-      for (let i = 0; i < hdsFiles.length && !hdsFailed; i++) {
-        const file = hdsFiles[i]
+      for (let i = 0; i < adjuntoFiles.length && !adjuntoFailed; i++) {
+        const file = adjuntoFiles[i]
         const ext  = sanitizeExt(file.name)
-        const path = `hds-${inserted.numero}-${inserted.id}-${i}.${ext}`
+        const path = `adjunto-${inserted.numero}-${inserted.id}-${i}.${ext}`
         const { error: uploadErr } = await supabase.storage
           .from("reports-firmados")
           .upload(path, file, { upsert: true })
 
         if (uploadErr) {
-          console.error("[reports/nuevo] error subiendo documento HDS:", uploadErr)
-          hdsFailed = true
+          console.error("[reports/nuevo] error subiendo adjunto de Antecedentes:", uploadErr)
+          adjuntoFailed = true
         } else {
           uploadedPaths.push(path)
         }
       }
 
       if (uploadedPaths.length > 0) {
-        const { error: hdsUpdateErr } = await supabase
+        const updatePayload: Record<string, string[]> = {}
+        if (form.hds_header)           updatePayload.hds_archivos           = uploadedPaths
+        if (form.guia_despacho_header) updatePayload.guia_despacho_archivos = uploadedPaths
+        const { error: adjuntoUpdateErr } = await supabase
           .from("reports")
-          .update({ hds_archivos: uploadedPaths })
+          .update(updatePayload)
           .eq("id", inserted.id)
-        if (hdsUpdateErr) {
-          console.error("[reports/nuevo] error guardando referencia de los HDS:", hdsUpdateErr)
-          hdsFailed = true
+        if (adjuntoUpdateErr) {
+          console.error("[reports/nuevo] error guardando referencia de los adjuntos:", adjuntoUpdateErr)
+          adjuntoFailed = true
         }
       }
 
-      if (hdsFailed) {
-        setError(`Report #${inserted.numero} guardado, pero ${uploadedPaths.length < hdsFiles.length ? "algunos de los documentos HDS no se pudieron subir" : "no se pudo asociar los documentos HDS"}. Vuelve a la lista e ingresa al report para revisarlo.`)
+      if (adjuntoFailed) {
+        setError(`Report #${inserted.numero} guardado, pero ${uploadedPaths.length < adjuntoFiles.length ? "algunos de los archivos adjuntos no se pudieron subir" : "no se pudieron asociar los archivos adjuntos"}. Vuelve a la lista e ingresa al report para revisarlo.`)
       }
     }
 
@@ -345,19 +340,8 @@ export default function NuevoReportPage() {
 
     // La firma del conductor se captura al reabrir el report (es parte del
     // trabajo del operador) — nada que subir acá todavía.
-    if (hdsFailed || evidenciaFailed) {
+    if (adjuntoFailed || evidenciaFailed) {
       return
-    }
-
-    // stock_actual solo lo mueve el trigger de BD reports_sync_inventario
-    // cuando el report queda en estado 'despachado' — llamar update_stock acá
-    // duplicaría el ajuste. syncPesoTon igual corre siempre que haya ítem
-    // vinculado para no dejar peso_ton desactualizado. La Sección 3 (Bodegaje)
-    // está bloqueada en esta página (la llena Operaciones más adelante), así
-    // que la validación de pallets>0 corre recién al enviar a despacho desde
-    // reports/[id], no acá.
-    if (form.sec3_inventario_item_id) {
-      await syncPesoTon(supabase, form.sec3_inventario_item_id)
     }
 
     // fire-and-forget
@@ -419,15 +403,7 @@ export default function NuevoReportPage() {
                     value={form.cliente}
                     onChange={v => set("cliente", v)}
                     onChangeId={id => {
-                      setForm(prev => ({
-                        ...prev,
-                        cliente_id: id,
-                        tarifa_cliente_id: "",
-                        sec3_inventario_item_id: "",
-                        sec3_producto: "",
-                        sec3_clase_imo: "",
-                        sec3_nu: "",
-                      }))
+                      setForm(prev => ({ ...prev, cliente_id: id }))
                       setServicioSeleccion([])
                     }}
                   />
@@ -457,6 +433,21 @@ export default function NuevoReportPage() {
                     <option value="operaciones">Operaciones</option>
                   </select>
                 </Field>
+                <div className="flex items-center gap-2 col-span-1 sm:col-span-2">
+                  <Checkbox
+                    id="sec3_cuyd"
+                    checked={form.sec3_cuyd}
+                    onCheckedChange={v => {
+                      const checked = v === true
+                      set("sec3_cuyd", checked)
+                      if (!checked) set("sec3_cuyd_detalle", "")
+                    }}
+                  />
+                  <label htmlFor="sec3_cuyd" className="text-xs text-foreground/80 cursor-pointer">CUyD</label>
+                  {form.sec3_cuyd && (
+                    <Input value={form.sec3_cuyd_detalle} onChange={e => set("sec3_cuyd_detalle", e.target.value)} placeholder="Detalle" className="h-7 text-xs flex-1 max-w-[220px]" />
+                  )}
+                </div>
                 <Field label="Transporte" className="col-span-1 sm:col-span-2">
                   <div className="h-8 flex items-center">
                     <RadioGroup
@@ -469,44 +460,73 @@ export default function NuevoReportPage() {
                     />
                   </div>
                 </Field>
+                <Field label="Tipo de movimiento">
+                  <div className="h-8 flex items-center">
+                    <RadioGroup
+                      value={form.sec3_tipo}
+                      onChange={v => set("sec3_tipo", v)}
+                      options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]}
+                    />
+                  </div>
+                </Field>
                 {form.transporte_tipo === "externo" && (
                   <Field label="Empresa de transporte" className="col-span-1 sm:col-span-2">
-                    <Input value={form.empresa_transporte} onChange={e => setUpper("empresa_transporte", e.target.value)} placeholder="Razón social" className="h-8 text-xs" />
+                    <EmpresaTransporteCombobox value={form.empresa_transporte} onChange={v => set("empresa_transporte", v)} />
                   </Field>
                 )}
-                <div className="col-span-1 sm:col-span-3 flex items-center gap-2">
-                  <Checkbox
-                    id="hds_header"
-                    checked={form.hds_header}
-                    onCheckedChange={v => {
-                      const checked = v === true
-                      set("hds_header", checked)
-                      if (!checked) {
-                        setHdsFiles([])
-                        if (hdsFileRef.current) hdsFileRef.current.value = ""
-                      }
-                    }}
-                    className="h-3.5 w-3.5"
-                  />
-                  <label htmlFor="hds_header" className="text-xs text-foreground/80 cursor-pointer">
-                    HDS (Hoja de datos de seguridad presente)
-                  </label>
+                <div className="col-span-1 sm:col-span-3 flex flex-wrap items-center gap-x-5 gap-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="hds_header"
+                      checked={form.hds_header}
+                      onCheckedChange={v => {
+                        const checked = v === true
+                        set("hds_header", checked)
+                        if (!checked && !form.guia_despacho_header) {
+                          setAdjuntoFiles([])
+                          if (adjuntoFileRef.current) adjuntoFileRef.current.value = ""
+                        }
+                      }}
+                      className="h-3.5 w-3.5"
+                    />
+                    <label htmlFor="hds_header" className="text-xs text-foreground/80 cursor-pointer">
+                      HDS (Hoja de datos de seguridad presente)
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="guia_despacho_header"
+                      checked={form.guia_despacho_header}
+                      onCheckedChange={v => {
+                        const checked = v === true
+                        set("guia_despacho_header", checked)
+                        if (!checked && !form.hds_header) {
+                          setAdjuntoFiles([])
+                          if (adjuntoFileRef.current) adjuntoFileRef.current.value = ""
+                        }
+                      }}
+                      className="h-3.5 w-3.5"
+                    />
+                    <label htmlFor="guia_despacho_header" className="text-xs text-foreground/80 cursor-pointer">
+                      Guía de despacho
+                    </label>
+                  </div>
                 </div>
-                {form.hds_header && (
+                {(form.hds_header || form.guia_despacho_header) && (
                   <div className="col-span-1 sm:col-span-3 flex flex-col gap-1.5">
                     <input
-                      ref={hdsFileRef}
+                      ref={adjuntoFileRef}
                       type="file"
                       multiple
                       accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*"
                       className="hidden"
-                      onChange={e => { if (e.target.files) addHdsFiles(e.target.files); e.target.value = "" }}
+                      onChange={e => { if (e.target.files) addAdjuntoFiles(e.target.files); e.target.value = "" }}
                     />
                     <div
-                      onClick={() => hdsFileRef.current?.click()}
+                      onClick={() => adjuntoFileRef.current?.click()}
                       onDragOver={e => { e.preventDefault(); setDragOver(true) }}
                       onDragLeave={e => { e.preventDefault(); setDragOver(false) }}
-                      onDrop={onHdsDrop}
+                      onDrop={onAdjuntoDrop}
                       className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 py-3 text-center cursor-pointer transition-colors ${
                         dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/40"
                       }`}
@@ -516,9 +536,9 @@ export default function NuevoReportPage() {
                         Arrastra archivos aquí o <span className="text-primary underline underline-offset-2">selecciona</span>
                       </p>
                     </div>
-                    {hdsFiles.length > 0 && (
+                    {adjuntoFiles.length > 0 && (
                       <div className="flex flex-col gap-1.5">
-                        {hdsFiles.map((file, i) => (
+                        {adjuntoFiles.map((file, i) => (
                           <div key={i} className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1.5">
                             <FileText className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
                             <button
@@ -530,7 +550,7 @@ export default function NuevoReportPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => removeHdsFile(i)}
+                              onClick={() => removeAdjuntoFile(i)}
                               className="text-muted-foreground hover:text-foreground flex-shrink-0"
                             >
                               <X className="h-3.5 w-3.5" />
@@ -639,33 +659,10 @@ export default function NuevoReportPage() {
                 readOnly
                 toUpperCase
                 hideActivation
-                productoNode={
-                  <>
-                    <ProductoCombobox
-                      clienteId={form.cliente_id}
-                      value={form.sec3_producto}
-                      onChange={v => set("sec3_producto", v)}
-                      onSelect={item => setForm(prev => ({
-                        ...prev,
-                        sec3_inventario_item_id: item.id,
-                        sec3_producto:           item.descripcion,
-                        sec3_clase_imo:          item.clase_imo ?? "",
-                        sec3_nu:                 item.nu        ?? "",
-                      }))}
-                      onClear={() => setForm(prev => ({
-                        ...prev,
-                        sec3_inventario_item_id: "",
-                        sec3_clase_imo:          "",
-                        sec3_nu:                 "",
-                      }))}
-                      readOnly
-                    />
-                    {form.sec3_producto.trim() && !form.sec3_inventario_item_id && (
-                      <p className="text-[10px] text-amber-600 mt-1">
-                        No vinculado al catálogo — este report no actualizará el stock.
-                      </p>
-                    )}
-                  </>
+                itemsNode={
+                  <p className="text-xs text-muted-foreground">
+                    Los productos de Bodegaje los agrega Operaciones — no editable acá.
+                  </p>
                 }
                 serviciosNode={
                   <ServiciosSection

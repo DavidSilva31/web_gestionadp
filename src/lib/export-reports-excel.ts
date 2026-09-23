@@ -1,6 +1,11 @@
 import ExcelJS from "exceljs"
-import type { Report } from "@/types/database"
+import type { Report, ReportBodegajeItem } from "@/types/database"
 import { sanitizeSpreadsheetCell } from "@/lib/sanitize"
+
+// Los reports pueden traer sus productos de Bodegaje embebidos (join
+// report_bodegaje_items vía PostgREST) — opcional para no romper llamadas
+// que exporten sin ese detalle.
+type ReportConItems = Report & { report_bodegaje_items?: ReportBodegajeItem[] }
 
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -13,7 +18,7 @@ function triggerBlobDownload(blob: Blob, filename: string) {
 
 const TIPO_MOV: Record<string, string> = { ingreso: "Ingreso", despacho: "Despacho" }
 const TIPO_CONT: Record<string, string> = { "20ft": "20 ft", "40ft": "40 ft", isotanque: "Isotanque" }
-const SOL_POR: Record<string, string> = { clientes: "Clientes", hds: "HDS", operaciones: "Operaciones", cuyd: "CUyD" }
+const SOL_POR: Record<string, string> = { clientes: "Clientes", hds: "HDS", operaciones: "Operaciones" }
 
 const yn = (v: boolean | null | undefined) => (v ? "Sí" : "No")
 // Neutraliza CSV/Excel formula injection en todo texto libre de operador/
@@ -22,11 +27,11 @@ const yn = (v: boolean | null | undefined) => (v ? "Sí" : "No")
 const str = (v: string | number | null | undefined) =>
   typeof v === "string" ? sanitizeSpreadsheetCell(v) : v ?? ""
 
-export async function exportReportsToExcel(reports: Report[], filename = "reports_adp") {
+export async function exportReportsToExcel(reports: ReportConItems[], filename = "reports_adp") {
   const rows = reports.map(r => ({
     // ── Identificación ──────────────────────────────────────────
     "N° Report":            r.numero,
-    "Estado":               { borrador: "Ingresado", pendiente_operaciones: "Pendiente operaciones", pendiente_despacho: "Pendiente despacho", despachado: "Despachado" }[r.estado] ?? r.estado,
+    "Estado":               { borrador: "Ingresado", pendiente_operaciones: "Pendiente operaciones", pendiente_despacho: "Pendiente despacho", despachado: "Despachado", anulado: "Anulado" }[r.estado] ?? r.estado,
     "Fecha":                str(r.fecha),
     "Fecha despacho":       r.fecha_despacho ? new Date(r.fecha_despacho).toLocaleString("es-CL") : "",
 
@@ -66,18 +71,16 @@ export async function exportReportsToExcel(reports: Report[], filename = "report
     "Sec2 Sigla / N°":      str(r.sec2_sigla_numero),
     "Sec2 Observaciones":   str(r.sec2_observaciones),
 
-    // ── Sección 3: Bodegaje ──────────────────────────────────────
+    // ── Sección 3: Bodegaje — campos únicos por sección; el detalle de cada
+    // producto (puede haber varios) va en la hoja "Bodegaje - Detalle" más
+    // abajo, no aplanado acá.
     "Sec3 Activa":          yn(r.sec3_activa),
-    "Sec3 Producto":        str(r.sec3_producto),
-    "Sec3 Clase IMO":       str(r.sec3_clase_imo),
-    "Sec3 N°U":             str(r.sec3_nu),
     "Sec3 Hora inicio":     str(r.sec3_hora_inicio),
     "Sec3 Hora término":    str(r.sec3_hora_termino),
-    "Sec3 N° Bodega":       str(r.sec3_numero_bodega),
     "Sec3 N° Guía":         str(r.sec3_numero_guia),
     "Sec3 Tipo movimiento": r.sec3_tipo ? TIPO_MOV[r.sec3_tipo] ?? r.sec3_tipo : "",
-    "Sec3 N° Pallets":      r.sec3_numero_pallets ?? "",
     "Sec3 Solicitado por":  r.sec3_solicitado_por ? SOL_POR[r.sec3_solicitado_por] ?? r.sec3_solicitado_por : "",
+    "Sec3 CUyD":            yn(r.sec3_cuyd),
     "Sec3 Detalle CUyD":    str(r.sec3_cuyd_detalle),
     "Sec3 Observaciones":   str(r.sec3_observaciones),
 
@@ -97,6 +100,36 @@ export async function exportReportsToExcel(reports: Report[], filename = "report
     width: Math.max(key.length, ...rows.map(r => String((r as Record<string, unknown>)[key] ?? "").length)) + 2,
   }))
   ws.addRows(rows)
+
+  // Hoja aparte con el detalle de cada producto de Bodegaje — un report
+  // puede tener varios, así que va uno por fila en vez de aplanado en la
+  // hoja "Reports" de arriba.
+  const itemRows = reports.flatMap(r =>
+    (r.report_bodegaje_items ?? []).map(it => ({
+      "N° Report":   r.numero,
+      "Cliente":     str(r.cliente),
+      "Producto":    str(it.sec3_producto),
+      "Clase IMO":   str(it.sec3_clase_imo),
+      "N°U":         str(it.sec3_nu),
+      "N° Bodega":   str(it.sec3_numero_bodega),
+      "N° Pallets":  it.sec3_numero_pallets  ?? "",
+      "N° Unidades": it.sec3_numero_unidades ?? "",
+      "Lote":        str(it.sec3_lote),
+      "CAS":         str(it.sec3_cas),
+      "OC":          str(it.sec3_orden_compra),
+      "Elab.":       str(it.sec3_fecha_elaboracion),
+      "Venc.":       str(it.sec3_fecha_vencimiento),
+    }))
+  )
+  if (itemRows.length > 0) {
+    const wsItems = wb.addWorksheet("Bodegaje - Detalle")
+    const itemKeys = Object.keys(itemRows[0])
+    wsItems.columns = itemKeys.map(key => ({
+      header: key, key,
+      width: Math.max(key.length, ...itemRows.map(r => String((r as Record<string, unknown>)[key] ?? "").length)) + 2,
+    }))
+    wsItems.addRows(itemRows)
+  }
 
   const date = new Date().toISOString().slice(0, 10)
   const buffer = await wb.xlsx.writeBuffer()

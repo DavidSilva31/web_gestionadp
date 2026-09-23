@@ -395,6 +395,15 @@
     background: var(--muted-foreground);
   }
 
+  /* Detalle de Inventario (Kardex) — scroll normal (ya no se arrastra con
+     clic sostenido), con barras más gruesas que el resto de la app porque
+     son la única forma de moverse por grillas anchas/largas. */
+  .kardex-scroll::-webkit-scrollbar,
+  .kardex-hscroll::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
   /* Selección de texto con color ADP */
   ::selection {
     background: oklch(0.67 0.13 215 / 20%);
