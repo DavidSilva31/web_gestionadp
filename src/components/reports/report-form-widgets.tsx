@@ -6,17 +6,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
-import { Label } from "@/components/ui/label"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
-import { resolveEffectiveClienteId, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea } from "@/lib/inventario"
-import { useAuth } from "@/contexts/auth-context"
-import { logAudit } from "@/lib/audit"
+import { resolveEffectiveClienteId, type InventarioItemOption } from "@/lib/inventario"
+import { ItemFormDialog } from "@/components/inventario/item-form-dialog"
 import { Field } from "./report-form-sections"
 import type { BodegajeItemFormData } from "./report-form-types"
-import type { InstalacionAlmacenamiento, InventarioCategoria } from "@/types/database"
 
 // Widgets compartidos entre reports/nuevo y reports/[id] — misma vista para
 // crear y editar un report, ambos con el mismo vínculo real a cliente/
@@ -247,223 +243,6 @@ export function EmpresaTransporteCombobox({ value, onChange, readOnly }: {
 // tipo solo queda para tipar esa lista, sin selector propio.
 export interface TarifaOption { id: string; clase_imo: string | null; cotizacion_numero: string }
 
-export interface InventarioItemOption { id: string; descripcion: string; clase_imo: string | null; nu: string | null }
-
-const NUEVO_PRODUCTO_EMPTY = {
-  descripcion: "", categoria: "Carga general" as InventarioCategoria, instalacion_id: "",
-  clase_imo: "", nu: "", unidad: "unidad", stock_actual: 0, peso_ton: "" as number | "",
-  stock_minimo: 0, observaciones: "",
-}
-
-// Alta rápida de un producto que todavía no existe en Inventario, sin salir
-// del report — mismo formulario/campos que "Registrar ítem" en /inventario
-// (ver EMPTY_FORM/handleSave ahí), para no tener dos definiciones del mismo
-// ítem que puedan desincronizarse. Al guardar, el ítem queda seleccionado en
-// el ProductoCombobox al toque, sin recargar la página.
-function NuevoProductoDialog({ clienteId, open, onOpenChange, onCreated, initialDescripcion }: {
-  clienteId: string
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onCreated: (item: InventarioItemOption) => void
-  initialDescripcion?: string
-}) {
-  const { user, profile } = useAuth()
-  const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
-  const [form, setForm] = useState(NUEVO_PRODUCTO_EMPTY)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    setForm({ ...NUEVO_PRODUCTO_EMPTY, descripcion: initialDescripcion ?? "" })
-    setError(null)
-    createClient().from("instalaciones_almacenamiento").select("*").order("codigo")
-      .then(({ data }) => setInstalaciones((data as InstalacionAlmacenamiento[]) ?? []))
-  }, [open])
-
-  async function handleSave() {
-    if (!form.descripcion.trim()) { setError("La descripción es obligatoria"); return }
-    setSaving(true); setError(null)
-    try {
-      const supabase = createClient()
-      const ownerId = await resolveEffectiveClienteId(supabase, clienteId)
-      const stockActual = Math.max(0, form.stock_actual)
-      const pesoTon = form.peso_ton === "" ? null : form.peso_ton
-      const payload = {
-        cliente_id:     ownerId,
-        descripcion:    form.descripcion.trim(),
-        categoria:      form.categoria,
-        area:           inferInventarioArea(instalaciones.find(i => i.id === form.instalacion_id)),
-        clase_imo:      form.clase_imo.trim() || null,
-        nu:             form.nu.trim() || null,
-        unidad:         form.unidad,
-        stock_actual:   stockActual,
-        stock_unidades: 0,
-        stock_minimo:   Math.max(0, form.stock_minimo),
-        observaciones:  form.observaciones.trim() || null,
-        activo:         true,
-        created_by:     user?.id ?? null,
-        instalacion_id: form.instalacion_id || null,
-        peso_ton:       pesoTon,
-        peso_unitario_ton: pesoTon != null && stockActual > 0 ? pesoTon / stockActual : null,
-      }
-      const { data, error: err } = await supabase.from("inventario_items")
-        .insert(payload).select("id, descripcion, clase_imo, nu").single()
-      if (err) { setError(err.message); return }
-      logAudit({
-        tabla:          "inventario_items",
-        registro_id:    data.id,
-        accion:         "inventario.crear_item",
-        descripcion:    `Ítem ${payload.descripcion} creado desde Bodegaje de un report`,
-        usuario_id:     user?.id,
-        usuario_nombre: profile?.nombre ?? user?.email,
-      })
-      onCreated(data as InventarioItemOption)
-      onOpenChange(false)
-    } catch (err) {
-      console.error("[NuevoProductoDialog] error creando ítem:", err)
-      setError("No se pudo conectar con el servidor. Intenta de nuevo.")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Registrar producto nuevo</DialogTitle>
-        </DialogHeader>
-
-        <div className="grid grid-cols-2 gap-4 py-1">
-          <div className="col-span-2 space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Descripción *</Label>
-            <Input
-              value={form.descripcion}
-              onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))}
-              placeholder="Ej: Contenedor 20' Clase IMO 3 — Metanol"
-              className="h-9"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Categoría *</Label>
-            <select
-              value={form.categoria}
-              onChange={e => setForm(p => ({ ...p, categoria: e.target.value as InventarioCategoria }))}
-              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              {INVENTARIO_CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Instalación</Label>
-            <select
-              value={form.instalacion_id}
-              onChange={e => setForm(p => ({ ...p, instalacion_id: e.target.value }))}
-              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              <option value="">Sin asignar</option>
-              {instalaciones.map(i => <option key={i.id} value={i.id}>{i.codigo}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Clase IMO</Label>
-            <Input
-              value={form.clase_imo}
-              onChange={e => setForm(p => ({ ...p, clase_imo: e.target.value }))}
-              placeholder="Ej: 3, 6.1, 8..."
-              className="h-9"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">N° ONU</Label>
-            <Input
-              value={form.nu}
-              onChange={e => setForm(p => ({ ...p, nu: e.target.value }))}
-              placeholder="Ej: 1090"
-              className="h-9"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Unidad</Label>
-            <select
-              value={form.unidad}
-              onChange={e => setForm(p => ({ ...p, unidad: e.target.value }))}
-              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              {INVENTARIO_UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Stock actual</Label>
-            <Input
-              type="number" min={0}
-              value={form.stock_actual}
-              onChange={e => setForm(p => ({ ...p, stock_actual: Math.max(0, parseInt(e.target.value) || 0) }))}
-              className="h-9"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Peso estimado (ton)</Label>
-            <Input
-              type="number" min={0} step="0.001"
-              value={form.peso_ton}
-              onChange={e => setForm(p => ({ ...p, peso_ton: e.target.value === "" ? "" : parseFloat(e.target.value) }))}
-              placeholder="Opcional"
-              className="h-9"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Stock mínimo</Label>
-            <Input
-              type="number" min={0}
-              value={form.stock_minimo}
-              onChange={e => setForm(p => ({ ...p, stock_minimo: parseInt(e.target.value) || 0 }))}
-              className="h-9"
-            />
-          </div>
-
-          <div className="col-span-2 space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Observaciones</Label>
-            <textarea
-              value={form.observaciones}
-              onChange={e => setForm(p => ({ ...p, observaciones: e.target.value }))}
-              placeholder="Notas adicionales..."
-              rows={2}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-            />
-          </div>
-        </div>
-
-        {error && (
-          <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-200">{error}</p>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button
-            size="sm"
-            disabled={saving || !form.descripcion.trim()}
-            onClick={handleSave}
-            className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground"
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-            Registrar producto
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear, readOnly }: {
   clienteId: string
   value: string
@@ -569,7 +348,7 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
           </button>
         </div>
       )}
-      <NuevoProductoDialog
+      <ItemFormDialog
         clienteId={clienteId}
         open={nuevoOpen}
         onOpenChange={setNuevoOpen}

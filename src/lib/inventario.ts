@@ -9,6 +9,17 @@ export const INVENTARIO_CATEGORIAS: InventarioCategoria[] = [
 ]
 export const INVENTARIO_UNIDADES = ["unidad", "pallets", "contenedor", "isotanque", "kg", "ton"]
 
+// Tipos de envase del Kardex (Detalle de /inventario) — mismo catálogo que el
+// CHECK de movimientos.tipo_envase (migration_kardex_inventario.sql).
+export const TIPOS_ENVASE = [
+  "Tambor", "Bidón", "IBC", "Saco", "Caja", "Pallet", "Granel",
+  "Maxisaco", "Tineta", "Cilindro", "Cuñete", "Otro",
+] as const
+
+// Ítem mínimo que necesita un selector de producto (ProductoCombobox) — lo
+// que devuelve el alta rápida de ItemFormDialog al crear uno nuevo.
+export interface InventarioItemOption { id: string; descripcion: string; clase_imo: string | null; nu: string | null }
+
 // El enum Área quedó obsoleto frente al catálogo real de instalaciones — se
 // sigue completando (columna NOT NULL) pero se infiere desde la instalación
 // elegida en vez de pedírselo al usuario dos veces.

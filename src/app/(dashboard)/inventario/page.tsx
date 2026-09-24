@@ -16,7 +16,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
-import { resolveEffectiveClienteId, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea } from "@/lib/inventario"
+import { resolveEffectiveClienteId, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE } from "@/lib/inventario"
+import { ItemFormDialog } from "@/components/inventario/item-form-dialog"
 import { cn } from "@/lib/utils"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import { useAuth } from "@/contexts/auth-context"
@@ -87,7 +88,7 @@ const EMPTY_FORM: InventarioItemInsert = {
   peso_unitario_ton: null,
 }
 
-const KARDEX_ENVASES = ["Tambor", "Bidón", "IBC", "Saco", "Caja", "Pallet", "Granel", "Maxisaco", "Tineta", "Cilindro", "Cuñete", "Otro"]
+const KARDEX_ENVASES = TIPOS_ENVASE
 const KARDEX_TIPOS = ["ingreso", "despacho"] as const
 
 // Celda editable del Kardex: clic para editar, blur/Enter guarda, Escape
@@ -261,7 +262,8 @@ function InventarioContent() {
   const [error,        setError]        = useState<string | null>(null)
   const [fetchError,   setFetchError]   = useState<string | null>(null)
   const [itemsError,   setItemsError]   = useState<string | null>(null)
-  const [dialog,       setDialog]       = useState<null | "new" | InventarioItem>(null)
+  const [dialog,       setDialog]       = useState<InventarioItem | null>(null)
+  const [newOpen,      setNewOpen]      = useState(false)
   const [form,         setForm]         = useState<InventarioItemInsert>(EMPTY_FORM)
   const [deleting,     setDeleting]     = useState<InventarioItem | null>(null)
   const [deletingBusy, setDeletingBusy] = useState(false)
@@ -281,6 +283,7 @@ function InventarioContent() {
   const [kardexError,  setKardexError]  = useState<string | null>(null)
 
   useCloseOnBack(dialog !== null, () => setDialog(null))
+  useCloseOnBack(newOpen, () => setNewOpen(false))
   useCloseOnBack(exportPreview !== null, () => { setExportPreview(null); setExportError(null) })
   useCloseOnBack(deleting !== null, () => { setDeleting(null); setError(null) })
   // Bloqueo de edición del Detalle: las celdas solo se pueden tocar tras
@@ -471,15 +474,18 @@ function InventarioContent() {
     setKardexDirty(true)
   }
 
-  async function openNew() {
+  function openNew() {
     if (!selected) return
-    // Si el cliente seleccionado comparte pool de stock, el ítem nuevo debe
-    // quedar bajo el dueño real del inventario, no bajo el cliente en pantalla.
-    const supabase = createClient()
-    const ownerId = await resolveEffectiveClienteId(supabase, selected.id)
-    setForm({ ...EMPTY_FORM, cliente_id: ownerId })
-    setError(null)
-    setDialog("new")
+    setNewOpen(true)
+  }
+
+  // ItemFormDialog resuelve el dueño real del stock compartido y crea el
+  // ítem (+ su movimiento de ingreso inicial si corresponde) — acá solo hay
+  // que refrescar la grilla que esté visible para que aparezca al toque.
+  function handleItemCreated() {
+    if (!selected) return
+    fetchItemsForCliente(selected.id)
+    if (vista === "kardex") fetchKardexForCliente(selected.id)
   }
 
   function openEdit(item: InventarioItem) {
@@ -530,7 +536,10 @@ function InventarioContent() {
     }
   }
 
+  // Solo edita un ítem existente — la creación la maneja ItemFormDialog
+  // (junto con su movimiento de ingreso inicial cuando corresponde).
   async function handleSave() {
+    if (!dialog) return
     if (!form.descripcion.trim()) { setError("La descripción es obligatoria"); return }
     setSaving(true); setError(null)
 
@@ -550,36 +559,23 @@ function InventarioContent() {
 
     try {
       const supabase = createClient()
-      if (dialog === "new") {
-        const { data: inserted, error: err } = await supabase.from("inventario_items").insert(payload).select("id").single()
-        if (err) { setError(err.message); setSaving(false); return }
-        logAudit({
-          tabla:          "inventario_items",
-          registro_id:    inserted.id,
-          accion:         "inventario.crear_item",
-          descripcion:    `Ítem ${payload.descripcion} creado${selected ? ` — ${selected.nombre}` : ""}`,
-          usuario_id:     user?.id,
-          usuario_nombre: profile?.nombre ?? user?.email,
-        })
-      } else if (dialog) {
-        // Exclude stock_actual from edit — stock must change only through movimientos
-        const { stock_actual, ...editPayload } = payload
-        void stock_actual
-        // Con stock 0 no hay forma real de recalcular el ancla — no pisarla
-        // con null o se pierde para siempre y peso_ton deja de sincronizar
-        // cuando el stock vuelva a subir (ver syncPesoTon en lib/inventario.ts).
-        if (form.stock_actual === 0) delete (editPayload as { peso_unitario_ton?: number | null }).peso_unitario_ton
-        const { error: err } = await supabase.from("inventario_items").update(editPayload).eq("id", dialog.id)
-        if (err) { setError(err.message); setSaving(false); return }
-        logAudit({
-          tabla:          "inventario_items",
-          registro_id:    dialog.id,
-          accion:         "inventario.actualizar_item",
-          descripcion:    `Ítem ${payload.descripcion} actualizado${selected ? ` — ${selected.nombre}` : ""}`,
-          usuario_id:     user?.id,
-          usuario_nombre: profile?.nombre ?? user?.email,
-        })
-      }
+      // Exclude stock_actual from edit — stock must change only through movimientos
+      const { stock_actual, ...editPayload } = payload
+      void stock_actual
+      // Con stock 0 no hay forma real de recalcular el ancla — no pisarla
+      // con null o se pierde para siempre y peso_ton deja de sincronizar
+      // cuando el stock vuelva a subir (ver syncPesoTon en lib/inventario.ts).
+      if (form.stock_actual === 0) delete (editPayload as { peso_unitario_ton?: number | null }).peso_unitario_ton
+      const { error: err } = await supabase.from("inventario_items").update(editPayload).eq("id", dialog.id)
+      if (err) { setError(err.message); setSaving(false); return }
+      logAudit({
+        tabla:          "inventario_items",
+        registro_id:    dialog.id,
+        accion:         "inventario.actualizar_item",
+        descripcion:    `Ítem ${payload.descripcion} actualizado${selected ? ` — ${selected.nombre}` : ""}`,
+        usuario_id:     user?.id,
+        usuario_nombre: profile?.nombre ?? user?.email,
+      })
       setSaving(false)
       setDialog(null)
       if (selected) fetchItemsForCliente(selected.id)
@@ -1254,12 +1250,23 @@ function InventarioContent() {
       </div>
 
       {/* ── Dialog: nuevo / editar ítem ── */}
+      {/* ── Alta de ítem nuevo — mismo formulario que el alta rápida desde
+          Bodegaje en un report (ver ItemFormDialog), incluido el ingreso
+          inicial que lo hace aparecer también en Detalle, no solo Resumen. */}
+      {selected && (
+        <ItemFormDialog
+          clienteId={selected.id}
+          open={newOpen}
+          onOpenChange={setNewOpen}
+          onCreated={handleItemCreated}
+        />
+      )}
+
+      {/* ── Edición de un ítem existente — el stock no se toca acá, solo vía movimientos. */}
       <Dialog open={dialog !== null} onOpenChange={open => { if (!open) setDialog(null) }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              {dialog === "new" ? "Registrar ítem de inventario" : "Editar ítem"}
-            </DialogTitle>
+            <DialogTitle>Editar ítem</DialogTitle>
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-4 py-1">
@@ -1350,13 +1357,10 @@ function InventarioContent() {
                 type="number"
                 min={0}
                 value={form.stock_actual}
-                onChange={dialog === "new" ? e => setForm(p => ({ ...p, stock_actual: Math.max(0, parseInt(e.target.value) || 0) })) : undefined}
-                readOnly={dialog !== "new"}
-                className={cn("h-9", dialog !== "new" && "opacity-60 cursor-not-allowed")}
+                readOnly
+                className="h-9 opacity-60 cursor-not-allowed"
               />
-              {dialog !== "new" && (
-                <p className="text-[10px] text-muted-foreground">Actualizado vía movimientos</p>
-              )}
+              <p className="text-[10px] text-muted-foreground">Actualizado vía movimientos</p>
             </div>
 
             <div className="space-y-1.5">
@@ -1421,7 +1425,7 @@ function InventarioContent() {
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 : <Plus className="h-3.5 w-3.5" />
               }
-              {dialog === "new" ? "Registrar ítem" : "Guardar cambios"}
+              Guardar cambios
             </Button>
           </DialogFooter>
         </DialogContent>
