@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense, Fragment } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   Package, Plus, Search, RefreshCw, ChevronRight, ChevronLeft, ArrowLeft,
@@ -90,6 +90,27 @@ const EMPTY_FORM: InventarioItemInsert = {
 
 const KARDEX_ENVASES = TIPOS_ENVASE
 const KARDEX_TIPOS = ["ingreso", "despacho"] as const
+
+// Línea angosta entre dos filas del Kardex — casi invisible hasta que se le
+// pasa el mouse, ahí crece y muestra el "+" para insertar una fila justo en
+// esa posición (la fecha nueva se calcula a mitad de camino entre las dos
+// filas vecinas, ver addKardexRow).
+function KardexRowDivider({ onAdd }: { onAdd: () => void }) {
+  return (
+    <tr className="group/divider">
+      <td colSpan={25} className="p-0">
+        <button
+          type="button"
+          onClick={onAdd}
+          title="Insertar fila acá"
+          className="w-full h-1.5 group-hover/divider:h-4 flex items-center justify-center transition-[height] duration-100 hover:bg-primary/10"
+        >
+          <Plus className="h-3 w-3 text-primary opacity-0 group-hover/divider:opacity-100 transition-opacity" />
+        </button>
+      </td>
+    </tr>
+  )
+}
 
 // Celda editable del Kardex: clic para editar, blur/Enter guarda, Escape
 // cancela. `onSave` hace el update real y devuelve un mensaje de error (o
@@ -292,6 +313,8 @@ function InventarioContent() {
   // clic consciente que vuelva a bloquear la tabla.
   const [kardexEditing, setKardexEditing] = useState(false)
   const [kardexDirty,   setKardexDirty]   = useState(false)
+  const [deletingMov,     setDeletingMov]     = useState<string | null>(null)
+  const [deletingMovBusy, setDeletingMovBusy] = useState(false)
 
   const fetchClientes = useCallback(async () => {
     setLoading(true)
@@ -451,6 +474,75 @@ function InventarioContent() {
       [selected.id]: (prev[selected.id] ?? []).map(m => m.id === movId ? { ...m, [field]: value } : m),
     }))
     setKardexDirty(true)
+  }
+
+  // Agrega un movimiento nuevo al grupo de un producto — hereda cliente/área/
+  // ítem de cualquier fila existente del grupo, así el trigger de stock sigue
+  // funcionando igual que con cualquier otra fila. Entra con fecha de hoy;
+  // basta con editar la fecha en la celda para que caiga en la posición
+  // cronológica que corresponda (el orden lo decide fecha, no dónde se creó).
+  // `index` es dónde cae la fila nueva dentro del grupo ya ordenado por fecha:
+  // 0 = antes de la primera, rows.length = después de la última, cualquier
+  // valor intermedio = entre rows[index-1] y rows[index]. La fecha nueva se
+  // calcula a mitad de camino entre las dos vecinas para que quede
+  // exactamente ahí al reordenar — si coinciden exacto (mismo día sin hora),
+  // se resta un segundo para no empatar y perder el orden.
+  async function addKardexRow(
+    group: { carga: string; rows: (Movimiento & { reports: { numero: number } | null })[] },
+    index: number,
+  ) {
+    if (!selected) return
+    const sample = group.rows[0]
+    if (!sample) return
+    setKardexError(null)
+
+    const before = index > 0 ? new Date(group.rows[index - 1].fecha).getTime() : null
+    const after  = index < group.rows.length ? new Date(group.rows[index].fecha).getTime() : null
+    let fecha: string
+    if (before != null && after != null) {
+      const mid = Math.round((before + after) / 2)
+      fecha = new Date(mid === after ? before - 1000 : mid).toISOString()
+    } else if (before != null) {
+      fecha = new Date(before + 1000).toISOString()
+    } else if (after != null) {
+      fecha = new Date(after - 1000).toISOString()
+    } else {
+      fecha = new Date().toISOString()
+    }
+
+    const supabase = createClient()
+    const effectiveId = await resolveEffectiveClienteId(supabase, selected.id)
+    const { error } = await supabase.from("movimientos").insert({
+      tipo: "ingreso", servicio: "Almacenaje", cliente_id: effectiveId, cliente_nombre: null,
+      carga: group.carga, area: sample.area, inventario_item_id: sample.inventario_item_id,
+      unidades: 0, posiciones: 0, operador: null, estado: "completado",
+      fecha, report_id: null,
+    })
+    if (error) { setKardexError(error.message); return }
+    setKardexDirty(true)
+    await fetchKardexForCliente(selected.id)
+  }
+
+  // Elimina una fila — el trigger de BD revierte su efecto sobre stock_actual
+  // solo. Se pide confirmación porque no hay deshacer.
+  // Abre el diálogo de confirmación (ver deletingMov más abajo) en vez de
+  // borrar directo — window.confirm() se veía fuera de estilo del resto de
+  // la app.
+  function removeKardexRow(movId: string) {
+    setDeletingMov(movId)
+  }
+
+  async function confirmRemoveKardexRow() {
+    if (!selected || !deletingMov) return
+    setDeletingMovBusy(true)
+    setKardexError(null)
+    const supabase = createClient()
+    const { error } = await supabase.from("movimientos").delete().eq("id", deletingMov)
+    setDeletingMovBusy(false)
+    if (error) { setKardexError(error.message); setDeletingMov(null); return }
+    setKardexDirty(true)
+    setDeletingMov(null)
+    await fetchKardexForCliente(selected.id)
   }
 
   async function updateKardexReport(movId: string, raw: string | number | null) {
@@ -946,10 +1038,10 @@ function InventarioContent() {
                         }}
                         className={cn(
                           "ml-auto gap-1.5 text-xs h-7",
-                          kardexEditing && !kardexDirty && "bg-emerald-600 hover:bg-emerald-700 text-white border-0"
+                          kardexEditing && "bg-emerald-600 hover:bg-emerald-700 text-white border-0"
                         )}
                       >
-                        {kardexDirty
+                        {kardexEditing
                           ? <><Check className="h-3.5 w-3.5" />Confirmar</>
                           : <><Pencil className="h-3.5 w-3.5" />Editar</>}
                       </Button>
@@ -992,7 +1084,7 @@ function InventarioContent() {
                       <div className="h-full overflow-y-auto overflow-x-auto p-4 space-y-5 kardex-scroll">
                         {kardexGroupsFiltered.map(group => (
                           <div key={group.key} className="rounded-lg border border-border/40 overflow-hidden">
-                            <div className="px-3 py-2 bg-muted/40 border-b border-border/30 flex items-baseline gap-2 flex-wrap">
+                            <div className="px-3 py-2 bg-muted/40 border-b border-border/30 flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-bold">{group.carga}</span>
                               <span className="text-[10px] text-muted-foreground">
                                 {group.rows.length} movimiento{group.rows.length !== 1 ? "s" : ""}
@@ -1024,13 +1116,16 @@ function InventarioContent() {
                                     <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Stock Pos</th>
                                     <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Stock Und</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Bodega</th>
+                                    {kardexEditing && <th className="px-2 py-1.5 font-medium whitespace-nowrap w-8"></th>}
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {group.rows.map((m, i) => {
                                     const vencido = m.fecha_vencimiento && m.fecha_vencimiento < new Date().toISOString().slice(0, 10)
                                     return (
-                                      <tr key={m.id} className={cn("border-b border-border/10 last:border-0", i % 2 !== 0 && "bg-muted/10")}>
+                                      <Fragment key={m.id}>
+                                      {i === 0 && kardexEditing && <KardexRowDivider onAdd={() => addKardexRow(group, 0)} />}
+                                      <tr className={cn("border-b border-border/10 last:border-0", i % 2 !== 0 && "bg-muted/10")}>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
                                           <KardexCell kind="text" value={m.codigo} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "codigo", v as string | null)} />
                                         </td>
@@ -1111,7 +1206,21 @@ function InventarioContent() {
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
                                           <KardexCell kind="text" value={m.bodega} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "bodega", v as string | null)} />
                                         </td>
+                                        {kardexEditing && (
+                                          <td className="px-1 text-center">
+                                            <button
+                                              type="button"
+                                              onClick={() => removeKardexRow(m.id)}
+                                              title="Eliminar fila"
+                                              className="text-muted-foreground hover:text-destructive"
+                                            >
+                                              <Trash2 className="h-3 w-3" />
+                                            </button>
+                                          </td>
+                                        )}
                                       </tr>
+                                      {kardexEditing && <KardexRowDivider onAdd={() => addKardexRow(group, i + 1)} />}
+                                      </Fragment>
                                     )
                                   })}
                                 </tbody>
@@ -1541,6 +1650,34 @@ function InventarioContent() {
               className="gap-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
             >
               {deletingBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Confirmación de eliminación de fila del Kardex ── */}
+      <AlertDialog open={deletingMov !== null} onOpenChange={open => { if (!open) setDeletingMov(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </span>
+              ¿Eliminar esta fila?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              El stock del ítem se ajusta solo. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingMovBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletingMovBusy}
+              onClick={confirmRemoveKardexRow}
+              className="gap-1.5 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20"
+            >
+              {deletingMovBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -187,30 +187,30 @@ export function ChatbotWidget() {
         </div>
       )}
 
-      {/* Botón flotante — orbe con degradado, sin ícono; el panel ya tiene su
-          propia X para cerrar, así que este botón no necesita comunicar
-          estado con un glifo, solo con su brillo/pulso. */}
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="fixed bottom-6 right-6 z-[60] h-14 w-14 group"
-        aria-label={open ? "Cerrar asistente" : "Abrir asistente"}
-      >
-        {/* Orbe principal — el degradado se desplaza lentamente en vez de
-            pulsar, para un efecto más sutil/premium que un latido. */}
-        <span
+      {/* Pestaña flotante, pegada al borde derecho — en reposo solo se ve el
+          ícono en su propio cuadro (ancho fijo, sin texto cortado a la
+          mitad); al pasar el mouse o hacer foco se ensancha revelando la
+          etiqueta completa. Un clic la abre en cualquiera de los dos
+          estados. Con el chat abierto, la pestaña se esconde del todo (el
+          panel ya tiene su propia X para cerrar). */}
+      {!open && (
+        <button
+          onClick={() => setOpen(true)}
           className={cn(
-            "absolute inset-0 rounded-full overflow-hidden animate-gradient-shift",
+            "fixed bottom-24 right-0 z-[60] flex items-center h-11 w-11 hover:w-[9.5rem] focus-visible:w-[9.5rem]",
+            "rounded-l-2xl overflow-hidden",
             "bg-gradient-to-br from-[var(--color-adp-celeste)] via-[var(--color-adp-blue-mid)] to-[var(--color-adp-blue)]",
-            "shadow-lg shadow-[var(--color-adp-blue)]/30 ring-1 ring-white/25",
-            "transition-transform duration-300 group-hover:scale-105 group-active:scale-95",
-            open && "scale-90"
+            "shadow-md shadow-black/15 ring-1 ring-inset ring-white/15 text-white",
+            "transition-[width] duration-300 ease-out"
           )}
+          aria-label="Abrir asistente"
         >
-          {/* Brillo tipo cristal, esquina superior izquierda */}
-          <span className="absolute -top-2 -left-2 h-8 w-8 rounded-full bg-white/40 blur-md" />
-          <span className="absolute inset-0 rounded-full bg-gradient-to-br from-white/15 via-transparent to-black/10" />
-        </span>
-      </button>
+          <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <span className="text-[12.5px] font-medium whitespace-nowrap pr-4">Asistente ADP</span>
+        </button>
+      )}
     </>
   )
 }

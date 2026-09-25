@@ -11,7 +11,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import {
   resolveEffectiveClienteId, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES,
-  TIPOS_ENVASE, inferInventarioArea, type InventarioItemOption,
+  TIPOS_ENVASE, inferInventarioArea, stripEnvaseSuffix, type InventarioItemOption,
 } from "@/lib/inventario"
 import type { InstalacionAlmacenamiento, InventarioCategoria, TipoEnvase } from "@/types/database"
 
@@ -129,7 +129,12 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
           servicio: "Almacenaje" as const,
           cliente_id: ownerId,
           cliente_nombre: null,
-          carga: itemPayload.descripcion,
+          // El nombre puede traer el envase entre paréntesis (ej. "BENCINA
+          // (TAMBOR)") — se saca acá porque Detalle agrupa por `carga`, y
+          // dejarlo dentro parte el mismo producto en dos grupos si otro
+          // movimiento del mismo ítem llega sin ese sufijo (ver
+          // stripEnvaseSuffix en lib/inventario.ts).
+          carga: stripEnvaseSuffix(itemPayload.descripcion),
           area: itemPayload.area,
           inventario_item_id: item.id,
           unidades: cantidad,

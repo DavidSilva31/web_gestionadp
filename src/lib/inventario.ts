@@ -20,6 +20,23 @@ export const TIPOS_ENVASE = [
 // que devuelve el alta rápida de ItemFormDialog al crear uno nuevo.
 export interface InventarioItemOption { id: string; descripcion: string; clase_imo: string | null; nu: string | null }
 
+// El nombre de un ítem suele incluir el envase entre paréntesis (ej.
+// "BENCINA (TAMBOR)") — pero movimientos.carga es lo que agrupa Detalle por
+// producto, y si ahí queda el envase pegado, un rename del ítem o un envase
+// distinto en otro movimiento parte el mismo producto en dos grupos. Se usa
+// al armar `carga` para un movimiento nuevo (nunca en inventario_items.descripcion,
+// que sí debe seguir mostrando el envase). Espejo de strip_envase_suffix()
+// en la base (migration_movimientos_carga_sin_envase.sql).
+const ENVASES_UPPER = TIPOS_ENVASE.map(t => t.toUpperCase())
+
+export function stripEnvaseSuffix(nombre: string): string {
+  const m = nombre.match(/\s*\(([^)]*)\)\s*$/)
+  if (m && ENVASES_UPPER.includes(m[1].trim().toUpperCase())) {
+    return nombre.slice(0, m.index).trim()
+  }
+  return nombre
+}
+
 // El enum Área quedó obsoleto frente al catálogo real de instalaciones — se
 // sigue completando (columna NOT NULL) pero se infiere desde la instalación
 // elegida en vez de pedírselo al usuario dos veces.
