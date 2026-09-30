@@ -14,6 +14,9 @@ export interface Report {
   id: string
   numero: number
   estado: ReportEstado
+  // 5 dígitos que siempre suman 15 — lo genera solo la BD al crear el
+  // report (trigger generar_codigo_verificacion_reports), uno nuevo cada vez.
+  codigo_verificacion: string | null
 
   // Antecedentes
   cliente: string
@@ -65,9 +68,11 @@ export interface Report {
   sec3_tipo: TipoMovimiento | null
   sec3_numero_guia: string | null
   sec3_solicitado_por: SolicitadoPor | null
-  // CUyD es independiente de sec3_solicitado_por — checkbox propio.
+  // CUyD y CDA son independientes de sec3_solicitado_por, mutuamente
+  // excluyentes entre sí, y comparten un solo input de detalle.
   sec3_cuyd: boolean
   sec3_cuyd_detalle: string | null
+  sec3_cda: boolean
   sec3_observaciones: string | null
   sec3_servicio_adicional: boolean
 
@@ -242,6 +247,7 @@ export interface Movimiento {
   guia_numero:        string | null
   orden_compra:       string | null
   bodega:             string | null
+  transporte:         string | null
   fecha:              string
   report_id:          string | null
   created_at:         string

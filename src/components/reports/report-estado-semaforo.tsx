@@ -24,6 +24,18 @@ const SEMAFORO_TITLE: Record<ReportEstado, string> = {
   anulado:               "Anulado — no cuenta para stock ni facturación",
 }
 
+// Etiqueta del badge para el estado "despachado" — se separa en "Finalizado
+// - Ingreso" / "Finalizado - Despacho" según el tipo de movimiento del
+// report (sec3_tipo, que vive en Antecedentes pese al prefijo histórico:
+// aplica a todo el report, no solo a Bodegaje — ver "Tipo de movimiento" en
+// el PDF). Sin esto, la lista mostraba "Despachado" tanto para un ingreso
+// como para un despacho, sin distinguirlos.
+export function estadoDespachadoLabel(sec3Tipo: string | null | undefined): string {
+  if (sec3Tipo === "ingreso")  return "Finalizado - Ingreso"
+  if (sec3Tipo === "despacho") return "Finalizado - Despacho"
+  return "Finalizado"
+}
+
 export function EstadoSemaforo({ estado, className }: { estado: ReportEstado; className?: string }) {
   return (
     <span

@@ -51,10 +51,12 @@ export interface ReportFormData {
   sec3_tipo:           TipoMovimiento | ""
   sec3_numero_guia:    string
   sec3_solicitado_por: SolicitadoPor | ""
-  // CUyD es independiente de "Solicitado por" — checkbox propio con su
-  // detalle, no una de las opciones del select.
+  // CUyD y CDA son independientes de "Solicitado por" y mutuamente
+  // excluyentes entre sí (checkear uno destilda el otro) — comparten un
+  // solo input de detalle (sec3_cuyd_detalle), no uno cada uno.
   sec3_cuyd:           boolean
   sec3_cuyd_detalle:   string
+  sec3_cda:            boolean
   sec3_observaciones:  string
   sec3_servicio_adicional: boolean
 
@@ -146,6 +148,7 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
     sec3_solicitado_por: s(data.sec3_solicitado_por) as SolicitadoPor | "",
     sec3_cuyd: b(data.sec3_cuyd),
     sec3_cuyd_detalle: s(data.sec3_cuyd_detalle),
+    sec3_cda: b(data.sec3_cda),
     sec3_observaciones: s(data.sec3_observaciones),
     sec3_servicio_adicional: b(data.sec3_servicio_adicional),
     nombre_operador: s(data.nombre_operador),

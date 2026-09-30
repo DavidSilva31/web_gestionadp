@@ -18,8 +18,11 @@ const s = StyleSheet.create({
   headerNum: { fontSize: 18, fontFamily: "Helvetica-Bold", letterSpacing: 3 },
 
   // Antecedentes
-  ante: { border: "0.5 solid #000", padding: 6, marginBottom: 6 },
+  ante: { border: "0.5 solid #000", padding: 6, marginBottom: 6, position: "relative" },
   anteTitle: { fontSize: 8.5, fontFamily: "Helvetica-Bold", marginBottom: 4 },
+  // Código de verificación — 5 dígitos que siempre suman 15, uno nuevo por
+  // report (ver generar_codigo_verificacion_reports() en la base de datos).
+  anteCodigo: { position: "absolute", top: 4, right: 6, fontSize: 9, fontFamily: "Helvetica-Bold", letterSpacing: 1.5 },
   row: { flexDirection: "row", marginBottom: 4, alignItems: "flex-end", flexWrap: "wrap" },
 
   // Field
@@ -218,6 +221,9 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
 
         {/* ── Antecedentes ── */}
         <View style={s.ante}>
+          {report.codigo_verificacion && (
+            <Text style={s.anteCodigo}>{report.codigo_verificacion}</Text>
+          )}
           <Text style={s.anteTitle}>Antecedentes:</Text>
           <View style={s.row}>
             <Field label="Cliente:" value={report.cliente} long />
@@ -243,9 +249,8 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
             <Text style={[s.cbLabel, { marginRight: 4 }]}>Solicitado por:</Text>
             <CbItem checked={report.sec3_solicitado_por === "clientes"}    label="Clientes" />
             <CbItem checked={report.sec3_solicitado_por === "operaciones"} label="Operaciones" />
-            <CbItem checked={report.sec3_cuyd} label="CUyD" />
-            {report.sec3_cuyd && report.sec3_cuyd_detalle && (
-              <Text style={[s.cbLabel, { marginLeft: 2 }]}>({report.sec3_cuyd_detalle})</Text>
+            {(report.sec3_cuyd || report.sec3_cda) && (
+              <Field label={report.sec3_cuyd ? "CUyD:" : "CDA:"} value={report.sec3_cuyd_detalle} med />
             )}
           </View>
         </View>

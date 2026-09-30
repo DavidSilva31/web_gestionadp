@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { createClient } from "@/lib/supabase"
+import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import {
@@ -24,8 +25,13 @@ const EMPTY = {
   descripcion: "", categoria: "Carga general" as InventarioCategoria, instalacion_id: "",
   clase_imo: "", nu: "", unidad: "unidad", observaciones: "",
   // Ingreso inicial (movimientos) — código obligatorio, el resto opcional.
-  codigo: "", cantidad: 0, fecha: "", lote: "", fecha_vencimiento: "",
-  tipo_envase: "" as TipoEnvase | "", bodega: "",
+  // stockPos/stockUnd son las dos columnas de saldo que después se ven en
+  // Detalle ("Stock Pos"/"Stock Und") — antes era un solo "Cantidad" que
+  // solo cargaba unidades y dejaba posiciones siempre en null.
+  // No hay input de Bodega propio: vale directo el código de la Instalación
+  // elegida (ver handleSave) — evita duplicar el mismo dato en dos campos.
+  codigo: "", stockPos: 0, stockUnd: 0, fecha: "", lote: "", fecha_vencimiento: "",
+  tipo_envase: "" as TipoEnvase | "", transporte: "",
 }
 
 function hoyISO(): string {
@@ -39,6 +45,12 @@ interface Props {
   onOpenChange: (open: boolean) => void
   onCreated: (item: InventarioItemOption) => void
   initialDescripcion?: string
+  /** Alta rápida desde el "+ Nuevo producto" de Bodegaje en un report: el
+   * resto de los datos (IMO, NU, lote, envase, fechas, stock) los completa
+   * Operaciones en el propio report, y el movimiento de ingreso/despacho real
+   * lo crea el trigger al despachar — cargarlos acá también duplicaría el
+   * movimiento. Solo se pide lo mínimo para identificar el producto. */
+  compact?: boolean
 }
 
 // Alta de un ítem de inventario nuevo — usado tanto desde /inventario
@@ -52,7 +64,7 @@ interface Props {
 // (lee inventario_items) pero nunca en Detalle (lee movimientos, agrupado
 // por producto) — que era exactamente el problema reportado con "EQUIPO DE
 // MEDICION" de ENAP.
-export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initialDescripcion }: Props) {
+export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initialDescripcion, compact }: Props) {
   const { user, profile } = useAuth()
   const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
   const [form, setForm] = useState(EMPTY)
@@ -89,7 +101,11 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
     try {
       const supabase = createClient()
       const ownerId = await resolveEffectiveClienteId(supabase, clienteId)
-      const cantidad = Math.max(0, form.cantidad)
+      const stockPos = Math.max(0, form.stockPos)
+      const stockUnd = Math.max(0, form.stockUnd)
+      // Bodega = código de la Instalación elegida, directo — no hay input
+      // propio para no duplicar el mismo dato en dos campos del form.
+      const bodega = instalaciones.find(i => i.id === form.instalacion_id)?.codigo ?? ""
 
       // El stock arranca en 0 y sube por el trigger de movimientos
       // (movimientos_sync_inventario) al insertar el ingreso más abajo —
@@ -117,11 +133,14 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
         .insert(itemPayload).select("id, descripcion, clase_imo, nu").single()
       if (itemErr) { setError(itemErr.message); return }
 
-      // Movimiento de ingreso inicial: se crea siempre que haya cantidad o
+      // Movimiento de ingreso inicial: se crea siempre que haya stock o
       // algún dato de detalle cargado — un ítem sin nada de eso (solo
       // catálogo, sin stock) no tiene historial real que mostrar en Detalle.
-      const tieneDetalle = cantidad > 0 || form.lote.trim() !== "" || form.fecha_vencimiento !== ""
-        || form.bodega.trim() !== "" || form.tipo_envase !== ""
+      // En modo compacto (alta rápida desde un report) el SKU solo vive en
+      // este movimiento (0/0, sin afectar stock), así que siempre se crea —
+      // si no, se perdería en silencio al no haber ningún otro dato cargado.
+      const tieneDetalle = compact || stockPos > 0 || stockUnd > 0 || form.lote.trim() !== "" || form.fecha_vencimiento !== ""
+        || bodega !== "" || form.tipo_envase !== "" || form.transporte.trim() !== ""
 
       if (tieneDetalle) {
         const movPayload = {
@@ -137,7 +156,8 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
           carga: stripEnvaseSuffix(itemPayload.descripcion),
           area: itemPayload.area,
           inventario_item_id: item.id,
-          unidades: cantidad,
+          posiciones: stockPos,
+          unidades: stockUnd,
           operador: profile?.nombre ?? null,
           estado: "completado" as const,
           observaciones: "Saldo inicial al registrar el ítem",
@@ -147,7 +167,8 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
           lote: form.lote.trim() || null,
           fecha_vencimiento: form.fecha_vencimiento || null,
           tipo_envase: form.tipo_envase || null,
-          bodega: form.bodega.trim() || null,
+          bodega: bodega || null,
+          transporte: form.transporte.trim() || null,
           fecha: form.fecha ? new Date(`${form.fecha}T12:00:00`).toISOString() : new Date().toISOString(),
           report_id: null,
           created_by: user?.id ?? null,
@@ -168,7 +189,7 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
         tabla:          "inventario_items",
         registro_id:    item.id,
         accion:         "inventario.crear_item",
-        descripcion:    `Ítem ${itemPayload.descripcion} creado${cantidad > 0 ? ` — stock inicial: ${cantidad}` : ""}`,
+        descripcion:    `Ítem ${itemPayload.descripcion} creado${stockPos > 0 || stockUnd > 0 ? ` — stock inicial: ${stockPos} pos. / ${stockUnd} und.` : ""}`,
         usuario_id:     user?.id,
         usuario_nombre: profile?.nombre ?? user?.email,
       })
@@ -192,7 +213,7 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
           <DialogTitle>Registrar producto nuevo</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-4 gap-4 py-1">
+        <div className={cn("grid gap-4 py-1", compact ? "grid-cols-3" : "grid-cols-4")}>
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">SKU *</Label>
             <Input value={form.codigo} onChange={e => set("codigo", e.target.value)} placeholder="Código" className="h-9" />
@@ -206,6 +227,14 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
               className="h-9"
             />
           </div>
+
+          {compact ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Transporte</Label>
+              <Input value={form.transporte} onChange={e => set("transporte", e.target.value)} className="h-9" />
+            </div>
+          ) : (
+          <>
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Categoría</Label>
             <select value={form.categoria} onChange={e => set("categoria", e.target.value as InventarioCategoria)}
@@ -215,46 +244,17 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Instalación</Label>
-            <select value={form.instalacion_id} onChange={e => set("instalacion_id", e.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
-              <option value="">Sin asignar</option>
-              {instalaciones.map(i => <option key={i.id} value={i.id}>{i.codigo}</option>)}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Clase IMO</Label>
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">IMO</Label>
             <Input value={form.clase_imo} onChange={e => set("clase_imo", e.target.value)} placeholder="Ej: 3, 6.1, 8..." className="h-9" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">N° ONU</Label>
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">NU</Label>
             <Input value={form.nu} onChange={e => set("nu", e.target.value)} placeholder="Ej: 1090" className="h-9" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Unidad</Label>
-            <select value={form.unidad} onChange={e => set("unidad", e.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
-              {INVENTARIO_UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cantidad</Label>
-            <Input type="number" min={0} value={form.cantidad} onChange={e => set("cantidad", Math.max(0, parseInt(e.target.value) || 0))} className="h-9" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Fecha ingreso</Label>
-            <Input type="date" value={form.fecha} onChange={e => set("fecha", e.target.value)} className="h-9" />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Lote</Label>
             <Input value={form.lote} onChange={e => set("lote", e.target.value)} className="h-9" />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Vencimiento</Label>
-            <Input type="date" value={form.fecha_vencimiento} onChange={e => set("fecha_vencimiento", e.target.value)} className="h-9" />
-          </div>
-
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Envase</Label>
             <select value={form.tipo_envase} onChange={e => set("tipo_envase", e.target.value as TipoEnvase | "")}
@@ -263,11 +263,48 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
               {TIPOS_ENVASE.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
+
           <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bodega</Label>
-            <Input value={form.bodega} onChange={e => set("bodega", e.target.value)} className="h-9" />
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Fecha</Label>
+            <Input type="date" value={form.fecha} onChange={e => set("fecha", e.target.value)} className="h-9" />
           </div>
-          <div className="col-span-2 space-y-1.5">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Venc.</Label>
+            <Input type="date" value={form.fecha_vencimiento} onChange={e => set("fecha_vencimiento", e.target.value)} className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Stock Pos.</Label>
+            <Input type="number" min={0} value={form.stockPos} onChange={e => set("stockPos", Math.max(0, parseInt(e.target.value) || 0))} className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Stock Und.</Label>
+            <Input type="number" min={0} value={form.stockUnd} onChange={e => set("stockUnd", Math.max(0, parseInt(e.target.value) || 0))} className="h-9" />
+          </div>
+
+          {/* Instalación es la zona física de bodega — su código es
+              directamente lo que después aparece en la columna "Bodega" de
+              Detalle (ver bodega en handleSave), así que no hay un input de
+              Bodega aparte que pueda desalinearse del real. */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Instalación</Label>
+            <select value={form.instalacion_id} onChange={e => set("instalacion_id", e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
+              <option value="">Sin asignar</option>
+              {instalaciones.map(i => <option key={i.id} value={i.id}>{i.codigo}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Transporte</Label>
+            <Input value={form.transporte} onChange={e => set("transporte", e.target.value)} className="h-9" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Unidad</Label>
+            <select value={form.unidad} onChange={e => set("unidad", e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring">
+              {INVENTARIO_UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Observaciones</Label>
             <Input
               value={form.observaciones}
@@ -276,11 +313,19 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
               className="h-9"
             />
           </div>
+          </>
+          )}
         </div>
 
-        <p className="text-[10.5px] text-muted-foreground/70 -mt-1">
-          N° pallet, guía, OC, CAS, peso y otros datos de detalle se agregan después, directo en la grilla Detalle.
-        </p>
+        {compact ? (
+          <p className="text-[10.5px] text-muted-foreground/70 -mt-1">
+            El resto de los datos (IMO, NU, lote, envase, fechas, stock) se completan en el propio report.
+          </p>
+        ) : (
+          <p className="text-[10.5px] text-muted-foreground/70 -mt-1">
+            N° pallet, guía, OC, CAS, peso y otros datos de detalle se agregan después, directo en la grilla Detalle.
+          </p>
+        )}
 
         {error && (
           <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-200">{error}</p>

@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs"
 import type { Report, ReportBodegajeItem } from "@/types/database"
 import { sanitizeSpreadsheetCell } from "@/lib/sanitize"
+import { estadoDespachadoLabel } from "@/components/reports/report-estado-semaforo"
 
 // Los reports pueden traer sus productos de Bodegaje embebidos (join
 // report_bodegaje_items vía PostgREST) — opcional para no romper llamadas
@@ -31,7 +32,9 @@ export async function exportReportsToExcel(reports: ReportConItems[], filename =
   const rows = reports.map(r => ({
     // ── Identificación ──────────────────────────────────────────
     "N° Report":            r.numero,
-    "Estado":               { borrador: "Ingresado", pendiente_operaciones: "Pendiente operaciones", pendiente_despacho: "Pendiente despacho", despachado: "Despachado", anulado: "Anulado" }[r.estado] ?? r.estado,
+    "Estado":               r.estado === "despachado"
+      ? estadoDespachadoLabel(r.sec3_tipo)
+      : ({ borrador: "Ingresado", pendiente_operaciones: "Pendiente operaciones", pendiente_despacho: "Pendiente despacho", anulado: "Anulado" }[r.estado] ?? r.estado),
     "Fecha":                str(r.fecha),
     "Fecha despacho":       r.fecha_despacho ? new Date(r.fecha_despacho).toLocaleString("es-CL") : "",
 
@@ -81,7 +84,8 @@ export async function exportReportsToExcel(reports: ReportConItems[], filename =
     "Sec3 Tipo movimiento": r.sec3_tipo ? TIPO_MOV[r.sec3_tipo] ?? r.sec3_tipo : "",
     "Sec3 Solicitado por":  r.sec3_solicitado_por ? SOL_POR[r.sec3_solicitado_por] ?? r.sec3_solicitado_por : "",
     "Sec3 CUyD":            yn(r.sec3_cuyd),
-    "Sec3 Detalle CUyD":    str(r.sec3_cuyd_detalle),
+    "Sec3 CDA":             yn(r.sec3_cda),
+    "Sec3 Detalle CUyD/CDA": str(r.sec3_cuyd_detalle),
     "Sec3 Observaciones":   str(r.sec3_observaciones),
 
     // ── Firmas / Metadatos ───────────────────────────────────────

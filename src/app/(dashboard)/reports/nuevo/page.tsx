@@ -13,7 +13,7 @@ import { logAudit } from "@/lib/audit"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
-import { ClienteCombobox, ServiciosSection, EmpresaTransporteCombobox, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
+import { ClienteCombobox, ServiciosSection, EmpresaTransporteCombobox, ConductorComboboxes, formatRut, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 
 interface FormData extends ReportFormData {
@@ -31,6 +31,7 @@ const INITIAL: FormData = {
   sec2_hora_termino: "", sec2_sigla_numero: "", sec2_observaciones: "",
   sec3_activa: false, sec3_hora_inicio: "", sec3_hora_termino: "", sec3_tipo: "",
   sec3_numero_guia: "", sec3_solicitado_por: "", sec3_cuyd: false, sec3_cuyd_detalle: "",
+  sec3_cda: false,
   sec3_observaciones: "", sec3_servicio_adicional: false,
   nombre_operador: "",
 }
@@ -120,14 +121,6 @@ export default function NuevoReportPage() {
     setForm(prev => ({ ...prev, [key]: value.toUpperCase() }))
   }
 
-  function setRut(value: string) {
-    const clean = value.replace(/[^0-9kK]/g, "").toUpperCase()
-    if (clean.length <= 1) { set("rut_conductor", clean); return }
-    const body     = clean.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, ".")
-    const verifier = clean.slice(-1)
-    set("rut_conductor", `${body}-${verifier}`)
-  }
-
   // Sin el checkbox "Activar Sección", se infiere sola: activa si algún campo
   // propio de esa sección quedó con contenido.
   //
@@ -209,6 +202,7 @@ export default function NuevoReportPage() {
       sec3_solicitado_por: form.sec3_solicitado_por || null,
       sec3_cuyd:           form.sec3_cuyd,
       sec3_cuyd_detalle:   form.sec3_cuyd_detalle  || null,
+      sec3_cda:            form.sec3_cda,
       sec3_observaciones:  form.sec3_observaciones || null,
       sec3_servicio_adicional: form.sec3_servicio_adicional,
       nombre_operador:     form.nombre_operador    || null,
@@ -254,6 +248,15 @@ export default function NuevoReportPage() {
       supabase.from("empresas_transporte")
         .upsert({ nombre: form.empresa_transporte.trim(), created_by: user?.id ?? null }, { onConflict: "nombre", ignoreDuplicates: true })
         .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/nuevo] error guardando empresa de transporte en el catálogo:", catalogErr) })
+    }
+
+    // Igual que con la empresa de transporte: el chofer queda guardado en el
+    // catálogo (upsert por RUT — actualiza el nombre si venía distinto) para
+    // autocompletar la próxima vez que venga, aunque sea con otro camión.
+    if (form.rut_conductor.trim() && form.conductor.trim()) {
+      supabase.from("conductores")
+        .upsert({ rut: form.rut_conductor.trim(), nombre: form.conductor.trim(), ultima_patente: form.patente.trim() || null, created_by: user?.id ?? null }, { onConflict: "rut" })
+        .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/nuevo] error guardando conductor en el catálogo:", catalogErr) })
     }
 
     // Subir los adjuntos de Antecedentes (HDS y/o Guía de despacho comparten
@@ -414,12 +417,12 @@ export default function NuevoReportPage() {
                 <Field label="Patente camión" required>
                   <Input value={form.patente} onChange={e => setUpper("patente", e.target.value)} placeholder="XXXX-00" className="h-8 text-xs font-mono" />
                 </Field>
-                <Field label="Conductor" required>
-                  <Input value={form.conductor} onChange={e => setUpper("conductor", e.target.value)} placeholder="Nombre completo" className="h-8 text-xs" />
-                </Field>
-                <Field label="RUT conductor" required>
-                  <Input value={form.rut_conductor} onChange={e => setRut(e.target.value)} placeholder="12.345.678-9" className="h-8 text-xs font-mono" />
-                </Field>
+                <ConductorComboboxes
+                  conductor={form.conductor}
+                  rutConductor={form.rut_conductor}
+                  onChangeConductor={v => set("conductor", v)}
+                  onChangeRutConductor={v => set("rut_conductor", v)}
+                />
                 <Field label="N° Guía" required>
                   <Input value={form.sec3_numero_guia} onChange={e => setUpper("sec3_numero_guia", e.target.value)} placeholder="Número de guía" className="h-8 text-xs" />
                 </Field>
@@ -440,12 +443,33 @@ export default function NuevoReportPage() {
                     onCheckedChange={v => {
                       const checked = v === true
                       set("sec3_cuyd", checked)
-                      if (!checked) set("sec3_cuyd_detalle", "")
+                      if (checked) set("sec3_cda", false)
+                      if (!checked && !form.sec3_cda) set("sec3_cuyd_detalle", "")
                     }}
                   />
                   <label htmlFor="sec3_cuyd" className="text-xs text-foreground/80 cursor-pointer">CUyD</label>
-                  {form.sec3_cuyd && (
-                    <Input value={form.sec3_cuyd_detalle} onChange={e => set("sec3_cuyd_detalle", e.target.value)} placeholder="Detalle" className="h-7 text-xs flex-1 max-w-[220px]" />
+                  <Checkbox
+                    id="sec3_cda"
+                    checked={form.sec3_cda}
+                    onCheckedChange={v => {
+                      const checked = v === true
+                      set("sec3_cda", checked)
+                      if (checked) set("sec3_cuyd", false)
+                      if (!checked && !form.sec3_cuyd) set("sec3_cuyd_detalle", "")
+                    }}
+                  />
+                  <label htmlFor="sec3_cda" className="text-xs text-foreground/80 cursor-pointer">CDA</label>
+                  {(form.sec3_cuyd || form.sec3_cda) && (
+                    <div className="flex items-end gap-1.5 flex-1 max-w-[220px]">
+                      <span className="text-xs font-medium text-foreground/80 whitespace-nowrap pb-0.5">
+                        {form.sec3_cuyd ? "CUyD:" : "CDA:"}
+                      </span>
+                      <input
+                        value={form.sec3_cuyd_detalle}
+                        onChange={e => set("sec3_cuyd_detalle", e.target.value)}
+                        className="flex-1 h-6 text-xs bg-transparent border-0 border-b border-foreground/40 focus:border-primary focus:outline-none px-0.5"
+                      />
+                    </div>
                   )}
                 </div>
                 <Field label="Transporte" className="col-span-1 sm:col-span-2">

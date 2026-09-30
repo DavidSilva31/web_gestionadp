@@ -62,7 +62,14 @@ function SeccionTag({ active, label }: { active: boolean; label: string }) {
 
 function ReportCard({ report, stockPorItem, onDispatch }: { report: PendingReport; stockPorItem: Record<string, number>; onDispatch: (id: string, nombre: string, docPath: string | null) => Promise<string | null> }) {
   const [expanded,    setExpanded]    = useState(false)
-  const [nombre,      setNombre]      = useState("")
+  const { profile: perfilPropio } = useAuth()
+  const [nombre,      setNombre]      = useState(() => perfilPropio?.nombre ?? "")
+  // Respaldo por si el perfil todavía no había cargado cuando se montó la
+  // tarjeta (useState perezoso solo corre una vez) — no pisa nada que el
+  // usuario ya haya escrito.
+  useEffect(() => {
+    if (perfilPropio?.nombre) setNombre(prev => prev || perfilPropio.nombre)
+  }, [perfilPropio?.nombre])
   const [file,        setFile]        = useState<File | null>(null)
   const [uploading,   setUploading]   = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)

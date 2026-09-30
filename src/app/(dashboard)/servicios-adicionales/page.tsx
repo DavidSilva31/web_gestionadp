@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 import type { Report, ReportEstado, ServicioCliente } from "@/types/database"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
+import { estadoDespachadoLabel } from "@/components/reports/report-estado-semaforo"
 
 function fmtTarifa(s: ServicioCliente) {
   if (s.moneda === "CLP") return s.tarifa_clp != null ? `$${s.tarifa_clp.toLocaleString("es-CL")} / ${s.unidad}` : "sin tarifa"
@@ -156,6 +157,7 @@ interface ReportRow {
   conductor: string
   sec2_observaciones: string | null
   sec3_observaciones: string | null
+  sec3_tipo: string | null
   servicios_ids: string[]
 }
 
@@ -191,7 +193,7 @@ export default function ServiciosAdicionalesPage() {
     const supabase = createClient()
     const { data, error: err } = await supabase
       .from("reports")
-      .select("id, numero, estado, cliente, fecha, patente, conductor, sec2_observaciones, sec3_observaciones, servicios_ids")
+      .select("id, numero, estado, cliente, fecha, patente, conductor, sec2_observaciones, sec3_observaciones, sec3_tipo, servicios_ids")
       .eq("sec3_servicio_adicional", true)
       // Recién debe verse acá cuando el vehículo ya salió — antes de
       // despachar, el operador todavía puede seguir editando Observaciones.
@@ -312,7 +314,7 @@ export default function ServiciosAdicionalesPage() {
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Patente</th>
                     <th className="text-left px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Servicio</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Fecha</th>
-                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Estado</th>
+                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs w-[150px]">Estado</th>
                     <th />
                   </tr>
                 </thead>
@@ -335,8 +337,8 @@ export default function ServiciosAdicionalesPage() {
                       </td>
                       <td className="px-4 py-4 text-center text-muted-foreground">{r.fecha}</td>
                       <td className="px-4 py-4 text-center">
-                        <Badge className={cn("text-xs font-semibold border-0", ESTADO_STYLE[r.estado].className)}>
-                          {ESTADO_STYLE[r.estado].label}
+                        <Badge className={cn("text-xs font-semibold border-0 whitespace-nowrap", ESTADO_STYLE[r.estado].className)}>
+                          {r.estado === "despachado" ? estadoDespachadoLabel(r.sec3_tipo) : ESTADO_STYLE[r.estado].label}
                         </Badge>
                       </td>
                       <td className="px-4 py-4">

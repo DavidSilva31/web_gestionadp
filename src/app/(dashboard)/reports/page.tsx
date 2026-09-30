@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Truck, X, Eye, Paperclip, Ban } from "lucide-react"
+import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Truck, X, Eye, Paperclip, Ban, CalendarDays } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -19,7 +19,7 @@ import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { FirmaRecepcionDespacho } from "@/components/reports/firma-staff-block"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
-import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
+import { EstadoSemaforo, estadoDespachadoLabel } from "@/components/reports/report-estado-semaforo"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { ReportBodegajeItem } from "@/types/database"
 
@@ -77,6 +77,9 @@ export default function ReportsPage() {
   const [loading,     setLoading]     = useState(true)
   const [activeTab,   setActiveTab]   = useState<Tab>("todos")
   const [search,      setSearch]      = useState("")
+  // Filtro "Hoy" — activado por defecto para que la vista operativa del día
+  // no se llene con meses de historial; se puede apagar para ver todo.
+  const [soloHoy,     setSoloHoy]     = useState(true)
   const [pdfLoading,   setPdfLoading]   = useState<string | null>(null)
   const [previewReport, setPreviewReport] = useState<Report | null>(null)
   const [xlsxLoading,  setXlsxLoading]  = useState(false)
@@ -300,6 +303,11 @@ export default function ReportsPage() {
     }
   }
 
+  const todayStr = useMemo(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  }, [])
+
   const filtered = useMemo(() => {
     // archiveResults ya viene filtrado por la búsqueda desde la BD (fuera
     // de los últimos 6 meses) — solo falta aplicarle la pestaña activa.
@@ -308,6 +316,7 @@ export default function ReportsPage() {
       // "Todos" no incluye anulados — quedan aparte en su propia pestaña.
       if (activeTab === "todos") { if (r.estado === "anulado") return false }
       else if (r.estado !== activeTab) return false
+      if (soloHoy && r.fecha !== todayStr) return false
       if (search) {
         const q = search.toLowerCase()
         return r.patente.toLowerCase().includes(q) ||
@@ -317,7 +326,7 @@ export default function ReportsPage() {
       }
       return true
     })
-  }, [reports, archiveResults, activeTab, search])
+  }, [reports, archiveResults, activeTab, search, soloHoy, todayStr])
 
   const counts = useMemo(() => ({
     todos:                 reports.filter(r => r.estado !== "anulado").length,
@@ -485,6 +494,19 @@ export default function ReportsPage() {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          onClick={() => setSoloHoy(v => !v)}
+          className={cn(
+            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all flex-shrink-0 border",
+            soloHoy
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-background text-muted-foreground hover:text-foreground border-input"
+          )}
+        >
+          <CalendarDays className="h-3.5 w-3.5" />
+          Hoy
+        </button>
         <div className="relative flex-1 min-w-[140px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input placeholder="Buscar patente, cliente, N°..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs w-full" />
@@ -531,7 +553,7 @@ export default function ReportsPage() {
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Conductor</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Secciones</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Fecha</th>
-                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Estado</th>
+                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs w-[150px]">Estado</th>
                     <th />
                   </tr>
                 </thead>
@@ -563,11 +585,11 @@ export default function ReportsPage() {
                         </div>
                       </td>
                       <td className="px-4 py-4 text-center text-muted-foreground text-xs whitespace-nowrap overflow-hidden">{r.fecha}</td>
-                      <td className="px-4 py-4 text-center overflow-hidden">
+                      <td className="px-4 py-4 text-center">
                         <div className="inline-flex items-center gap-1.5">
                           <EstadoSemaforo estado={r.estado} />
-                          <Badge className={cn("text-xs font-semibold border-0", ESTADO_STYLE[r.estado].className)}>
-                            {ESTADO_STYLE[r.estado].label}
+                          <Badge className={cn("text-xs font-semibold border-0 whitespace-nowrap", ESTADO_STYLE[r.estado].className)}>
+                            {r.estado === "despachado" ? estadoDespachadoLabel(r.sec3_tipo) : ESTADO_STYLE[r.estado].label}
                           </Badge>
                         </div>
                       </td>
@@ -595,7 +617,7 @@ export default function ReportsPage() {
                                 onClick={e => {
                                   e.stopPropagation()
                                   setDispatchFor(r)
-                                  setDispatchNombre("")
+                                  setDispatchNombre(profile?.nombre ?? "")
                                   setDispatchError(null)
                                 }}
                               >
@@ -632,6 +654,14 @@ export default function ReportsPage() {
                     <tr>
                       <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground text-sm">
                         No se encontraron reports
+                        {soloHoy && (
+                          <>
+                            {" "}del día de hoy.{" "}
+                            <button type="button" onClick={() => setSoloHoy(false)} className="text-primary hover:underline font-medium">
+                              Ver todos
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   )}

@@ -86,18 +86,6 @@ export async function exportInventarioResumenToExcel(rows: ExportRow[], filename
     const r = ws.addRow(data)
     cols.forEach(key => {
       const val = data[key]
-      // La columna Estado se colorea igual que la badge en pantalla, en vez
-      // de heredar el banding alternado del resto de la fila.
-      if (key === "Estado" && typeof val === "string") {
-        const estadoColors: Record<string, [string, string]> = {
-          "Normal":  [KX.SUCCESS_BG, KX.SUCCESS_TXT],
-          "Bajo":    [KX.WARNING_BG, KX.WARNING_TXT],
-          "Crítico": [KX.DANGER_BG,  KX.DANGER_TXT],
-        }
-        const [bg, fc] = estadoColors[val] ?? [KX.WHITE, KX.TEXT]
-        kxStyle(r.getCell(key), { bg, fc, bold: true, ha: "center" })
-        return
-      }
       kxStyle(r.getCell(key), {
         bg: idx % 2 === 1 ? KX.BANDING : KX.WHITE,
         ha: typeof val === "number" ? "right" : "left",

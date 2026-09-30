@@ -27,8 +27,8 @@ import type { ReportEstado } from "@/types/database"
 import { dbToForm, emptyBodegajeItem, bodegajeItemFromDb } from "@/components/reports/report-form-types"
 import type { ReportFormData, BodegajeItemFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
-import { EstadoSemaforo } from "@/components/reports/report-estado-semaforo"
-import { ClienteCombobox, FirmaCanvas, ServiciosSection, EmpresaTransporteCombobox, BodegajeItemsList, type ServicioSeleccionado, type TarifaOption } from "@/components/reports/report-form-widgets"
+import { EstadoSemaforo, estadoDespachadoLabel } from "@/components/reports/report-estado-semaforo"
+import { ClienteCombobox, FirmaCanvas, ServiciosSection, EmpresaTransporteCombobox, BodegajeItemsList, ConductorComboboxes, type ServicioSeleccionado, type TarifaOption } from "@/components/reports/report-form-widgets"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
@@ -115,6 +115,7 @@ export default function ReportDetailPage() {
   const [error,         setError]         = useState<string | null>(null)
   const [anulando,      setAnulando]      = useState(false)
   const [confirmAnular, setConfirmAnular] = useState(false)
+  const [confirmEnviarDespacho, setConfirmEnviarDespacho] = useState(false)
   const [notFound,      setNotFound]      = useState(false)
   const [historialOpen, setHistorialOpen] = useState(false)
   const [auditLogs,    setAuditLogs]    = useState<AuditLog[]>([])
@@ -231,6 +232,7 @@ export default function ReportDetailPage() {
   const [previewLoading, setPreviewLoading] = useState(false)
 
   useCloseOnBack(confirmAnular, () => setConfirmAnular(false))
+  useCloseOnBack(confirmEnviarDespacho, () => setConfirmEnviarDespacho(false))
   useCloseOnBack(previewFile !== null, () => setPreviewFile(null))
 
   // Javier Navarro (operador) tiene el mismo permiso de edición total que
@@ -282,15 +284,29 @@ export default function ReportDetailPage() {
   }, [historialOpen, logsLoaded, id, docPath, signedDocUrl])
 
   useEffect(() => {
+    // Guardia contra condición de carrera: si React vuelve a montar este
+    // efecto (Strict Mode en dev) o el usuario navega a otro report antes de
+    // que esta consulta termine, un fetch obsoleto que resuelve tarde no
+    // debe pisar el estado que ya dejó el fetch vigente.
+    let cancelled = false
     async function fetchReport() {
       const supabase = createClient()
       const { data, error } = await supabase.from("reports").select("*").eq("id", id).single()
+      if (cancelled) return
       if (error || !data) { setNotFound(true); setLoading(false); return }
       setEstado(data.estado as ReportEstado)
       setEstadoPrevioAnulacion((data.estado_previo_anulacion as ReportEstado | null) ?? null)
       setNumero(data.numero)
       const base = dbToForm(data as Record<string, unknown>)
-      setForm({ ...base, cliente_id: "" })
+      // Autocompletar "Nombre operador de carga" con el usuario logueado —
+      // solo mientras es su turno de llenarlo (pendiente_operaciones) y solo
+      // si todavía está vacío, para no pisar un nombre ya guardado. Se hace
+      // acá (no en un efecto aparte reaccionando a `estado`) para no competir
+      // con este mismo fetch si React vuelve a montarlo (Strict Mode en dev).
+      const nombreOperadorInicial = !base.nombre_operador && data.estado === "pendiente_operaciones" && profile?.nombre
+        ? profile.nombre.toUpperCase()
+        : base.nombre_operador
+      setForm({ ...base, nombre_operador: nombreOperadorInicial, cliente_id: "" })
 
       const { data: items, error: itemsErr } = await supabase
         .from("report_bodegaje_items").select("*").eq("report_id", id).order("orden")
@@ -321,6 +337,7 @@ export default function ReportDetailPage() {
       // avisar en vez de dejarlo pasar sin explicación.
       if (data.cliente) {
         const { data: cli } = await supabase.from("clientes").select("id").eq("nombre", data.cliente as string).maybeSingle()
+        if (cancelled) return
         if (cli) {
           setForm(prev => prev ? { ...prev, cliente_id: cli.id } : prev)
         } else {
@@ -329,7 +346,23 @@ export default function ReportDetailPage() {
       }
     }
     fetchReport()
+    return () => { cancelled = true }
   }, [id])
+
+  // Respaldo del autocompletado de "Nombre operador de carga" (ver arriba en
+  // fetchReport) para cuando el perfil del usuario todavía no había cargado
+  // en ese momento — corre como mucho una vez por report abierto, y solo si
+  // el campo sigue vacío, para no pisar nada que el usuario ya haya escrito.
+  const autofillOperadorRef = useRef(false)
+  useEffect(() => { autofillOperadorRef.current = false }, [id])
+  useEffect(() => {
+    if (autofillOperadorRef.current || !profile?.nombre || estado !== "pendiente_operaciones") return
+    setForm(prev => {
+      if (!prev || prev.nombre_operador) return prev
+      autofillOperadorRef.current = true
+      return { ...prev, nombre_operador: profile.nombre.toUpperCase() }
+    })
+  }, [profile?.nombre, estado])
 
   // Registra la firma del conductor (firma en pantalla) con su evidencia.
   async function firmarConductor(): Promise<boolean> {
@@ -425,6 +458,7 @@ export default function ReportDetailPage() {
       sec3_solicitado_por: form.sec3_solicitado_por || null,
       sec3_cuyd:           form.sec3_cuyd,
       sec3_cuyd_detalle:   form.sec3_cuyd_detalle   || null,
+      sec3_cda:            form.sec3_cda,
       sec3_observaciones:  form.sec3_observaciones  || null,
       sec3_servicio_adicional: form.sec3_servicio_adicional,
       nombre_operador:     form.nombre_operador     || null,
@@ -589,6 +623,14 @@ export default function ReportDetailPage() {
       supabase.from("empresas_transporte")
         .upsert({ nombre: form.empresa_transporte.trim(), created_by: user?.id ?? null }, { onConflict: "nombre", ignoreDuplicates: true })
         .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/id] error guardando empresa de transporte en el catálogo:", catalogErr) })
+    }
+
+    // Mismo patrón para el chofer — upsert por RUT (no ignoreDuplicates: si
+    // vuelve con el nombre corregido o en otro camión, se actualiza).
+    if (form.rut_conductor.trim() && form.conductor.trim()) {
+      supabase.from("conductores")
+        .upsert({ rut: form.rut_conductor.trim(), nombre: form.conductor.trim(), ultima_patente: form.patente.trim() || null, created_by: user?.id ?? null }, { onConflict: "rut" })
+        .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/id] error guardando conductor en el catálogo:", catalogErr) })
     }
 
     // Subir adjuntos nuevos de Antecedentes (HDS y/o Guía de despacho
@@ -760,6 +802,34 @@ export default function ReportDetailPage() {
       </AlertDialogContent>
     </AlertDialog>
 
+    <AlertDialog open={confirmEnviarDespacho} onOpenChange={setConfirmEnviarDespacho}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
+              <Send className="h-4 w-4 text-primary" />
+            </span>
+            ¿Enviar este report a despacho?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            El report <strong>#{numero}</strong> ({form?.cliente}) pasa a <strong>Pendiente despacho</strong> y esta mitad
+            (Operaciones) queda bloqueada — revisa que Sección 2, Bodegaje y el nombre del operador estén correctos antes de continuar.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={saving}
+            className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground"
+            onClick={() => { setConfirmEnviarDespacho(false); handleSave("pendiente_despacho") }}
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Enviar a despacho
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-background flex-shrink-0 flex-wrap gap-2">
@@ -776,7 +846,7 @@ export default function ReportDetailPage() {
               </h1>
               <EstadoSemaforo estado={estado} />
               <Badge className={cn("text-[10px] font-semibold border-0", ESTADO_STYLE[estado].className)}>
-                {ESTADO_STYLE[estado].label}
+                {estado === "despachado" ? estadoDespachadoLabel(form.sec3_tipo) : ESTADO_STYLE[estado].label}
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground">{form.cliente} · {form.patente}</p>
@@ -849,7 +919,7 @@ export default function ReportDetailPage() {
           )}
 
           {estado === "pendiente_operaciones" && (
-            <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => handleSave("pendiente_despacho")}>
+            <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => setConfirmEnviarDespacho(true)}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               Enviar a despacho
             </Button>
@@ -934,12 +1004,13 @@ export default function ReportDetailPage() {
                 <Field label="Patente camión" required>
                   <Input value={form.patente} onChange={e => set("patente", e.target.value.toUpperCase())} placeholder="XXXX-00" className="h-8 text-xs font-mono" disabled={leftReadOnly} />
                 </Field>
-                <Field label="Conductor" required>
-                  <Input value={form.conductor} onChange={e => set("conductor", e.target.value.toUpperCase())} placeholder="Nombre completo" className="h-8 text-xs" disabled={leftReadOnly} />
-                </Field>
-                <Field label="RUT conductor" required>
-                  <Input value={form.rut_conductor} onChange={e => set("rut_conductor", e.target.value)} placeholder="12.345.678-9" className="h-8 text-xs font-mono" disabled={leftReadOnly} />
-                </Field>
+                <ConductorComboboxes
+                  conductor={form.conductor}
+                  rutConductor={form.rut_conductor}
+                  onChangeConductor={v => set("conductor", v)}
+                  onChangeRutConductor={v => set("rut_conductor", v)}
+                  readOnly={leftReadOnly}
+                />
                 <Field label="N° Guía" required>
                   <Input value={form.sec3_numero_guia} onChange={e => set("sec3_numero_guia", e.target.value.toUpperCase())} placeholder="Número de guía" className="h-8 text-xs" disabled={leftReadOnly} />
                 </Field>
@@ -962,12 +1033,35 @@ export default function ReportDetailPage() {
                     onCheckedChange={v => {
                       const checked = v === true
                       set("sec3_cuyd", checked)
-                      if (!checked) set("sec3_cuyd_detalle", "")
+                      if (checked) set("sec3_cda", false)
+                      if (!checked && !form.sec3_cda) set("sec3_cuyd_detalle", "")
                     }}
                   />
                   <label htmlFor="sec3_cuyd" className="text-xs text-foreground/80 cursor-pointer">CUyD</label>
-                  {form.sec3_cuyd && (
-                    <Input value={form.sec3_cuyd_detalle} onChange={e => set("sec3_cuyd_detalle", e.target.value)} placeholder="Detalle" className="h-7 text-xs flex-1 max-w-[220px]" disabled={leftReadOnly} />
+                  <Checkbox
+                    id="sec3_cda"
+                    checked={form.sec3_cda}
+                    disabled={leftReadOnly}
+                    onCheckedChange={v => {
+                      const checked = v === true
+                      set("sec3_cda", checked)
+                      if (checked) set("sec3_cuyd", false)
+                      if (!checked && !form.sec3_cuyd) set("sec3_cuyd_detalle", "")
+                    }}
+                  />
+                  <label htmlFor="sec3_cda" className="text-xs text-foreground/80 cursor-pointer">CDA</label>
+                  {(form.sec3_cuyd || form.sec3_cda) && (
+                    <div className="flex items-end gap-1.5 flex-1 max-w-[220px]">
+                      <span className="text-xs font-medium text-foreground/80 whitespace-nowrap pb-0.5">
+                        {form.sec3_cuyd ? "CUyD:" : "CDA:"}
+                      </span>
+                      <input
+                        value={form.sec3_cuyd_detalle}
+                        onChange={e => set("sec3_cuyd_detalle", e.target.value)}
+                        disabled={leftReadOnly}
+                        className="flex-1 h-6 text-xs bg-transparent border-0 border-b border-foreground/40 focus:border-primary focus:outline-none px-0.5 disabled:opacity-60"
+                      />
+                    </div>
                   )}
                 </div>
                 <Field label="Transporte" className="col-span-1 sm:col-span-2">

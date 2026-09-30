@@ -77,6 +77,7 @@ const EMPTY_FORM = (tipo: MovimientoTipo): MovimientoInsert => ({
   guia_numero:        null,
   orden_compra:       null,
   bodega:             null,
+  transporte:         null,
   fecha:              new Date().toISOString().slice(0, 16),
   report_id:          null,
   created_by:         null,
@@ -219,6 +220,7 @@ export default function MovimientosPage() {
       guia_numero:        m.guia_numero,
       orden_compra:       m.orden_compra,
       bodega:             m.bodega,
+      transporte:         m.transporte,
       fecha:              m.fecha.slice(0, 16),
       report_id:          m.report_id,
       created_by:         m.created_by,
@@ -293,6 +295,7 @@ export default function MovimientosPage() {
       guia_numero:        form.guia_numero?.trim() || null,
       orden_compra:       form.orden_compra?.trim() || null,
       bodega:             form.bodega?.trim() || null,
+      transporte:         form.transporte?.trim() || null,
       fecha_elaboracion:  form.fecha_elaboracion || null,
       fecha_vencimiento:  form.fecha_vencimiento || null,
       fecha:              new Date(form.fecha as string).toISOString(),
@@ -925,6 +928,16 @@ export default function MovimientosPage() {
                         value={form.bodega ?? ""}
                         onChange={e => setForm(p => ({ ...p, bodega: e.target.value || null }))}
                         placeholder="Ej: 106-1"
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Transporte</Label>
+                      <Input
+                        value={form.transporte ?? ""}
+                        onChange={e => setForm(p => ({ ...p, transporte: e.target.value || null }))}
+                        placeholder="Ej: Transporte LM"
                         className="h-9"
                       />
                     </div>

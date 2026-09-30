@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 import type { Report, ReportEstado } from "@/types/database"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
+import { estadoDespachadoLabel } from "@/components/reports/report-estado-semaforo"
 
 type Tab = "todos" | ReportEstado
 
@@ -26,6 +27,7 @@ interface ReportRow {
   sec1_activa: boolean
   sec2_activa: boolean
   sec3_activa: boolean
+  sec3_tipo:   string | null
 }
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
@@ -70,7 +72,7 @@ export default function TransportePage() {
     const supabase = createClient()
     const { data, error: err } = await supabase
       .from("reports")
-      .select("id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa")
+      .select("id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa, sec3_tipo")
       .eq("transporte_tipo", "propio")
       .order("numero", { ascending: false })
 
@@ -238,7 +240,7 @@ export default function TransportePage() {
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Conductor</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Secciones</th>
                     <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Fecha</th>
-                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs">Estado</th>
+                    <th className="text-center px-4 py-4 font-semibold text-muted-foreground uppercase tracking-wider text-xs w-[150px]">Estado</th>
                     <th />
                   </tr>
                 </thead>
@@ -268,8 +270,8 @@ export default function TransportePage() {
                       </td>
                       <td className="px-4 py-4 text-center text-muted-foreground">{r.fecha}</td>
                       <td className="px-4 py-4 text-center">
-                        <Badge className={cn("text-xs font-semibold border-0", ESTADO_STYLE[r.estado].className)}>
-                          {ESTADO_STYLE[r.estado].label}
+                        <Badge className={cn("text-xs font-semibold border-0 whitespace-nowrap", ESTADO_STYLE[r.estado].className)}>
+                          {r.estado === "despachado" ? estadoDespachadoLabel(r.sec3_tipo) : ESTADO_STYLE[r.estado].label}
                         </Badge>
                       </td>
                       <td className="px-4 py-4">

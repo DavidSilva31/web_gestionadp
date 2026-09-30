@@ -295,10 +295,12 @@ function InventarioContent() {
   >(null)
   const [exportError,  setExportError]  = useState<string | null>(null)
   const [exportingExcel, setExportingExcel] = useState(false)
+  const [exportPreviewLoading, setExportPreviewLoading] = useState(false)
   const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
   const [vista,        setVista]        = useState<"resumen" | "kardex">("resumen")
   const [kardexProducto, setKardexProducto] = useState<string | null>(null)
   const [kardexImoFiltro, setKardexImoFiltro] = useState<string | null>(null)
+  const [kardexLoteFiltro, setKardexLoteFiltro] = useState<string | null>(null)
   const [kardexMovs,   setKardexMovs]   = useState<Record<string, (Movimiento & { reports: { numero: number } | null })[]>>({})
   const [loadingKardex, setLoadingKardex] = useState(false)
   const [kardexError,  setKardexError]  = useState<string | null>(null)
@@ -388,6 +390,7 @@ function InventarioContent() {
     setVista("resumen")
     setKardexProducto(null)
     setKardexImoFiltro(null)
+    setKardexLoteFiltro(null)
     setKardexEditing(false)
     setKardexDirty(false)
     if (!clienteItems[c.id]) {
@@ -456,11 +459,42 @@ function InventarioContent() {
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   }, [kardexGroups])
 
+  // Lotes distintos del producto seleccionado — solo tiene sentido filtrar
+  // por lote dentro de un producto puntual, no al mirar por IMO (mezclaría
+  // lotes de productos distintos).
+  const kardexLotes = useMemo(() => {
+    if (!kardexProducto) return []
+    const group = kardexGroups.find(g => g.carga === kardexProducto)
+    if (!group) return []
+    const set = new Set<string>()
+    for (const r of group.rows) if (r.lote) set.add(r.lote)
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }, [kardexGroups, kardexProducto])
+
   const kardexGroupsFiltered = kardexProducto
     ? kardexGroups.filter(g => g.carga === kardexProducto)
     : kardexImoFiltro
     ? kardexGroups.filter(g => g.rows.some(r => r.imo === kardexImoFiltro))
     : []
+
+  // Al filtrar por lote, el saldo corrido (Stock Pos/Stock Und) se recalcula
+  // solo con los movimientos de ese lote — el saldo del grupo completo
+  // (todos los lotes juntos) no sirve para responder "cuánto stock queda de
+  // este lote en particular".
+  const kardexGroupsFilteredPorLote = kardexLoteFiltro
+    ? kardexGroupsFiltered.map(group => {
+        let stockPos = 0
+        let stockUnd = 0
+        const rows = group.rows
+          .filter(r => r.lote === kardexLoteFiltro)
+          .map(m => {
+            if (m.tipo === "ingreso") { stockPos += m.posiciones ?? 0; stockUnd += m.unidades ?? 0 }
+            else                      { stockPos -= m.posiciones ?? 0; stockUnd -= m.unidades ?? 0 }
+            return { ...m, stockPos, stockUnd }
+          })
+        return { ...group, rows }
+      })
+    : kardexGroupsFiltered
 
   // Edición inline de un valor del Kardex — el trigger de BD ya recalcula
   // stock_actual del ítem cuando cambian tipo/unidades, no hay que tocarlo acá.
@@ -677,20 +711,42 @@ function InventarioContent() {
     }
   }
 
-  function buildExportRows() {
+  // SKU, Lote y Envase no viven en inventario_items (el catálogo) — salen
+  // del movimiento más reciente de cada ítem que tenga ese dato cargado,
+  // igual que el SKU que ya se muestra junto al Producto en Bodegaje (ver
+  // ProductoCombobox en report-form-widgets.tsx). Cada campo se resuelve
+  // por separado: si el movimiento más reciente no tiene lote pero uno
+  // anterior sí, igual se usa ese.
+  async function buildExportRows() {
     if (!selected || !items.length) return null
+    const supabase = createClient()
+    const effectiveId = await resolveEffectiveClienteId(supabase, selected.id)
+    const { data: movs } = await supabase
+      .from("movimientos")
+      .select("inventario_item_id, codigo, lote, tipo_envase, fecha")
+      .eq("cliente_id", effectiveId)
+      .not("inventario_item_id", "is", null)
+      .order("fecha", { ascending: false })
+
+    const skuPorItem: Record<string, string> = {}
+    const lotePorItem: Record<string, string> = {}
+    const envasePorItem: Record<string, string> = {}
+    for (const m of movs ?? []) {
+      const id = m.inventario_item_id as string
+      if (m.codigo && !skuPorItem[id]) skuPorItem[id] = m.codigo
+      if (m.lote && !lotePorItem[id]) lotePorItem[id] = m.lote
+      if (m.tipo_envase && !envasePorItem[id]) envasePorItem[id] = m.tipo_envase
+    }
+
     const rows = items.map(item => ({
-      "Código":        codigo(item.numero),
-      "Descripción":   item.descripcion,
-      "Categoría":     item.categoria,
-      "Instalación":   instalaciones.find(i => i.id === item.instalacion_id)?.codigo ?? "Sin asignar",
-      "Clase IMO":     item.clase_imo ?? "—",
-      "N° ONU":        item.nu ?? "—",
-      "Stock Actual":  item.stock_actual,
-      "Stock Mínimo":  item.stock_minimo,
-      "Unidad":        item.unidad,
-      "Estado":        getEstado(item),
-      "Observaciones": item.observaciones ?? "",
+      "SKU":               skuPorItem[item.id] ?? "",
+      "Producto (Nombre)": item.descripcion,
+      "Lote":              lotePorItem[item.id] ?? "",
+      "IMO":               item.clase_imo ?? "",
+      "NU":                item.nu ?? "",
+      "Envase":            envasePorItem[item.id] ?? "",
+      "Stock Posición":    item.stock_actual,
+      "Stock Unidad":      item.stock_unidades,
     }))
     const today = new Date().toLocaleDateString("es-CL").replace(/\//g, "-")
     return { rows, filename: `Inventario_${selected.nombre}_${today}` }
@@ -712,6 +768,7 @@ function InventarioContent() {
         "IMO":                 m.imo ?? "",
         "N° NU":               m.un ?? "",
         "Lote":                m.lote ?? "",
+        "Transporte":          m.transporte ?? "",
         "N° CAS":              m.cas ?? "",
         "N° Guía":             m.guia_numero ?? "",
         "Orden de Compra":     m.orden_compra ?? "",
@@ -733,13 +790,18 @@ function InventarioContent() {
     return { groups, filename: `Detalle_Inventario_${selected.nombre}_${today}` }
   }
 
-  function openExportPreview() {
+  async function openExportPreview() {
     if (vista === "kardex") {
       const built = buildKardexExportRows()
       if (built) setExportPreview({ kind: "kardex", ...built })
     } else {
-      const built = buildExportRows()
-      if (built) setExportPreview({ kind: "resumen", ...built })
+      setExportPreviewLoading(true)
+      try {
+        const built = await buildExportRows()
+        if (built) setExportPreview({ kind: "resumen", ...built })
+      } finally {
+        setExportPreviewLoading(false)
+      }
     }
   }
 
@@ -970,7 +1032,7 @@ function InventarioContent() {
                     {selected.usa_vista_kardex && (
                       <div className="inline-flex rounded-md border border-border/50 overflow-hidden h-7">
                         {(["resumen", "kardex"] as const).map(v => (
-                          <button key={v} type="button" onClick={() => { setVista(v); setKardexEditing(false); setKardexDirty(false); setKardexImoFiltro(null) }}
+                          <button key={v} type="button" onClick={() => { setVista(v); setKardexEditing(false); setKardexDirty(false); setKardexImoFiltro(null); setKardexLoteFiltro(null) }}
                             className={cn(
                               "px-2.5 text-[11px] font-medium transition-colors",
                               vista === v ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:text-foreground"
@@ -983,10 +1045,10 @@ function InventarioContent() {
                     <Button
                       variant="outline" size="sm"
                       onClick={openExportPreview}
-                      disabled={vista === "kardex" ? kardexGroups.length === 0 : items.length === 0}
+                      disabled={exportPreviewLoading || (vista === "kardex" ? kardexGroups.length === 0 : items.length === 0)}
                       className="gap-1.5 text-xs h-7"
                     >
-                      <Download className="h-3 w-3" />
+                      {exportPreviewLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
                       Excel
                     </Button>
                     {getClienteEstado(items) && (
@@ -1008,6 +1070,7 @@ function InventarioContent() {
                       onChange={v => {
                         setKardexProducto(v || null)
                         setKardexImoFiltro(null)
+                        setKardexLoteFiltro(null)
                         setKardexEditing(false); setKardexDirty(false)
                       }}
                       options={kardexProductos.map(p => ({ value: p.carga, label: p.carga }))}
@@ -1019,6 +1082,7 @@ function InventarioContent() {
                       onChange={e => {
                         setKardexImoFiltro(e.target.value || null)
                         setKardexProducto(null)
+                        setKardexLoteFiltro(null)
                         setKardexEditing(false); setKardexDirty(false)
                       }}
                       className="h-8 w-36 rounded-md border border-input bg-background px-2.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring">
@@ -1027,6 +1091,19 @@ function InventarioContent() {
                         <option key={imo} value={imo}>{imo}</option>
                       ))}
                     </select>
+                    {kardexProducto && kardexLotes.length > 0 && (
+                      <>
+                        <Label className="text-[11px] text-muted-foreground font-medium">Lote</Label>
+                        <select value={kardexLoteFiltro ?? ""}
+                          onChange={e => setKardexLoteFiltro(e.target.value || null)}
+                          className="h-8 w-36 rounded-md border border-input bg-background px-2.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring">
+                          <option value="">Todos</option>
+                          {kardexLotes.map(lote => (
+                            <option key={lote} value={lote}>{lote}</option>
+                          ))}
+                        </select>
+                      </>
+                    )}
                     {(kardexProducto || kardexImoFiltro) && (
                       <Button
                         type="button"
@@ -1082,10 +1159,15 @@ function InventarioContent() {
                       </div>
                     ) : (
                       <div className="h-full overflow-y-auto overflow-x-auto p-4 space-y-5 kardex-scroll">
-                        {kardexGroupsFiltered.map(group => (
+                        {kardexGroupsFilteredPorLote.map(group => (
                           <div key={group.key} className="rounded-lg border border-border/40 overflow-hidden">
                             <div className="px-3 py-2 bg-muted/40 border-b border-border/30 flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-bold">{group.carga}</span>
+                              {kardexLoteFiltro && (
+                                <Badge className="text-[10px] px-2 py-0.5 border-0 font-semibold bg-primary/10 text-primary">
+                                  Lote {kardexLoteFiltro}
+                                </Badge>
+                              )}
                               <span className="text-[10px] text-muted-foreground">
                                 {group.rows.length} movimiento{group.rows.length !== 1 ? "s" : ""}
                               </span>
@@ -1101,6 +1183,7 @@ function InventarioContent() {
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">IMO</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">NU</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Lote</th>
+                                    <th className="px-2 py-1.5 font-medium whitespace-nowrap">Transporte</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">CAS</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Guía</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">OC</th>
@@ -1155,6 +1238,9 @@ function InventarioContent() {
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
                                           <KardexCell kind="text" value={m.lote} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "lote", v as string | null)} />
+                                        </td>
+                                        <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                          <KardexCell kind="text" value={m.transporte} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "transporte", v as string | null)} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
                                           <KardexCell kind="text" value={m.cas} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "cas", v as string | null)} />

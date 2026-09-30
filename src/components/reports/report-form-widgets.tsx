@@ -236,6 +236,133 @@ export function EmpresaTransporteCombobox({ value, onChange, readOnly }: {
   )
 }
 
+// Formatea un RUT chileno mientras se escribe: XX.XXX.XXX-X.
+export function formatRut(value: string): string {
+  const clean = value.replace(/[^0-9kK]/g, "").toUpperCase()
+  if (clean.length <= 1) return clean
+  const body     = clean.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+  const verifier = clean.slice(-1)
+  return `${body}-${verifier}`
+}
+
+// Catálogo real en conductores (mismo patrón que EmpresaTransporteCombobox):
+// un chofer siempre tiene el mismo RUT aunque cambie de camión, así que
+// registrarlo una vez alcanza para autocompletar en los próximos reports —
+// elegir uno de los dos campos (nombre o RUT) rellena el otro solo. Se
+// guarda (upsert por RUT) recién al enviar a Operaciones, ver handleSave en
+// reports/nuevo y reports/[id].
+export interface ConductorOption { id: string; nombre: string; rut: string }
+
+export function ConductorComboboxes({
+  conductor, rutConductor, onChangeConductor, onChangeRutConductor, readOnly,
+}: {
+  conductor: string
+  rutConductor: string
+  onChangeConductor: (v: string) => void
+  onChangeRutConductor: (v: string) => void
+  readOnly?: boolean
+}) {
+  const [conductores, setConductores] = useState<ConductorOption[]>([])
+  const [openNombre, setOpenNombre] = useState(false)
+  const [openRut,    setOpenRut]    = useState(false)
+  const refNombre = useRef<HTMLDivElement>(null)
+  const refRut    = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    createClient()
+      .from("conductores")
+      .select("id, nombre, rut")
+      .order("nombre", { ascending: true })
+      .then(({ data }) => { if (data) setConductores(data as ConductorOption[]) })
+  }, [])
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (refNombre.current && !refNombre.current.contains(e.target as Node)) setOpenNombre(false)
+      if (refRut.current && !refRut.current.contains(e.target as Node)) setOpenRut(false)
+    }
+    document.addEventListener("mousedown", onClickOutside)
+    return () => document.removeEventListener("mousedown", onClickOutside)
+  }, [])
+
+  function select(c: ConductorOption) {
+    onChangeConductor(c.nombre)
+    onChangeRutConductor(c.rut)
+    setOpenNombre(false)
+    setOpenRut(false)
+  }
+
+  const filteredByNombre = conductor
+    ? conductores.filter(c => c.nombre.toUpperCase().includes(conductor.toUpperCase()))
+    : conductores
+  const filteredByRut = rutConductor
+    ? conductores.filter(c => c.rut.includes(rutConductor))
+    : conductores
+
+  return (
+    <>
+      <Field label="Conductor" required>
+        <div ref={refNombre} className="relative">
+          <Input
+            value={conductor}
+            onChange={e => { onChangeConductor(e.target.value.toUpperCase()); setOpenNombre(true) }}
+            onFocus={() => !readOnly && setOpenNombre(true)}
+            placeholder="Nombre completo"
+            className="h-8 text-xs"
+            autoComplete="off"
+            disabled={readOnly}
+          />
+          {openNombre && !readOnly && filteredByNombre.length > 0 && (
+            <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+              {filteredByNombre.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => select(c)}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors"
+                >
+                  <span className="font-medium text-foreground truncate">{c.nombre}</span>
+                  <span className="text-muted-foreground font-mono text-[10px] flex-shrink-0">{c.rut}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </Field>
+      <Field label="RUT conductor" required>
+        <div ref={refRut} className="relative">
+          <Input
+            value={rutConductor}
+            onChange={e => { onChangeRutConductor(formatRut(e.target.value)); setOpenRut(true) }}
+            onFocus={() => !readOnly && setOpenRut(true)}
+            placeholder="12.345.678-9"
+            className="h-8 text-xs font-mono"
+            autoComplete="off"
+            disabled={readOnly}
+          />
+          {openRut && !readOnly && filteredByRut.length > 0 && (
+            <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+              {filteredByRut.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => select(c)}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors"
+                >
+                  <span className="font-mono text-foreground flex-shrink-0">{c.rut}</span>
+                  <span className="text-muted-foreground truncate">{c.nombre}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </Field>
+    </>
+  )
+}
+
 // Tarifa/contrato: antes se elegía a mano acá (clientes con más de un
 // contrato en paralelo, ej. PROQUIMIN). Ahora se deriva sola en reports/[id]
 // comparando la Clase IMO del producto elegido en Bodegaje contra la Clase
@@ -251,10 +378,20 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
   onClear: () => void
   readOnly?: boolean
 }) {
+  // inventario_items no tiene columna SKU propia — el código vive en
+  // movimientos (se carga al registrar el ítem o se edita inline en
+  // Detalle). skuPorItem guarda el SKU más reciente de cada ítem, solo para
+  // mostrarlo acá; si un ítem nunca tuvo un movimiento con código, queda
+  // sin entrada y no se muestra nada.
   const [items,  setItems]  = useState<InventarioItemOption[]>([])
+  const [skuPorItem, setSkuPorItem] = useState<Record<string, string>>({})
   const [open,   setOpen]   = useState(false)
   const [query,  setQuery]  = useState(value)
   const [nuevoOpen, setNuevoOpen] = useState(false)
+  // SKU del producto actualmente seleccionado — se muestra pegado al nombre
+  // en el input mientras no se está buscando/editando (ver value del Input
+  // más abajo), igual que ya se ve en cada opción del desplegable.
+  const [selectedSku, setSelectedSku] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   // Al cerrar el dialog de "Nuevo producto" el foco vuelve al input y su
   // onFocus reabriría el dropdown justo después de elegir/crear — se
@@ -263,19 +400,46 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
 
   useEffect(() => {
     setItems([])
+    setSkuPorItem({})
     if (!clienteId) return
     const supabase = createClient()
-    resolveEffectiveClienteId(supabase, clienteId).then(effectiveId => supabase
-      .from("inventario_items")
-      .select("id, descripcion, clase_imo, nu")
-      .eq("cliente_id", effectiveId)
-      .eq("activo", true)
-      .order("descripcion", { ascending: true })
-      .then(({ data }) => { if (data) setItems(data as InventarioItemOption[]) }))
+    resolveEffectiveClienteId(supabase, clienteId).then(effectiveId => {
+      supabase
+        .from("inventario_items")
+        .select("id, descripcion, clase_imo, nu")
+        .eq("cliente_id", effectiveId)
+        .eq("activo", true)
+        .order("descripcion", { ascending: true })
+        .then(({ data }) => { if (data) setItems(data as InventarioItemOption[]) })
+
+      supabase
+        .from("movimientos")
+        .select("inventario_item_id, codigo, fecha")
+        .eq("cliente_id", effectiveId)
+        .not("inventario_item_id", "is", null)
+        .not("codigo", "is", null)
+        .order("fecha", { ascending: false })
+        .then(({ data }) => {
+          if (!data) return
+          const map: Record<string, string> = {}
+          for (const m of data as { inventario_item_id: string; codigo: string }[]) {
+            if (!map[m.inventario_item_id]) map[m.inventario_item_id] = m.codigo
+          }
+          setSkuPorItem(map)
+        })
+    })
   }, [clienteId])
 
-  // Sincronizar query si el valor externo cambia (ej: al limpiar)
-  useEffect(() => { setQuery(value) }, [value])
+  // Sincronizar query si el valor externo cambia (ej: al limpiar, o al
+  // cargar un report ya guardado) — también resuelve el SKU a mostrar
+  // buscando el ítem por nombre una vez que items/skuPorItem terminan de
+  // cargar (llegan async, después de que value ya pudo estar seteado).
+  useEffect(() => {
+    setQuery(value)
+    if (!value) { setSelectedSku(null); return }
+    const match = items.find(i => i.descripcion === value)
+    setSelectedSku(match ? (skuPorItem[match.id] ?? null) : null)
+  }, [value, items, skuPorItem])
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -293,6 +457,7 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
     setQuery(item.descripcion)
     onChange(item.descripcion)
     onSelect(item)
+    setSelectedSku(skuPorItem[item.id] ?? null)
     setOpen(false)
   }
 
@@ -305,8 +470,8 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
   return (
     <div ref={ref} className="relative">
       <Input
-        value={query}
-        onChange={e => { const v = e.target.value.toUpperCase(); setQuery(v); onChange(v); onClear(); setOpen(true) }}
+        value={!open && selectedSku ? `${query} · SKU ${selectedSku}` : query}
+        onChange={e => { const v = e.target.value.toUpperCase(); setQuery(v); onChange(v); onClear(); setSelectedSku(null); setOpen(true) }}
         onFocus={() => {
           if (suppressFocusOpen.current) { suppressFocusOpen.current = false; return }
           if (!readOnly) setOpen(true)
@@ -326,7 +491,12 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
               onClick={() => select(item)}
               className="w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors"
             >
-              <span className="font-medium text-foreground truncate">{item.descripcion}</span>
+              <span className="min-w-0 truncate">
+                <span className="font-medium text-foreground">{item.descripcion}</span>
+                {skuPorItem[item.id] && (
+                  <span className="text-muted-foreground"> · SKU {skuPorItem[item.id]}</span>
+                )}
+              </span>
               {item.clase_imo && (
                 <span className="text-[10px] font-mono text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded flex-shrink-0">
                   Cl. {item.clase_imo}{item.nu ? ` · UN ${item.nu}` : ""}
@@ -354,6 +524,7 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
         onOpenChange={setNuevoOpen}
         onCreated={handleCreado}
         initialDescripcion={query}
+        compact
       />
     </div>
   )
@@ -374,6 +545,88 @@ export function tarifaCubreClase(tarifaClase: string | null, itemClase: string |
 // tarifaCubreClase). Reutiliza ProductoCombobox sin cambios, una instancia
 // por fila. Hora inicio/término, Servicios y Observaciones son de la
 // sección completa y viven en Sec3Content, no acá.
+// Sugiere los lotes ya existentes del producto elegido (mismo criterio que
+// el filtro de Lote en Inventario > Detalle: lotes distintos presentes en
+// sus movimientos) — texto libre igual, por si el lote es nuevo.
+//
+// Se busca por inventario_item_id O por carga=descripción: los movimientos
+// que genera el despacho de un report (create_movimiento_from_report) no
+// llevan inventario_item_id seteado —queda NULL a propósito, para que el
+// trigger de stock no cuente el mismo movimiento dos veces— así que buscar
+// solo por inventario_item_id se perdería justo los lotes reales de
+// ingresos/despachos ya hechos, y solo mostraría los de altas manuales.
+function LoteField({ inventarioItemId, carga, value, onChange, disabled }: {
+  inventarioItemId: string
+  carga: string
+  value: string
+  onChange: (v: string) => void
+  disabled?: boolean
+}) {
+  const [lotes, setLotes] = useState<string[]>([])
+  const [open,  setOpen]  = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const cargaTrim = carga.trim()
+    if (!inventarioItemId && !cargaTrim) { setLotes([]); return }
+    // Dos queries separadas (no .or()) para no tener que escapar `carga`,
+    // que suele traer paréntesis (ej. "HIPOCLORITO (IBC)") — rompería el
+    // filtro de PostgREST si fuera texto crudo dentro de un .or(...).
+    const supabase = createClient()
+    Promise.all([
+      inventarioItemId
+        ? supabase.from("movimientos").select("lote").eq("inventario_item_id", inventarioItemId).not("lote", "is", null)
+        : Promise.resolve({ data: [] as { lote: string | null }[] }),
+      cargaTrim
+        ? supabase.from("movimientos").select("lote").eq("carga", cargaTrim).not("lote", "is", null)
+        : Promise.resolve({ data: [] as { lote: string | null }[] }),
+    ]).then(([a, b]) => {
+      const set = new Set<string>()
+      for (const m of [...(a.data ?? []), ...(b.data ?? [])]) if (m.lote) set.add(m.lote)
+      setLotes([...set].sort((x, y) => x.localeCompare(y, undefined, { numeric: true })))
+    })
+  }, [inventarioItemId, carga])
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onClickOutside)
+    return () => document.removeEventListener("mousedown", onClickOutside)
+  }, [])
+
+  const filtered = value ? lotes.filter(l => l.toLowerCase().includes(value.toLowerCase())) : lotes
+
+  return (
+    <div ref={ref} className="relative">
+      <Input
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true) }}
+        onFocus={() => !disabled && lotes.length > 0 && setOpen(true)}
+        placeholder="N° de lote"
+        className="h-8 text-xs"
+        autoComplete="off"
+        disabled={disabled}
+      />
+      {open && !disabled && filtered.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-40 overflow-y-auto">
+          {filtered.map(l => (
+            <button
+              key={l}
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onChange(l); setOpen(false) }}
+              className="w-full px-3 py-1.5 text-xs text-left font-mono hover:bg-muted transition-colors"
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove, tarifasCliente, readOnly }: {
   clienteId: string
   items: BodegajeItemFormData[]
@@ -456,8 +709,13 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             <Field label="Lote">
-              <Input value={item.sec3_lote} onChange={e => onChange(index, { sec3_lote: e.target.value })}
-                placeholder="N° de lote" className="h-8 text-xs" disabled={readOnly} />
+              <LoteField
+                inventarioItemId={item.sec3_inventario_item_id}
+                carga={item.sec3_producto}
+                value={item.sec3_lote}
+                onChange={v => onChange(index, { sec3_lote: v })}
+                disabled={readOnly}
+              />
             </Field>
             <Field label="CAS">
               <Input value={item.sec3_cas} onChange={e => onChange(index, { sec3_cas: e.target.value })}
@@ -649,19 +907,33 @@ export function ServiciosSection({
   )
 }
 
+// Formatos de imagen que el navegador decodifica de forma nativa vía
+// <img>/Image() — basta con esto para poder dibujarla en el canvas, no hace
+// falta una lista de MIME exacta (algunos navegadores no la setean bien en
+// el drag&drop, así que se valida sobre todo por extensión).
+const FIRMA_IMAGEN_EXT = ["png", "jpg", "jpeg", "webp", "gif", "bmp"]
+
 // ── FirmaCanvas ──────────────────────────────────────────────────────────────
-// Firma del conductor en tablet/lápiz óptico. Componente "no controlado" a
-// propósito — no recibe la firma ya guardada como prop: cuando el report ya
-// tiene una firma en BD, el padre la muestra por separado como imagen
-// (mismo patrón que la evidencia fotográfica ya subida vs. la nueva por
-// adjuntar) y solo renderiza este canvas para capturar una firma nueva.
+// Firma del conductor en tablet/lápiz óptico — o una imagen de una firma ya
+// hecha (escaneada/foto), arrastrada o elegida desde el explorador: en
+// ambos casos termina siendo el mismo dataURL vía onChange, así que el resto
+// del flujo (guardar, mostrar, aplicar con un clic) no necesita saber cuál
+// de los dos orígenes se usó.
+// Componente "no controlado" a propósito — no recibe la firma ya guardada
+// como prop: cuando el report ya tiene una firma en BD, el padre la muestra
+// por separado como imagen (mismo patrón que la evidencia fotográfica ya
+// subida vs. la nueva por adjuntar) y solo renderiza este canvas para
+// capturar una firma nueva.
 export function FirmaCanvas({ onChange, readOnly }: {
   onChange: (dataUrl: string | null) => void
   readOnly?: boolean
 }) {
   const canvasRef  = useRef<HTMLCanvasElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const drawingRef = useRef(false)
   const [hasStroke, setHasStroke] = useState(false)
+  const [dragOver,  setDragOver]  = useState(false)
+  const [imgError,  setImgError]  = useState<string | null>(null)
 
   function getPos(e: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current!
@@ -710,12 +982,64 @@ export function FirmaCanvas({ onChange, readOnly }: {
     const ctx = canvas?.getContext("2d")
     if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
     setHasStroke(false)
+    setImgError(null)
     onChange(null)
+  }
+
+  // Dibuja la imagen soltada/elegida centrada en el canvas, escalada para
+  // que entre completa sin deformarse (mismo "contain" que ya usa <img> al
+  // mostrar la firma guardada) — así el dataURL resultante siempre sale con
+  // las mismas dimensiones que la firma a mano, sin caso especial aguas abajo.
+  function loadImageFile(file: File) {
+    if (readOnly) return
+    const ext = (file.name.split(".").pop() ?? "").toLowerCase()
+    if (!FIRMA_IMAGEN_EXT.includes(ext) && !file.type.startsWith("image/")) {
+      setImgError(`Formato no reconocido (${file.name}) — usa PNG, JPG, WEBP, GIF o BMP.`)
+      return
+    }
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext("2d")
+    if (!canvas || !ctx) return
+    const url = URL.createObjectURL(file)
+    const img = new window.Image()
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      const scale = Math.min(canvas.width / img.width, canvas.height / img.height, 1)
+      const w = img.width * scale
+      const h = img.height * scale
+      ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h)
+      URL.revokeObjectURL(url)
+      setImgError(null)
+      setHasStroke(true)
+      onChange(canvas.toDataURL("image/png"))
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      setImgError(`No se pudo leer la imagen (${file.name}).`)
+    }
+    img.src = url
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setDragOver(false)
+    if (readOnly) return
+    const file = e.dataTransfer.files?.[0]
+    if (file) loadImageFile(file)
   }
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className={cn("relative rounded-lg border-2 border-dashed border-muted-foreground/25 overflow-hidden", readOnly && "opacity-60")}>
+      <div
+        className={cn(
+          "relative rounded-lg border-2 border-dashed overflow-hidden transition-colors",
+          dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25",
+          readOnly && "opacity-60"
+        )}
+        onDragOver={e => { e.preventDefault(); if (!readOnly) setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+      >
         <canvas
           ref={canvasRef}
           width={700}
@@ -727,16 +1051,46 @@ export function FirmaCanvas({ onChange, readOnly }: {
           onPointerLeave={handlePointerUp}
         />
         {!hasStroke && (
-          <p className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/70 pointer-events-none px-4 text-center">
-            {readOnly ? "Firma bloqueada — el report ya no admite cambios" : "Firma aquí — el conductor firma con el dedo o lápiz óptico"}
-          </p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center px-4 pointer-events-none">
+            <p className="text-xs text-muted-foreground/70">
+              {readOnly
+                ? "Firma bloqueada — el report ya no admite cambios"
+                : "Firma aquí, o arrastra una imagen de tu firma"}
+            </p>
+            {!readOnly && (
+              <p className="text-[10px] text-muted-foreground/50">PNG, JPG, WEBP, GIF o BMP</p>
+            )}
+          </div>
         )}
       </div>
-      {!readOnly && hasStroke && (
-        <button type="button" onClick={handleClear} className="self-end text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">
-          Limpiar firma
-        </button>
+      {!readOnly && (
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+          >
+            Subir imagen…
+          </button>
+          {hasStroke && (
+            <button type="button" onClick={handleClear} className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+              Limpiar firma
+            </button>
+          )}
+        </div>
       )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => {
+          const file = e.target.files?.[0]
+          if (file) loadImageFile(file)
+          e.target.value = ""
+        }}
+      />
+      {imgError && <p className="text-[11px] text-destructive">{imgError}</p>}
     </div>
   )
 }
