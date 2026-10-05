@@ -435,9 +435,18 @@ function InventarioContent() {
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key)!.push(m)
     }
+    const stockSistema = new Map<string, { pos: number; und: number }>()
+    for (const it of (selected ? (clienteItems[selected.id] ?? []) : [])) {
+      const k = it.descripcion.replace(/\s*\([^()]*\)\s*$/, "").trim().toUpperCase()
+      const cur = stockSistema.get(k) ?? { pos: 0, und: 0 }
+      stockSistema.set(k, { pos: cur.pos + it.stock_actual, und: cur.und + it.stock_unidades })
+    }
     return [...groups.entries()].map(([key, groupMovs]) => {
-      let stockPos = 0
-      let stockUnd = 0
+      const netPos = groupMovs.reduce((s, m) => s + (m.tipo === "ingreso" ? 1 : -1) * (m.posiciones ?? 0), 0)
+      const netUnd = groupMovs.reduce((s, m) => s + (m.tipo === "ingreso" ? 1 : -1) * (m.unidades ?? 0), 0)
+      const sist = stockSistema.get(groupMovs[0].carga.trim().toUpperCase())
+      let stockPos = sist ? sist.pos - netPos : 0
+      let stockUnd = sist ? sist.und - netUnd : 0
       const rows = groupMovs.map(m => {
         if (m.tipo === "ingreso") { stockPos += m.posiciones ?? 0; stockUnd += m.unidades ?? 0 }
         else                      { stockPos -= m.posiciones ?? 0; stockUnd -= m.unidades ?? 0 }
@@ -445,7 +454,7 @@ function InventarioContent() {
       })
       return { key, carga: groupMovs[0].carga, rows }
     })
-  }, [selected, kardexMovs])
+  }, [selected, kardexMovs, clienteItems])
 
   const kardexProductos = useMemo(() => {
     return kardexGroups.map(g => ({ carga: g.carga })).sort((a, b) => a.carga.localeCompare(b.carga))

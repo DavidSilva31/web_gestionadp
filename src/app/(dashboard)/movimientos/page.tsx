@@ -285,6 +285,7 @@ export default function MovimientosPage() {
     const payload: MovimientoInsert = {
       ...form,
       carga:              form.carga.trim(),
+      posiciones:         form.posiciones ?? form.unidades,
       operador:           form.operador?.trim() || null,
       observaciones:      form.observaciones?.trim() || null,
       codigo:             form.codigo?.trim() || null,
