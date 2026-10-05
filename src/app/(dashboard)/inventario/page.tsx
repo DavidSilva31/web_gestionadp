@@ -407,6 +407,7 @@ function InventarioContent() {
       .from("movimientos")
       .select("*, reports(numero)")
       .eq("cliente_id", effectiveId)
+      .eq("oculto", false)
       .order("fecha", { ascending: true })
     if (error) {
       setKardexError(error.message)

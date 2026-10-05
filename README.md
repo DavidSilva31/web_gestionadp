@@ -88,6 +88,8 @@ Control de ítems almacenados por cliente:
 - **Pool de stock compartido**: un cliente puede apuntar a `stock_compartido_con` otro (mismo inventario físico, facturación separada) — resuelto en cada punto de lectura/escritura vía `resolveEffectiveClienteId()`
 - **Panel de clientes colapsable**: al seleccionar un cliente, la columna izquierda se recoge a un riel angosto de solo avatares (con botón para volver a expandir), liberando espacio en pantalla para la vista de Detalle
 - **Vista "Detalle" (Kardex)**: activable por cliente (`usa_vista_kardex`) — toggle Resumen/Detalle junto al agregado habitual; muestra el historial transaccional real **una sola grilla por producto** (agrupado por `carga`, no por lote/código individual) con saldo corrido (posiciones y unidades) calculado en cliente a partir de `movimientos`. Filtro de Producto con buscador tipo combobox (escribir para filtrar, sin el viejo `<select>` nativo); navegación solo con scroll nativo horizontal/vertical (barras más gruesas que el resto de la app, sin arrastre por clic). Columnas: **SKU** (código del producto, constante para cada uno), **Nr. Pallet**, fecha, tipo, IMO, **NU**, lote, CAS, guía, OC, fechas de elaboración/vencimiento, envase, report de origen, posiciones/unidades de ingreso y despacho, stock corrido y bodega — todas editables inline
+- **Filtro por lote** en la vista Detalle: el saldo corrido y la grilla se pueden acotar a un lote específico; el stock mostrado se calcula sobre ese lote
+- Los movimientos marcados como **ocultos** (`movimientos.oculto = true`) siguen en la base y mantienen su efecto de stock y su vínculo con el report, pero no aparecen en el Kardex ni en las sugerencias de lote
 
 ### Movimientos (`/movimientos`)
 
@@ -100,6 +102,7 @@ Registro de ingresos y despachos de carga:
 - Datos de manifiesto opcionales (colapsables): código/SKU, IMO, NU, CAS, lote, fechas de elaboración/vencimiento, envase, posiciones, **Nr. Pallet**, N° guía, orden de compra, bodega
 - Marcar "En proceso" → "Completado" desde la tabla
 - Exportar tabla filtrada a Excel
+- Ocultar un movimiento (`oculto`) sin borrarlo: se usa cuando un movimiento antiguo no debe contarse en Kardex ni en las sugerencias de lote, pero debe conservarse por trazabilidad
 
 ### Clientes (`/clientes`)
 
@@ -141,6 +144,12 @@ Informes de recepción de carga:
   - Secciones 1/2/3 sin datos se colapsan a solo el nombre de la sección + "N/A — no aplica", en vez de mostrar todos los campos vacíos
   - Sello **DESPACHADO** rediseñado: logo ADP + RUT 76.499.190-7 + fecha de despacho, con borde doble — ya no muestra el nombre del despachador
   - El nombre de archivo de descarga es siempre `report-{numero}`, tanto desde el botón propio de la app como desde el botón de descarga del visor nativo de PDF del navegador
+- **Filtro "Hoy"** activado por defecto en la lista, para la vista operativa del día (se puede desactivar)
+- **Código de verificación**: cada report recibe automáticamente un código de 5 dígitos (generado por trigger en la base) que siempre suma 15; se imprime en la esquina superior derecha del recuadro "Antecedentes" del PDF
+- **CUyD / CDA** (Sección 3): son mutuamente excluyentes — al completar uno se bloquea el otro
+- **Catálogo de conductores** (`conductores`): los campos Conductor y RUT se autocompletan entre sí; al enviar a Operaciones el chofer se guarda (upsert por RUT), así un mismo RUT siempre trae el mismo nombre aunque cambie de camión
+- **Firma del conductor y firma personal**: además del canvas, se puede arrastrar y soltar o seleccionar una imagen de firma
+- **Resync de Bodegaje en reports despachados**: cuando un super_admin o Javier Navarro edita los productos, cantidades o lotes de un report ya despachado, el stock y los movimientos generados se recalculan automáticamente (vía `rebuild_bodegaje_movimientos()`)
 - Exportar listado filtrado a **Excel** (incluye una hoja "Bodegaje - Detalle" con una fila por report × producto)
 - Registro de auditoría en cada acción
 - Adjuntos (HDS, guía de despacho, evidencia fotográfica, firma) se guardan en el bucket privado `reports-firmados` de Supabase Storage
@@ -199,7 +208,7 @@ Registro paginado (50/página) de todas las acciones sobre reports, inventario y
 
 ### Configuración (`/configuracion`)
 
-**Tab Perfil:** edición de nombre y cambio de contraseña. Si el usuario tiene `must_change_password = true` (contraseña temporal), la tab se abre automáticamente y se bloquea la navegación hasta cambiarla.
+**Tab Perfil:** edición de nombre y cambio de contraseña, y **Mi firma** — firma personal (canvas táctil o imagen arrastrada/seleccionada) que Recepción y el encargado de bodega aplican con un clic a los reports, quedando registrada con fecha, usuario e IP. Si el usuario tiene `must_change_password = true` (contraseña temporal), la tab se abre automáticamente y se bloquea la navegación hasta cambiarla.
 
 **Tab Usuarios** *(solo `super_admin`):*
 - Lista de todos los usuarios del sistema con rol y estado
@@ -358,6 +367,13 @@ src/
 | `demo_data_hes.sql` | Datos de demostración para HES: tarifas y movimientos de Brenntag, BASF y Air Liquide (Julio 2026) |
 | `demo_data_cleanup.sql` | Limpieza de datos demo — ejecutar antes de pasar a producción |
 | `supabase_security_fixes.sql` | Fixes de seguridad aplicados (search_path, REVOKE, RLS policies) |
+| `migration_*.sql` | Migraciones delta (cambios sobre una BD existente). Cada archivo indica en su encabezado si debe ejecutarse una sola vez y qué hace |
+| `migration_report_bodegaje_items.sql` | Tabla `report_bodegaje_items`: Sección 3 con múltiples productos por report |
+| `migration_resync_bodegaje_despachado.sql` / `migration_resync_bodegaje_fixes.sql` | `rebuild_bodegaje_movimientos()` y resync de stock al editar un report despachado |
+| `migration_reports_codigo_verificacion.sql` | Código de verificación de 5 dígitos por report (trigger + backfill) |
+| `migration_conductores.sql` | Catálogo de conductores |
+| `migration_reports_sec3_cda.sql` / `migration_reports_sec3_cuyd.sql` | Campos CUyD / CDA de la Sección 3 |
+| `migration_movimientos_oculto.sql` | Columna `movimientos.oculto` (ocultar movimientos del Kardex y de las sugerencias de lote) |
 
 > **Nota de despliegue:** Para aplicar cambios de schema a una BD existente (no desde cero), ejecutar solo los bloques delta en el SQL Editor de Supabase — no correr `schema.sql` completo ya que fallará en tipos y tablas que ya existen.
 
@@ -376,6 +392,7 @@ Tablas principales:
 | `movimientos` | Ingresos y despachos de carga (incluye datos de manifiesto: código/SKU, IMO, NU, CAS, lote, envase, posiciones, N° de pallet, guía, OC, bodega) |
 | `reports` | Reports de recepción multi-sección (HDS, guía de despacho, evidencia fotográfica, firma del conductor) |
 | `report_bodegaje_items` | Productos de la Sección 3 (Bodegaje) de un report — una fila por producto, con su propia tarifa/manifiesto; inmutable una vez el report está despachado |
+| `conductores` | Catálogo de choferes (nombre y RUT, único por RUT) usado en Antecedentes de reports |
 | `empresas_transporte` | Catálogo editable de empresas de transporte (Antecedentes del report) — se alimenta también escribiendo un valor nuevo directo en el formulario |
 | `transporte_incomex` | Operaciones de transporte tercerizado por cliente |
 | `instalaciones_almacenamiento` / `instalacion_sustancias` | Catálogo de bodegas/patios y sustancias/clases IMO autorizadas por instalación |
@@ -421,7 +438,7 @@ El sistema está optimizado para escritorio y tablet. Mejoras mobile implementad
 - **Reports**: estadísticas en grid responsive; tabs de filtro muestran solo íconos en pantallas pequeñas
 - **Movimientos**: botones del header colapsados a ícono en mobile; buscador de ancho flexible
 - **Tablas de Reports, Transporte e Inventario**: scroll horizontal propio (`overflow-x-auto` + `min-width`) y columnas rebalanceadas — antes los encabezados se solapaban y el contenido se cortaba sin forma de verlo en tablet/mobile
-- El sidebar usa `collapsible="offcanvas"` — se oculta en mobile con hamburguesa en la topbar
+- El sidebar es colapsable a modo ícono (`collapsible="icon"`) con tooltips en cada opción; al colapsarlo queda solo el ícono ADP y los íconos. En mobile se abre con hamburguesa en la topbar
 
 ---
 

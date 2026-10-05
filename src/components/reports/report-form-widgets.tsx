@@ -575,10 +575,10 @@ function LoteField({ inventarioItemId, carga, value, onChange, disabled }: {
     const supabase = createClient()
     Promise.all([
       inventarioItemId
-        ? supabase.from("movimientos").select("lote").eq("inventario_item_id", inventarioItemId).not("lote", "is", null)
+        ? supabase.from("movimientos").select("lote").eq("inventario_item_id", inventarioItemId).eq("oculto", false).not("lote", "is", null)
         : Promise.resolve({ data: [] as { lote: string | null }[] }),
       cargaTrim
-        ? supabase.from("movimientos").select("lote").eq("carga", cargaTrim).not("lote", "is", null)
+        ? supabase.from("movimientos").select("lote").eq("carga", cargaTrim).eq("oculto", false).not("lote", "is", null)
         : Promise.resolve({ data: [] as { lote: string | null }[] }),
     ]).then(([a, b]) => {
       const set = new Set<string>()
