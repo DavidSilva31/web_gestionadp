@@ -1,8 +1,10 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
+import { createClient } from "@/lib/supabase"
 import { cn }       from "@/lib/utils"
 import type { ReportFormData, TipoMovimiento, TipoContenedor } from "./report-form-types"
 
@@ -70,6 +72,32 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
   const str = (key: keyof ReportFormData) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
       set(key, (uc ? e.target.value.toUpperCase() : e.target.value) as ReportFormData[typeof key])
+
+  const esIso = form.sec1_tipo_contenedor === "isotanque"
+  const esDespachoIso = esIso && form.sec1_tipo_movimiento === "despacho"
+  const [isoEnBodega, setIsoEnBodega] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!esDespachoIso || !form.cliente) return
+    let vivo = true
+    ;(async () => {
+      const supabase = createClient()
+      const { data: cli } = await supabase.from("clientes").select("id").eq("nombre", form.cliente).limit(1).maybeSingle()
+      if (!cli) { if (vivo) setIsoEnBodega([]); return }
+      const { data: items } = await supabase.from("inventario_items").select("id")
+        .eq("cliente_id", cli.id).eq("descripcion", "ISOTANQUE").eq("categoria", "Isotanque")
+      if (!items?.length) { if (vivo) setIsoEnBodega([]); return }
+      const { data: movs } = await supabase.from("movimientos").select("codigo, tipo")
+        .in("inventario_item_id", items.map(i => i.id)).not("codigo", "is", null)
+      const neto = new Map<string, number>()
+      for (const m of movs ?? []) {
+        const k = m.codigo as string
+        neto.set(k, (neto.get(k) ?? 0) + (m.tipo === "ingreso" ? 1 : -1))
+      }
+      if (vivo) setIsoEnBodega([...neto.entries()].filter(([, n]) => n > 0).map(([k]) => k).sort())
+    })()
+    return () => { vivo = false }
+  }, [esDespachoIso, form.cliente])
 
   return (
     <div className="space-y-2">
@@ -141,9 +169,17 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
             <Input type="time" value={form.sec1_hora_termino}
               onChange={e => set("sec1_hora_termino", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
-          <Field label="Sigla">
-            <Input value={form.sec1_sigla} onChange={str("sec1_sigla")}
-              placeholder="Sigla del contenedor" className="h-8 text-xs" disabled={readOnly} />
+          <Field label={esDespachoIso ? "Isotanque a despachar" : esIso ? "Código del isotanque" : "Sigla"}>
+            {esDespachoIso ? (
+              <select value={form.sec1_sigla} onChange={e => set("sec1_sigla", e.target.value)}
+                disabled={readOnly} className="h-8 text-xs rounded-md border bg-background px-2">
+                <option value="">— Seleccionar —</option>
+                {isoEnBodega.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : (
+              <Input value={form.sec1_sigla} onChange={str("sec1_sigla")}
+                placeholder={esIso ? "Ej: BLKU257599-0" : "Sigla del contenedor"} className="h-8 text-xs" disabled={readOnly} />
+            )}
           </Field>
           <Field label="N° Guía">
             <Input value={form.sec1_guia_numero} onChange={str("sec1_guia_numero")}

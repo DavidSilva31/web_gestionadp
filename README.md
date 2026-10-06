@@ -54,7 +54,7 @@ npm run start
 
 | Rol | Acceso |
 |---|---|
-| `super_admin` | Acceso completo, incluido gestión de usuarios y auditoría |
+| `super_admin` | Acceso completo, incluido gestión de usuarios, auditoría y Cotizaciones |
 | `operador` | Acceso completo excepto gestión de usuarios y auditoría |
 | `operador_carga` | Solo inventario, reports y cola de despacho |
 
@@ -80,14 +80,14 @@ Vista general del estado operativo en tiempo real:
 Control de ítems almacenados por cliente:
 
 - Panel izquierdo con lista de clientes; panel derecho con ítems del cliente seleccionado
-- Columnas: código (ALM-001), descripción, área, categoría, stock actual, unidad y estado (Normal / Bajo / Crítico)
+- Columnas: código/SKU (`inventario_items.codigo`), descripción, área, categoría, stock actual, unidad y estado (Normal / Bajo / Crítico)
 - Alta de ítems con stock inicial; edición de metadatos (el stock solo cambia vía movimientos)
 - Baja lógica (`activo = false`)
 - Exportar inventario del cliente a Excel
 - Indicadores de estado semánticos por cliente y por ítem
 - **Pool de stock compartido**: un cliente puede apuntar a `stock_compartido_con` otro (mismo inventario físico, facturación separada) — resuelto en cada punto de lectura/escritura vía `resolveEffectiveClienteId()`
 - **Panel de clientes colapsable**: al seleccionar un cliente, la columna izquierda se recoge a un riel angosto de solo avatares (con botón para volver a expandir), liberando espacio en pantalla para la vista de Detalle
-- **Vista "Detalle" (Kardex)**: activable por cliente (`usa_vista_kardex`) — toggle Resumen/Detalle junto al agregado habitual; muestra el historial transaccional real **una sola grilla por producto** (agrupado por `carga`, no por lote/código individual) con saldo corrido (posiciones y unidades) calculado en cliente a partir de `movimientos`. Filtro de Producto con buscador tipo combobox (escribir para filtrar, sin el viejo `<select>` nativo); navegación solo con scroll nativo horizontal/vertical (barras más gruesas que el resto de la app, sin arrastre por clic). Columnas: **SKU** (código del producto, constante para cada uno), **Nr. Pallet**, fecha, tipo, IMO, **NU**, lote, CAS, guía, OC, fechas de elaboración/vencimiento, envase, report de origen, posiciones/unidades de ingreso y despacho, stock corrido y bodega — todas editables inline
+- **Vista "Detalle" (Kardex)**: disponible para todos los clientes — toggle Resumen/Detalle junto al agregado habitual; muestra el historial transaccional real **una sola grilla por producto** (agrupado por `carga`, no por lote/código individual) con saldo corrido (posiciones y unidades). El saldo parte del stock actual del ítem (`stock_actual`/`stock_unidades`), así el último saldo coincide siempre con el stock de Resumen. Los productos sin movimientos aparecen con el encabezado "0 movimientos". Filtro de Producto con buscador tipo combobox (escribir para filtrar, sin el viejo `<select>` nativo); navegación solo con scroll nativo horizontal/vertical (barras más gruesas que el resto de la app, sin arrastre por clic). Columnas: **SKU** (código del producto, constante para cada uno), **Nr. Pallet**, fecha, tipo, IMO, **NU**, lote, CAS, guía, OC, fechas de elaboración/vencimiento, envase, report de origen, posiciones/unidades de ingreso y despacho, stock corrido y bodega — todas editables inline
 - **Filtro por lote** en la vista Detalle: el saldo corrido y la grilla se pueden acotar a un lote específico; el stock mostrado se calcula sobre ese lote
 - Los movimientos marcados como **ocultos** (`movimientos.oculto = true`) siguen en la base y mantienen su efecto de stock y su vínculo con el report, pero no aparecen en el Kardex ni en las sugerencias de lote
 
@@ -131,7 +131,7 @@ Informes de recepción de carga:
 - **Semáforo de estado**: punto de color junto al badge de estado (en la lista y en el detalle) — amarillo = borrador (antecedentes listos), azul = pendiente de despacho (falta que el chofer vuelva a recepción con el físico), verde = despachado
 - **Crear report** (`/reports/nuevo`): formulario multi-sección con tabs navegables:
   - Antecedentes (cliente, patente, conductor, **empresa de transporte** — combobox editable: admite escribir un valor nuevo y lo persiste en la tabla `empresas_transporte`, con ícono de eliminar + confirmación en la lista desplegable)
-  - Sección 1 — Depósito de contenedores
+  - Sección 1 — Depósito de contenedores. Con tipo **Isotanque**: en Ingreso se escribe el código del contenedor (campo "Código del isotanque", guardado en `sec1_sigla`); en Despacho se elige de una lista con los isotanques que están en bodega para el cliente. Al despachar, el movimiento lleva el código y descuenta 1 unidad del ítem ISOTANQUE del cliente (ver `migration_reports_isotanque.sql`)
   - Sección 2 — Consolidado / Desconsolidado / Otros (con dropzone/cámara para **evidencia fotográfica** cuando se marca consolidado o desconsolidado)
   - Sección 3 — Bodegaje: se completa en Operaciones, no en este formulario
   - **Alta rápida de producto nuevo**: si el producto que busca en el Producto de Bodegaje no existe en Inventario, el botón "+ Nuevo producto" abre el mismo formulario de alta de `/inventario` (descripción, categoría, instalación, Clase IMO, N° ONU, unidad, stock, peso, stock mínimo); al guardar, el producto queda creado y seleccionado en el report al instante, sin recargar la página
@@ -197,6 +197,22 @@ Estadísticas y analítica operacional:
 - Top 5 cargas por volumen de movimientos (con desglose entrada/salida)
 - Top 5 clientes por actividad
 - **Exportar PDF** vía `window.print()` con estilos de impresión que ocultan sidebar, topbar y botones
+
+### Cotizaciones (`/cotizaciones`)
+
+Módulo de cotizaciones, migrado desde el portal anterior ("Gestión de OC y Cotizaciones"). Solo `super_admin`.
+
+- **Lista**: número, fecha, emisor, cliente, atención, valor UF y total; orden por número descendente
+- **Formulario** (`/cotizaciones/nueva` y `/cotizaciones/[id]`):
+  - Emisor (Altos del Puerto, Incomex o Mar Azul), fecha, cliente (combobox de `clientes`), valor UF, atención, RUT, ciudad y dirección
+  - Valor UF: al crear, se trae automáticamente desde `/api/uf` según la fecha (con reintento); al editar, se conserva el valor guardado
+  - Líneas en texto libre: cantidad, descripción, valor UF unitario, valor unitario en pesos (calculado), descuento % y neto. Neto, IVA 19% y total se calculan en el formulario
+  - Observaciones agrupadas por tipo (transporte, almacenaje, generales), con casillas. Desde el mismo formulario se pueden editar las existentes (cambia el catálogo) y agregar nuevas por tipo
+  - Observaciones extras (texto libre)
+- **PDF**: "Ver PDF" abre un visor (mismo patrón que el resto del sistema) con botón de descarga. Diseño con paleta ADP, logos de Incomex y Altos del Puerto, firma del gerente y pie con paginación. Componente en `src/components/cotizaciones/cotizacion-pdf.tsx`
+- **Catálogos** (tablas `items_cotizacion`, `items_cotizacion_categorias`, `observaciones_cotizacion`, `observacion_tipos`): migrados completos desde el portal. Se leen desde el formulario; el catálogo de ítems no se usa en las líneas (son texto libre)
+- Numeración automática desde 1 (`cotizacion_numero_seq`)
+- Sin histórico: las cotizaciones del portal anterior no se importaron
 
 ### Auditoría (`/auditoria`)
 
@@ -319,6 +335,7 @@ src/
 │       ├── transporte/                # Reports con transporte propio
 │       ├── transporte-incomex/        # Transporte tercerizado por cliente
 │       ├── instalaciones/             # Bodegas/patios y uso por clase IMO
+│       ├── cotizaciones/              # Cotizaciones (lista, formulario con [id])
 │       ├── auditoria/                 # Log de acciones
 │       └── configuracion/             # Perfil y gestión de usuarios
 ├── components/
@@ -326,6 +343,9 @@ src/
 │   │   ├── app-sidebar.tsx
 │   │   ├── topbar.tsx
 │   │   └── page-header.tsx
+│   ├── cotizaciones/
+│   │   ├── cotizacion-pdf.tsx         # Plantilla PDF de cotización
+│   │   └── cotizacion-preview-modal.tsx # Visor del PDF con descarga
 │   ├── chatbot/
 │   │   └── chatbot-widget.tsx         # Widget flotante del asistente (solo lectura, sin acciones)
 │   ├── reports/
@@ -374,6 +394,11 @@ src/
 | `migration_conductores.sql` | Catálogo de conductores |
 | `migration_reports_sec3_cda.sql` / `migration_reports_sec3_cuyd.sql` | Campos CUyD / CDA de la Sección 3 |
 | `migration_movimientos_oculto.sql` | Columna `movimientos.oculto` (ocultar movimientos del Kardex y de las sugerencias de lote) |
+| `migration_movimientos_sync_pos_und.sql` | `sync_inventario_from_movimiento()`: `stock_actual` ← posiciones y `stock_unidades` ← unidades (mismo criterio que reports) |
+| `migration_inventario_items_protege_stock.sql` | Trigger que bloquea cambios directos a `stock_actual`/`stock_unidades`/`cliente_id` (solo se puede mover stock vía movimientos) |
+| `migration_inventario_items_codigo.sql` | Columna `inventario_items.codigo` (SKU del producto) |
+| `migration_reports_isotanque.sql` | `create_movimiento_from_report()`: rama de isotanques (código, ítem ISOTANQUE del cliente, ±1 unidad) |
+| `migration_cotizaciones.sql` | Módulo de Cotizaciones: tablas, RLS solo `super_admin` y carga de catálogos (ítems, categorías, observaciones) |
 
 > **Nota de despliegue:** Para aplicar cambios de schema a una BD existente (no desde cero), ejecutar solo los bloques delta en el SQL Editor de Supabase — no correr `schema.sql` completo ya que fallará en tipos y tablas que ya existen.
 
@@ -399,6 +424,9 @@ Tablas principales:
 | `hes_folios` | Folios correlativos de HES generados por cliente/período |
 | `profiles` | Perfiles de usuario (rol, permisos, nombre) |
 | `audit_logs` | Registro de acciones de usuarios |
+| `items_cotizacion_categorias` / `items_cotizacion` | Catálogo de ítems de cotización (nombre, valor base, categoría) |
+| `observacion_tipos` / `observaciones_cotizacion` | Catálogo de observaciones de cotización (texto, tipo) |
+| `cotizaciones` / `cotizacion_lineas` / `cotizacion_observaciones` | Cotizaciones emitidas, sus líneas y las observaciones seleccionadas (solo `super_admin`) |
 
 Función RPC:
 

@@ -23,6 +23,7 @@ import {
   Warehouse,
   Container,
   ListPlus,
+  Receipt,
 } from "lucide-react"
 import {
   Sidebar,
@@ -59,6 +60,7 @@ const ALL_NAV_ITEMS = [
   { href: "/transporte",       label: "Transporte",  icon: Route,           group: "reports"    },
   { href: "/transporte-incomex", label: "Transporte ADP", icon: Container, group: "reports"  },
   { href: "/servicios-adicionales", label: "Servicios Adicionales", icon: ListPlus, group: "reports" },
+  { href: "/cotizaciones",     label: "Cotizaciones", icon: Receipt,        group: "admin"      },
   { href: "/auditoria",        label: "Auditoría",   icon: ShieldAlert,     group: "admin"      },
 ]
 
