@@ -398,7 +398,7 @@ export default function ReportDetailPage() {
     const sec1Activa = !!(
       form.sec1_tipo_movimiento || form.sec1_tipo_contenedor || form.sec1_carga_normal ||
       form.sec1_carga_imo || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
-      form.sec1_hora_termino || form.sec1_sigla || form.sec1_guia_numero || form.sec1_interchange ||
+      form.sec1_hora_termino || form.sec1_sigla || form.sec1_interchange ||
       form.sec1_hds
     )
     const sec2Activa = !!(
@@ -436,7 +436,6 @@ export default function ReportDetailPage() {
       sec1_hora_inicio:     form.sec1_hora_inicio   || null,
       sec1_hora_termino:    form.sec1_hora_termino  || null,
       sec1_sigla:           form.sec1_sigla         || null,
-      sec1_guia_numero:     form.sec1_guia_numero   || null,
       sec1_interchange:     form.sec1_interchange   || null,
       sec1_hds:             form.sec1_hds,
       sec2_activa:         sec2Activa,

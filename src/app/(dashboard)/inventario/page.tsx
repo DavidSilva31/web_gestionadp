@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"
 import {
   Package, Plus, Search, RefreshCw, ChevronRight, ChevronLeft, ArrowLeft,
   Loader2, Pencil, Warehouse, Trash2, Download, AlertCircle, Check,
+  ArrowUp, ArrowDown, ArrowUpDown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -53,6 +54,36 @@ const AVATAR_COLORS = [
 ]
 
 const codigo = (n: number) => `ALM-${String(n).padStart(3, "0")}`
+
+// Columnas ordenables de la tabla Resumen de ítems.
+type ResumenSortKey = "codigo" | "descripcion" | "instalacion" | "categoria" | "stock" | "estado"
+type ResumenSort = { key: ResumenSortKey; dir: "asc" | "desc" }
+
+function SortHeader({ label, sortKey, sort, onSort, align = "left" }: {
+  label: string
+  sortKey: ResumenSortKey
+  sort: ResumenSort
+  onSort: (key: ResumenSortKey) => void
+  align?: "left" | "right" | "center"
+}) {
+  const active = sort.key === sortKey
+  const Icon = !active ? ArrowUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown
+  return (
+    <th className={cn(
+      "px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap",
+      align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
+    )}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn("inline-flex items-center gap-1 hover:text-foreground", active && "text-foreground")}
+      >
+        {label}
+        <Icon className={cn("h-3 w-3", !active && "opacity-40")} />
+      </button>
+    </th>
+  )
+}
 const initials = (nombre: string) =>
   nombre.split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase()
 
@@ -846,6 +877,32 @@ function InventarioContent() {
 
   const items = selected ? (clienteItems[selected.id] ?? []) : []
   const totalItems = Object.values(clienteItems).flat().length
+
+  // Resumen: orden por defecto alfabético por descripción; clic en un encabezado alterna asc/desc.
+  const [resumenSort, setResumenSort] = useState<ResumenSort>({ key: "descripcion", dir: "asc" })
+  function toggleResumenSort(key: ResumenSortKey) {
+    setResumenSort(prev => prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" })
+  }
+  const sortedItems = useMemo(() => {
+    const base = selected ? (clienteItems[selected.id] ?? []) : []
+    const valor = (it: InventarioItem): string | number => {
+      switch (resumenSort.key) {
+        case "codigo":      return it.numero
+        case "descripcion": return it.descripcion
+        case "instalacion": return instalaciones.find(i => i.id === it.instalacion_id)?.codigo ?? ""
+        case "categoria":   return it.categoria ?? ""
+        case "stock":       return it.stock_actual
+        case "estado":      return getEstado(it)
+      }
+    }
+    const mult = resumenSort.dir === "asc" ? 1 : -1
+    return [...base].sort((a, b) => {
+      const va = valor(a)
+      const vb = valor(b)
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * mult
+      return String(va).localeCompare(String(vb), "es", { numeric: true, sensitivity: "base" }) * mult
+    })
+  }, [selected, clienteItems, resumenSort, instalaciones])
   const filteredClientes = clientes.filter(c =>
     !search || c.nombre.toLowerCase().includes(search.toLowerCase())
   )
@@ -1370,17 +1427,17 @@ function InventarioContent() {
                         </colgroup>
                         <thead className="sticky top-0 bg-muted/60 border-b z-10">
                           <tr>
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Código</th>
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Descripción</th>
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Instalación</th>
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Categoría</th>
-                            <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Stock</th>
-                            <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Estado</th>
+                            <SortHeader label="Código" sortKey="codigo" sort={resumenSort} onSort={toggleResumenSort} />
+                            <SortHeader label="Descripción" sortKey="descripcion" sort={resumenSort} onSort={toggleResumenSort} />
+                            <SortHeader label="Instalación" sortKey="instalacion" sort={resumenSort} onSort={toggleResumenSort} />
+                            <SortHeader label="Categoría" sortKey="categoria" sort={resumenSort} onSort={toggleResumenSort} />
+                            <SortHeader label="Stock" sortKey="stock" sort={resumenSort} onSort={toggleResumenSort} align="right" />
+                            <SortHeader label="Estado" sortKey="estado" sort={resumenSort} onSort={toggleResumenSort} align="center" />
                             <th />
                           </tr>
                         </thead>
                         <tbody>
-                          {items.map((item, idx) => {
+                          {sortedItems.map((item, idx) => {
                             const estado = getEstado(item)
                             return (
                               <tr key={item.id}
@@ -1626,13 +1683,24 @@ function InventarioContent() {
             </p>
           )}
 
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setDialog(null)}>
-              Cancelar
-            </Button>
+          <DialogFooter className="sm:justify-between">
             <Button
+              variant="outline"
               size="sm"
-              disabled={saving || !form.descripcion.trim()}
+              onClick={() => { const item = dialog; setDialog(null); setError(null); setDeleting(item) }}
+              disabled={saving}
+              className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Eliminar ítem
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDialog(null)}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                disabled={saving || !form.descripcion.trim()}
               onClick={handleSave}
               className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground"
             >
@@ -1642,6 +1710,7 @@ function InventarioContent() {
               }
               Guardar cambios
             </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

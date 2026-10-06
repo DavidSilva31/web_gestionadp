@@ -1171,7 +1171,7 @@ export default function HesPage() {
     const nextDay = new Date(endY, endM - 1, endD + 1)
     let query = supabase
       .from("movimientos")
-      .select("id, numero, tipo, unidades, operador, fecha, report_id, reports(numero, sec1_guia_numero, sec3_numero_guia)")
+      .select("id, numero, tipo, unidades, operador, fecha, report_id, reports(numero, sec3_numero_guia)")
       .eq("cliente_id", selectedId)
       .lt("fecha", nextDay.toISOString())
     // Clientes con más de una tarifa en paralelo (ej. PROQUIMIN) deben tener
@@ -1211,7 +1211,7 @@ export default function HesPage() {
       // una repitiendo el mismo rango de fecha sobre la misma tabla).
       const { data, error } = await supabase
         .from("movimientos")
-        .select("id, numero, tipo, unidades, operador, fecha, report_id, tarifa_cliente_id, reports(numero, sec1_guia_numero, sec3_numero_guia)")
+        .select("id, numero, tipo, unidades, operador, fecha, report_id, tarifa_cliente_id, reports(numero, sec3_numero_guia)")
         .eq("cliente_id", selectedId)
         .lt("fecha", nextDay.toISOString())
         .order("fecha")

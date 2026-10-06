@@ -98,7 +98,7 @@ export async function loadTarifaData(
   const nextDay = new Date(y, m - 1, d + 1)
   let movsQuery = supabase
     .from("movimientos")
-    .select("id, numero, tipo, unidades, operador, fecha, report_id, reports(numero, sec1_guia_numero, sec3_numero_guia)")
+    .select("id, numero, tipo, unidades, operador, fecha, report_id, reports(numero, sec3_numero_guia)")
     .eq("cliente_id", clienteId)
     .lt("fecha", nextDay.toISOString())
   movsQuery = tarifasCount > 1

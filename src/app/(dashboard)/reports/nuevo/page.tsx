@@ -25,7 +25,7 @@ const INITIAL: FormData = {
   rut_conductor: "", empresa_transporte: "", transporte_tipo: "externo", hds_header: false, guia_despacho_header: false, observaciones: "",
   sec1_activa: false, sec1_tipo_movimiento: "", sec1_tipo_contenedor: "", sec1_carga_normal: false,
   sec1_carga_imo: false, sec1_clase_imo: "", sec1_nu: "", sec1_hora_inicio: "", sec1_hora_termino: "",
-  sec1_sigla: "", sec1_guia_numero: "", sec1_interchange: "", sec1_hds: false,
+  sec1_sigla: "", sec1_interchange: "", sec1_hds: false,
   sec2_activa: false, sec2_consolidado: false, sec2_desconsolidado: false, sec2_picking: false,
   sec2_paletizado: false, sec2_etiquetado: false, sec2_otro: false, sec2_hora_inicio: "",
   sec2_hora_termino: "", sec2_sigla_numero: "", sec2_observaciones: "",
@@ -134,7 +134,7 @@ export default function NuevoReportPage() {
     const sec1Activa = !!(
       form.sec1_tipo_movimiento || form.sec1_tipo_contenedor || form.sec1_carga_normal ||
       form.sec1_carga_imo || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
-      form.sec1_hora_termino || form.sec1_sigla || form.sec1_guia_numero || form.sec1_interchange ||
+      form.sec1_hora_termino || form.sec1_sigla || form.sec1_interchange ||
       form.sec1_hds
     )
     const sec2Activa = !!(
@@ -178,7 +178,6 @@ export default function NuevoReportPage() {
       sec1_hora_inicio:     form.sec1_hora_inicio  || null,
       sec1_hora_termino:    form.sec1_hora_termino || null,
       sec1_sigla:           form.sec1_sigla        || null,
-      sec1_guia_numero:     form.sec1_guia_numero  || null,
       sec1_interchange:     form.sec1_interchange  || null,
       sec1_hds:             form.sec1_hds,
       // Sección 2

@@ -301,7 +301,6 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
           <View style={[s.row, { marginTop: 3 }]}>
             <View style={{ flex: 1.2 }}>
               <Field label="1.5  Sigla:" value={report.sec1_sigla} med />
-              <Field label="       Guía N°:" value={report.sec1_guia_numero} med />
             </View>
             <View style={s.cbRow}>
               <CB checked={report.sec1_hds} />

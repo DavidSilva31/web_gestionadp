@@ -57,7 +57,6 @@ export async function exportReportsToExcel(reports: ReportConItems[], filename =
     "Sec1 Hora inicio":     str(r.sec1_hora_inicio),
     "Sec1 Hora término":    str(r.sec1_hora_termino),
     "Sec1 Sigla":           str(r.sec1_sigla),
-    "Sec1 N° Guía":         str(r.sec1_guia_numero),
     "Sec1 Interchange":     str(r.sec1_interchange),
     "Sec1 HDS":             yn(r.sec1_hds),
 

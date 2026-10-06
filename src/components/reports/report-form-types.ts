@@ -25,7 +25,6 @@ export interface ReportFormData {
   sec1_hora_inicio:     string
   sec1_hora_termino:    string
   sec1_sigla:           string
-  sec1_guia_numero:     string
   sec1_interchange:     string
   sec1_hds:             boolean
 
@@ -133,7 +132,7 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
     sec1_carga_normal: b(data.sec1_carga_normal), sec1_carga_imo: b(data.sec1_carga_imo),
     sec1_clase_imo: s(data.sec1_clase_imo), sec1_nu: s(data.sec1_nu),
     sec1_hora_inicio: s(data.sec1_hora_inicio), sec1_hora_termino: s(data.sec1_hora_termino),
-    sec1_sigla: s(data.sec1_sigla), sec1_guia_numero: s(data.sec1_guia_numero),
+    sec1_sigla: s(data.sec1_sigla),
     sec1_interchange: s(data.sec1_interchange), sec1_hds: b(data.sec1_hds),
     sec2_activa: b(data.sec2_activa), sec2_consolidado: b(data.sec2_consolidado),
     sec2_desconsolidado: b(data.sec2_desconsolidado), sec2_picking: b(data.sec2_picking),

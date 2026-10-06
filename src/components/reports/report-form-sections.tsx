@@ -181,10 +181,6 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
                 placeholder={esIso ? "Ej: BLKU257599-0" : "Sigla del contenedor"} className="h-8 text-xs" disabled={readOnly} />
             )}
           </Field>
-          <Field label="N° Guía">
-            <Input value={form.sec1_guia_numero} onChange={str("sec1_guia_numero")}
-              placeholder="Número de guía" className="h-8 text-xs" disabled={readOnly} />
-          </Field>
           <Field label="Interchange">
             <Input value={form.sec1_interchange} onChange={str("sec1_interchange")}
               placeholder="N° Interchange" className="h-8 text-xs" disabled={readOnly} />

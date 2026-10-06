@@ -7,7 +7,7 @@ import type { TarifaCliente, ServicioCliente } from "@/types/database"
 export interface MovRaw {
   id: string; numero: number; tipo: string; unidades: number | null
   operador: string | null; fecha: string; report_id: string | null
-  reports: { numero: number; sec1_guia_numero: string | null; sec3_numero_guia: string | null } | null
+  reports: { numero: number; sec3_numero_guia: string | null } | null
 }
 
 export interface DayEntry {
@@ -121,8 +121,8 @@ export function computeHES(movs: MovRaw[], periodStart: string, periodEnd: strin
     totalIngresos  += palletsIn
     totalDespachos += palletsOut
 
-    const guiasIn  = ins.flatMap(m => m.reports?.sec1_guia_numero ? [m.reports.sec1_guia_numero] : m.reports?.sec3_numero_guia ? [m.reports.sec3_numero_guia] : []).join(" ")
-    const guiasOut = outs.flatMap(m => m.reports?.sec1_guia_numero ? [m.reports.sec1_guia_numero] : m.reports?.sec3_numero_guia ? [m.reports.sec3_numero_guia] : []).join(" ")
+    const guiasIn  = ins.flatMap(m => m.reports?.sec3_numero_guia ? [m.reports.sec3_numero_guia] : []).join(" ")
+    const guiasOut = outs.flatMap(m => m.reports?.sec3_numero_guia ? [m.reports.sec3_numero_guia] : []).join(" ")
     const repsIn   = ins.map(m => m.reports?.numero ? `REP-${String(m.reports.numero).padStart(3,"0")}` : `MOV-${String(m.numero).padStart(3,"0")}`).join(" ")
     const repsOut  = outs.map(m => m.reports?.numero ? `REP-${String(m.reports.numero).padStart(3,"0")}` : `MOV-${String(m.numero).padStart(3,"0")}`).join(" ")
     const operador = dayMovs[0]?.operador ?? ""
