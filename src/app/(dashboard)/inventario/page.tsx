@@ -466,8 +466,11 @@ function InventarioContent() {
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key)!.push(m)
     }
+    const stockExacto = new Map<string, { pos: number; und: number }>()
     const stockSistema = new Map<string, { pos: number; und: number }>()
     for (const it of (selected ? (clienteItems[selected.id] ?? []) : [])) {
+      const exacto = it.descripcion.trim().toUpperCase()
+      stockExacto.set(exacto, { pos: it.stock_actual, und: it.stock_unidades })
       const k = it.descripcion.replace(/\s*\([^()]*\)\s*$/, "").trim().toUpperCase()
       const cur = stockSistema.get(k) ?? { pos: 0, und: 0 }
       stockSistema.set(k, { pos: cur.pos + it.stock_actual, und: cur.und + it.stock_unidades })
@@ -475,7 +478,8 @@ function InventarioContent() {
     const grupos = [...groups.entries()].map(([key, groupMovs]) => {
       const netPos = groupMovs.reduce((s, m) => s + (m.tipo === "ingreso" ? 1 : -1) * (m.posiciones ?? 0), 0)
       const netUnd = groupMovs.reduce((s, m) => s + (m.tipo === "ingreso" ? 1 : -1) * (m.unidades ?? 0), 0)
-      const sist = stockSistema.get(groupMovs[0].carga.trim().toUpperCase())
+      const cargaKey = groupMovs[0].carga.trim().toUpperCase()
+      const sist = stockExacto.get(cargaKey) ?? stockSistema.get(cargaKey.replace(/\s*\([^()]*\)\s*$/, "").trim())
       let stockPos = sist ? sist.pos - netPos : 0
       let stockUnd = sist ? sist.und - netUnd : 0
       const rows = groupMovs.map(m => {
@@ -485,14 +489,16 @@ function InventarioContent() {
       })
       return { key, carga: groupMovs[0].carga, rows }
     })
-    const cargasConMovs = new Set([...groups.keys()].map(k => k.trim().toUpperCase()))
+    const sinSufijo = (s: string) => s.replace(/\s*\([^()]*\)\s*$/, "").trim().toUpperCase()
+    const cargasConMovs = new Set<string>()
+    for (const k of groups.keys()) { cargasConMovs.add(k.trim().toUpperCase()); cargasConMovs.add(sinSufijo(k)) }
     const vistos = new Set<string>()
     for (const it of (selected ? (clienteItems[selected.id] ?? []) : [])) {
-      const carga = it.descripcion.replace(/\s*\([^()]*\)\s*$/, "").trim()
-      const k = carga.toUpperCase()
-      if (cargasConMovs.has(k) || vistos.has(k)) continue
+      const exacto = it.descripcion.trim()
+      const k = exacto.toUpperCase()
+      if (cargasConMovs.has(k) || cargasConMovs.has(sinSufijo(exacto)) || vistos.has(k)) continue
       vistos.add(k)
-      grupos.push({ key: `sin-mov-${k}`, carga, rows: [] })
+      grupos.push({ key: `sin-mov-${k}`, carga: exacto, rows: [] })
     }
     return grupos
   }, [selected, kardexMovs, clienteItems])

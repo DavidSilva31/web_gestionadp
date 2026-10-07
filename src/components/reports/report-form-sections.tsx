@@ -174,7 +174,7 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
               <select value={form.sec1_sigla} onChange={e => set("sec1_sigla", e.target.value)}
                 disabled={readOnly} className="h-8 text-xs rounded-md border bg-background px-2">
                 <option value="">— Seleccionar —</option>
-                {isoEnBodega.map(c => <option key={c} value={c}>{c}</option>)}
+                {[...new Set(form.sec1_sigla ? [form.sec1_sigla, ...isoEnBodega] : isoEnBodega)].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             ) : (
               <Input value={form.sec1_sigla} onChange={str("sec1_sigla")}

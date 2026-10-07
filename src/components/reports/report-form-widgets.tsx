@@ -20,25 +20,41 @@ import type { BodegajeItemFormData } from "./report-form-types"
 
 export interface ClienteOption { id: string; nombre: string; rut: string | null }
 
-export function ClienteCombobox({ value, onChange, onChangeId, readOnly }: {
+export function ClienteCombobox({ value, onChange, onChangeId, readOnly, tabla = "clientes", permitirEliminar = false }: {
   value: string
   onChange: (nombre: string) => void
   onChangeId: (id: string) => void
   readOnly?: boolean
+  tabla?: "clientes" | "clientes_cotizacion"
+  permitirEliminar?: boolean
 }) {
   const [clientes, setClientes] = useState<ClienteOption[]>([])
   const [open,     setOpen]     = useState(false)
   const [query,    setQuery]    = useState(value)
+  const [aEliminar, setAEliminar] = useState<ClienteOption | null>(null)
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
+  async function confirmarEliminar() {
+    if (!aEliminar) return
+    const supabase = createClient()
+    const { count, error: eCount } = await supabase.from("cotizaciones").select("id", { count: "exact", head: true }).eq("cliente_id", aEliminar.id)
+    if (eCount) { setErrorEliminar(eCount.message); return }
+    if ((count ?? 0) > 0) { setErrorEliminar(`${aEliminar.nombre} tiene ${count} cotización(es) asociada(s); no se puede eliminar.`); return }
+    const { error } = await supabase.from("clientes_cotizacion").delete().eq("id", aEliminar.id)
+    if (error) { setErrorEliminar(error.message); return }
+    setClientes(prev => prev.filter(c => c.id !== aEliminar.id))
+    if (value === aEliminar.nombre) { onChange(""); onChangeId("") }
+    setAEliminar(null)
+    setErrorEliminar(null)
+  }
+
   useEffect(() => {
-    createClient()
-      .from("clientes")
-      .select("id, nombre, rut")
-      .eq("activo", true)
-      .order("nombre", { ascending: true })
+    const consulta = createClient().from(tabla).select("id, nombre, rut")
+    const filtrada = tabla === "clientes" ? consulta.eq("activo", true) : consulta
+    filtrada.order("nombre", { ascending: true })
       .then(({ data }) => { if (data) setClientes(data as ClienteOption[]) })
-  }, [])
+  }, [tabla])
 
   useEffect(() => { setQuery(value) }, [value])
 
@@ -78,19 +94,45 @@ export function ClienteCombobox({ value, onChange, onChangeId, readOnly }: {
       {open && !readOnly && filtered.length > 0 && (
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
           {filtered.map(c => (
-            <button
-              key={c.id}
-              type="button"
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => select(c)}
-              className="w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors"
-            >
-              <span className="font-medium text-foreground truncate">{c.nombre}</span>
-              <span className="text-muted-foreground font-mono text-[10px] flex-shrink-0">{c.rut}</span>
-            </button>
+            <div key={c.id} className="flex items-center hover:bg-muted transition-colors">
+              <button
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => select(c)}
+                className="flex-1 min-w-0 flex items-center justify-between gap-3 px-3 py-2 text-xs text-left"
+              >
+                <span className="font-medium text-foreground truncate">{c.nombre}</span>
+                <span className="text-muted-foreground font-mono text-[10px] flex-shrink-0">{c.rut}</span>
+              </button>
+              {permitirEliminar && (
+                <button
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { setErrorEliminar(null); setAEliminar(c) }}
+                  className="px-2 py-2 text-muted-foreground hover:text-destructive"
+                  aria-label={`Eliminar ${c.nombre}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}
+      <AlertDialog open={!!aEliminar} onOpenChange={o => { if (!o) { setAEliminar(null); setErrorEliminar(null) } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar cliente</AlertDialogTitle>
+            <AlertDialogDescription>
+              {errorEliminar ?? `¿Eliminar "${aEliminar?.nombre}" de la lista de clientes de cotización?`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            {!errorEliminar && <AlertDialogAction onClick={e => { e.preventDefault(); confirmarEliminar() }}>Eliminar</AlertDialogAction>}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -536,7 +578,7 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
 // para el único producto del report; ahora se aplica por línea acá.
 export function tarifaCubreClase(tarifaClase: string | null, itemClase: string | null): boolean {
   if (!tarifaClase || !itemClase) return false
-  const tokens = tarifaClase.replace(/clases?/gi, "").split(/,| y /i).map(t => t.trim()).filter(Boolean)
+  const tokens = tarifaClase.replace(/clases?\s*imo/gi, "").replace(/\bimo\b/gi, "").split(/,| y /i).map(t => t.trim()).filter(Boolean)
   return tokens.includes(itemClase.trim())
 }
 

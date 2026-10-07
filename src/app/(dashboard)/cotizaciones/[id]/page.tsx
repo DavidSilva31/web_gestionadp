@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Plus, Trash2, Save, Download, ArrowLeft, Loader2 } from "lucide-react"
+import { Plus, Trash2, Save, Download, ArrowLeft, Loader2, Copy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -93,7 +93,7 @@ export default function CotizacionFormPage() {
     (async () => {
       const supabase = createClient()
       const [cl, it, tp, ob] = await Promise.all([
-        supabase.from("clientes").select("id, nombre, rut").eq("activo", true).order("nombre"),
+        supabase.from("clientes_cotizacion").select("id, nombre, rut").order("nombre"),
         supabase.from("items_cotizacion").select("id, nombre, valor_unitario, items_cotizacion_categorias(nombre)").eq("activo", true).order("nombre"),
         supabase.from("observacion_tipos").select("id, nombre").order("nombre"),
         supabase.from("observaciones_cotizacion").select("id, texto, tipo_id").eq("activo", true),
@@ -288,6 +288,39 @@ export default function CotizacionFormPage() {
     }
   }
 
+  async function duplicar() {
+    setError(null)
+    const lineasValidas = lineas.filter(l => l.descripcion.trim() !== "")
+    if (!clienteId || lineasValidas.length === 0) { setError("La cotización necesita cliente y al menos una línea para duplicarla."); return }
+    setGuardando(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: nueva, error: eCot } = await supabase.from("cotizaciones").insert({
+      emisor, fecha: new Date().toISOString().slice(0, 10), cliente_id: clienteId, atencion: atencion || null,
+      ciudad: ciudad || null, direccion: direccion || null, valor_uf: valorUF, neto: calc.neto, iva: calc.iva,
+      total: calc.total, observaciones_extra: obsExtra.trim() || null, created_by: user?.id ?? null, updated_by: user?.id ?? null,
+    }).select("id").single()
+    if (eCot || !nueva) { setError(eCot?.message ?? "No se pudo duplicar"); setGuardando(false); return }
+
+    const { error: eLin } = await supabase.from("cotizacion_lineas").insert(
+      lineasValidas.map((l, i) => ({
+        cotizacion_id: nueva.id, item_id: l.item_id, cantidad: l.cantidad, descripcion: l.descripcion.trim(),
+        valor_uf: l.valor_uf, descuento_pct: l.descuento_pct, orden: i,
+      }))
+    )
+    if (eLin) { setError(eLin.message); setGuardando(false); return }
+
+    if (obsSel.size > 0) {
+      const { error: eObs } = await supabase.from("cotizacion_observaciones").insert(
+        [...obsSel].map(oid => ({ cotizacion_id: nueva.id, observacion_id: oid }))
+      )
+      if (eObs) { setError(eObs.message); setGuardando(false); return }
+    }
+
+    setGuardando(false)
+    router.push(`/cotizaciones/${nueva.id}`)
+  }
+
   function abrirPDF() {
     const datos = construirPDF()
     if (!datos) { setError("Selecciona un cliente antes de ver el PDF."); return }
@@ -311,6 +344,11 @@ export default function CotizacionFormPage() {
         <Button variant="outline" onClick={() => router.push("/cotizaciones")} className="gap-1.5">
           <ArrowLeft className="h-4 w-4" /> Volver
         </Button>
+        {!esNueva && (
+          <Button variant="outline" onClick={duplicar} disabled={guardando} className="gap-1.5">
+            <Copy className="h-4 w-4" /> Duplicar
+          </Button>
+        )}
         <Button variant="outline" onClick={abrirPDF} className="gap-1.5">
           <Download className="h-4 w-4" /> Ver PDF
         </Button>
@@ -340,7 +378,7 @@ export default function CotizacionFormPage() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Cliente</Label>
-            <ClienteCombobox value={clienteTexto} onChange={setClienteTexto} onChangeId={setClienteId} />
+            <ClienteCombobox value={clienteTexto} onChange={setClienteTexto} onChangeId={setClienteId} tabla="clientes_cotizacion" permitirEliminar />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Valor UF</Label>
