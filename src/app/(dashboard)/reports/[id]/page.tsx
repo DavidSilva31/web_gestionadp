@@ -241,7 +241,8 @@ export default function ReportDetailPage() {
   // del lado de la base de datos (migration_reports_anular.sql) — si algún día
   // cambia quién tiene este permiso, hay que actualizar los dos lados.
   const JAVIER_NAVARRO_ID = "d0ef84af-0d9b-43b6-83bf-76f5b99b7e6f"
-  const editorTotal = profile?.role === "super_admin" || user?.id === JAVIER_NAVARRO_ID
+  const RECEPCION_ID = "b920ffd6-2aad-44c7-be98-434a2dd799d4"
+  const editorTotal = profile?.role === "super_admin" || user?.id === JAVIER_NAVARRO_ID || user?.id === RECEPCION_ID
 
   // El formulario ya no se bloquea todo junto: Recepción llena Antecedentes +
   // Sección 1 mientras es "borrador"; al guardar pasa a "pendiente_operaciones"
