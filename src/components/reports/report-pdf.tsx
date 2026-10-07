@@ -193,6 +193,15 @@ function TablaBodegaje({ items }: { items: ReportBodegajeItem[] }) {
 
 export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report; firmas?: FirmasPdf; items?: ReportBodegajeItem[] }) {
   const isDespachado = report.estado === "despachado"
+  // El sello decía siempre "DESPACHADO" sin importar si el movimiento real
+  // fue un ingreso — ahora sigue la Sección activa: Sección 1 usa su propio
+  // tipo (ingreso/despacho), Sección 3 (Bodegaje) usa sec3_tipo, y Sección 2
+  // (Logística) siempre es ingreso, igual que en create_movimiento_from_report().
+  const tipoMovimiento = report.sec1_activa ? report.sec1_tipo_movimiento
+    : report.sec3_activa ? report.sec3_tipo
+    : report.sec2_activa ? "ingreso"
+    : "despacho"
+  const selloTexto = tipoMovimiento === "ingreso" ? "INGRESADO" : "DESPACHADO"
   const totalPallets  = items.reduce((sum, it) => sum + (it.sec3_numero_pallets  ?? 0), 0)
   const totalUnidades = items.reduce((sum, it) => sum + (it.sec3_numero_unidades ?? 0), 0)
 
@@ -402,12 +411,12 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
           </Text>
         )}
 
-        {/* ── Sello DESPACHADO ── */}
+        {/* ── Sello INGRESADO / DESPACHADO ── */}
         {isDespachado && (
           <View style={s.stamp}>
             <View style={s.stampInner} />
             <Image style={s.stampLogo} src={ADP_LOGO_DATA_URI} />
-            <Text style={s.stampText}>DESPACHADO</Text>
+            <Text style={s.stampText}>{selloTexto}</Text>
             <View style={s.stampDivider} />
             <Text style={s.stampSub}>RUT 76.499.190-7</Text>
             {report.fecha_despacho && (

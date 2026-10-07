@@ -2,28 +2,36 @@
 
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Download, X, Loader2, FileText, CloudUpload, CloudCheck, CloudAlert } from "lucide-react"
+import { X, Loader2, FileText, CloudUpload, CloudCheck, CloudAlert } from "lucide-react"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
+import { nombreArchivoCotizacion } from "@/lib/cotizacion-pdf-build"
 import type { CotizacionPDFData } from "@/components/cotizaciones/cotizacion-pdf"
 
 interface Props {
-  data:       CotizacionPDFData
-  onClose:    () => void
-  onDownload: () => void
+  data:          CotizacionPDFData
+  cotizacionId:  string | null
+  onClose:       () => void
 }
 
 type EstadoSharePoint = { tipo: "subiendo" | "ok" | "error"; mensaje?: string }
 
-export function CotizacionPreviewModal({ data, onClose, onDownload }: Props) {
-  const [url,     setUrl]     = useState<string | null>(null)
+export function CotizacionPreviewModal({ data, cotizacionId, onClose }: Props) {
+  // Cotización ya guardada: el PDF se sirve desde el servidor (misma URL que
+  // usa el visor nativo del navegador para sugerir el nombre al guardar —
+  // ver /api/cotizaciones/[id]/pdf). Sin guardar: se genera en el navegador,
+  // sin nombre real posible porque no hay nada persistido aún.
+  const urlServidor = cotizacionId ? `/api/cotizaciones/${cotizacionId}/pdf` : null
+
+  const [url,     setUrl]     = useState<string | null>(urlServidor)
   const [blob,    setBlob]    = useState<Blob | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!urlServidor)
   const [error,   setError]   = useState(false)
   const [sharePoint, setSharePoint] = useState<EstadoSharePoint | null>(null)
 
   useCloseOnBack(true, onClose)
 
   useEffect(() => {
+    if (urlServidor) return
     let objectUrl: string | undefined
     ;(async () => {
       try {
@@ -40,16 +48,26 @@ export function CotizacionPreviewModal({ data, onClose, onDownload }: Props) {
       }
     })()
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [data])
+  }, [data, urlServidor])
+
+  async function obtenerBlob(): Promise<Blob | null> {
+    if (blob) return blob
+    if (!urlServidor) return null
+    const res = await fetch(urlServidor)
+    if (!res.ok) return null
+    return res.blob()
+  }
 
   async function subirASharePoint() {
-    if (!blob) return
     setSharePoint({ tipo: "subiendo" })
     try {
+      const archivo = await obtenerBlob()
+      if (!archivo) throw new Error("No se pudo obtener el PDF")
       const anio = data.fecha.match(/(\d{4})/)?.[1] ?? String(new Date().getFullYear())
+      const nombreArchivo = nombreArchivoCotizacion(data)
       const form = new FormData()
-      form.append("file", blob, `Cotizacion_${data.numero}.pdf`)
-      form.append("numero", String(data.numero))
+      form.append("file", archivo, nombreArchivo)
+      form.append("nombreArchivo", nombreArchivo)
       form.append("anio", anio)
       const res = await fetch("/api/cotizaciones/sharepoint", { method: "POST", body: form })
       const json = await res.json().catch(() => ({}))
@@ -58,11 +76,6 @@ export function CotizacionPreviewModal({ data, onClose, onDownload }: Props) {
     } catch (err) {
       setSharePoint({ tipo: "error", mensaje: err instanceof Error ? err.message : "Error desconocido" })
     }
-  }
-
-  function handleDescargar() {
-    onDownload()
-    subirASharePoint()
   }
 
   useEffect(() => {
@@ -97,9 +110,9 @@ export function CotizacionPreviewModal({ data, onClose, onDownload }: Props) {
               <CloudAlert className="h-3.5 w-3.5" /> No se pudo subir a SharePoint
             </span>
           )}
-          <Button size="sm" variant="outline" onClick={handleDescargar} disabled={loading || error} className="h-8 gap-1.5 text-[12px]">
-            <Download className="h-3.5 w-3.5" />
-            Descargar
+          <Button size="sm" variant="outline" onClick={subirASharePoint} disabled={loading || error || sharePoint?.tipo === "subiendo"} className="h-8 gap-1.5 text-[12px]">
+            <CloudUpload className="h-3.5 w-3.5" />
+            Subir a SharePoint
           </Button>
           <Button size="sm" variant="ghost" onClick={onClose} className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
@@ -121,7 +134,8 @@ export function CotizacionPreviewModal({ data, onClose, onDownload }: Props) {
           </div>
         )}
         {url && !error && (
-          <iframe src={url} className="w-full h-full border-0" title={`Cotización ${data.numero}`} />
+          <iframe src={url} className="w-full h-full border-0" title={`Cotización ${data.numero}`}
+            onLoad={() => setLoading(false)} />
         )}
       </div>
     </div>

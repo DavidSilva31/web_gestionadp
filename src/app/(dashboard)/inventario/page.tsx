@@ -567,6 +567,32 @@ function InventarioContent() {
     setKardexDirty(true)
   }
 
+  // Edición directa del saldo corrido (Stock Pos/Stock Und): en vez de tocar
+  // stock_actual/stock_unidades a mano (bloqueado por el trigger de BD), se
+  // inserta un movimiento de ajuste justo después de esta fila por la
+  // diferencia entre el valor escrito y el saldo que había. Así el saldo de
+  // esta fila en adelante queda como se pidió, sin alterar los movimientos
+  // existentes.
+  async function ajustarStockCorrido(m: Movimiento & { stockPos: number; stockUnd: number }, campo: "pos" | "und", nuevoValor: number) {
+    if (!selected) return
+    if (!m.inventario_item_id) { setKardexError("Esta línea no está vinculada a un ítem de inventario; no se puede ajustar el stock."); return }
+    const actual = campo === "pos" ? m.stockPos : m.stockUnd
+    const delta = nuevoValor - actual
+    if (delta === 0) return
+    const supabase = createClient()
+    const { error } = await supabase.from("movimientos").insert({
+      cliente_id: selected.id, cliente_nombre: null, tipo: delta > 0 ? "ingreso" : "despacho",
+      servicio: "Almacenaje", carga: m.carga, inventario_item_id: m.inventario_item_id,
+      posiciones: campo === "pos" ? Math.abs(delta) : 0, unidades: campo === "und" ? Math.abs(delta) : 0,
+      codigo: m.codigo ?? null, operador: null, estado: "completado",
+      observaciones: "Ajuste manual de stock (Detalle)",
+      fecha: new Date(new Date(m.fecha).getTime() + 1000).toISOString(),
+    })
+    if (error) { setKardexError(error.message); return }
+    setKardexDirty(true)
+    await Promise.all([fetchKardexForCliente(selected.id), fetchItemsForCliente(selected.id)])
+  }
+
   // Agrega un movimiento nuevo al grupo de un producto — hereda cliente/área/
   // ítem de cualquier fila existente del grupo, así el trigger de stock sigue
   // funcionando igual que con cualquier otra fila. Entra con fecha de hoy;
@@ -1370,8 +1396,12 @@ function InventarioContent() {
                                             ? <KardexCell kind="number" align="right" value={m.unidades} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "unidades", v as number | null)} />
                                             : ""}
                                         </td>
-                                        <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums font-semibold">{m.stockPos}</td>
-                                        <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums font-semibold">{m.stockUnd}</td>
+                                        <td className="p-0 text-right whitespace-nowrap tabular-nums font-semibold">
+                                          <KardexCell kind="number" align="right" value={m.stockPos} disabled={!kardexEditing} onSave={v => ajustarStockCorrido(m, "pos", Number(v ?? 0))} />
+                                        </td>
+                                        <td className="p-0 text-right whitespace-nowrap tabular-nums font-semibold">
+                                          <KardexCell kind="number" align="right" value={m.stockUnd} disabled={!kardexEditing} onSave={v => ajustarStockCorrido(m, "und", Number(v ?? 0))} />
+                                        </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
                                           <KardexCell kind="text" value={m.bodega} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "bodega", v as string | null)} />
                                         </td>

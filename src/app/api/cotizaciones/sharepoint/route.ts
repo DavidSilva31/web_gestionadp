@@ -16,9 +16,9 @@ export async function POST(req: NextRequest) {
 
   const form = await req.formData()
   const file = form.get("file")
-  const numero = form.get("numero")
+  const nombreArchivo = form.get("nombreArchivo")
   const anio = form.get("anio")
-  if (!(file instanceof File) || typeof numero !== "string" || typeof anio !== "string") {
+  if (!(file instanceof File) || typeof nombreArchivo !== "string" || typeof anio !== "string") {
     return NextResponse.json({ error: "Faltan datos del archivo" }, { status: 400 })
   }
   if (!/^\d{4}$/.test(anio)) return NextResponse.json({ error: "Año inválido" }, { status: 400 })
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     const contenido = Buffer.from(await file.arrayBuffer())
     const { webUrl } = await subirArchivoASharePoint({
       carpetas: [...BASE_PATH, anio],
-      nombreArchivo: `Cotizacion_${numero}.pdf`,
+      nombreArchivo,
       contenido,
       contentType: "application/pdf",
     })

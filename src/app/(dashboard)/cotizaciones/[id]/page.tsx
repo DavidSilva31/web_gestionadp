@@ -10,28 +10,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { ClienteCombobox } from "@/components/reports/report-form-widgets"
-import { FIRMA_GONZALO_DATA_URI } from "@/lib/firma-gonzalo-base64"
-import { downloadCotizacionPDF } from "@/lib/download-cotizacion-pdf"
 import { CotizacionPreviewModal } from "@/components/cotizaciones/cotizacion-preview-modal"
+import { EMISORES, EMISOR_DATOS, FIRMA, IVA, type Emisor } from "@/lib/cotizacion-pdf-build"
 import type { CotizacionPDFData } from "@/components/cotizaciones/cotizacion-pdf"
-
-const IVA = 0.19
-const EMISORES = ["Altos del Puerto", "Incomex", "Mar Azul"] as const
-type Emisor = (typeof EMISORES)[number]
-
-const EMISOR_DATOS: Record<Emisor, { direccion: string; telefono: string; email: string; web: string }> = {
-  "Altos del Puerto": { direccion: "Camino La Pólvora 106, Valparaíso, Chile", telefono: "Fono: 77482466", email: "secretaria@altosdelpuerto.cl", web: "www.altosdelpuerto.cl" },
-  "Incomex":          { direccion: "Camino La Pólvora 106, Valparaíso, Chile", telefono: "Fono: 77482466", email: "secretaria@altosdelpuerto.cl", web: "www.altosdelpuerto.cl" },
-  "Mar Azul":         { direccion: "", telefono: "", email: "", web: "" },
-}
-
-const FIRMA = {
-  nombre: "Gonzalo Bozzolo Artaza",
-  cargo: "Gerente de Operaciones, Altos del Puerto",
-  telefono: "Fono: 62483906",
-  email: "gonzalobozzolo@altosdelpuerto.cl",
-  imagenUri: FIRMA_GONZALO_DATA_URI,
-}
 
 type Cliente = { id: string; nombre: string; rut: string | null }
 type ItemCat = { id: string; nombre: string; valor_unitario: number | null; categoria: string }
@@ -327,11 +308,6 @@ export default function CotizacionFormPage() {
     setPdfDatos(datos)
   }
 
-  async function descargarPDF() {
-    if (!pdfDatos) return
-    await downloadCotizacionPDF(pdfDatos)
-  }
-
   if (cargando) {
     return <div className="p-6 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>
   }
@@ -358,7 +334,7 @@ export default function CotizacionFormPage() {
       </PageHeader>
 
       {pdfDatos && (
-        <CotizacionPreviewModal data={pdfDatos} onClose={() => setPdfDatos(null)} onDownload={descargarPDF} />
+        <CotizacionPreviewModal data={pdfDatos} cotizacionId={cotId} onClose={() => setPdfDatos(null)} />
       )}
 
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
