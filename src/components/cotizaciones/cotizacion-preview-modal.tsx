@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Download, X, Loader2, FileText } from "lucide-react"
+import { Download, X, Loader2, FileText, CloudUpload, CloudCheck, CloudAlert } from "lucide-react"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { CotizacionPDFData } from "@/components/cotizaciones/cotizacion-pdf"
 
@@ -12,10 +12,14 @@ interface Props {
   onDownload: () => void
 }
 
+type EstadoSharePoint = { tipo: "subiendo" | "ok" | "error"; mensaje?: string }
+
 export function CotizacionPreviewModal({ data, onClose, onDownload }: Props) {
   const [url,     setUrl]     = useState<string | null>(null)
+  const [blob,    setBlob]    = useState<Blob | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(false)
+  const [sharePoint, setSharePoint] = useState<EstadoSharePoint | null>(null)
 
   useCloseOnBack(true, onClose)
 
@@ -25,8 +29,9 @@ export function CotizacionPreviewModal({ data, onClose, onDownload }: Props) {
       try {
         const { pdf }        = await import("@react-pdf/renderer")
         const { CotizacionPDF } = await import("@/components/cotizaciones/cotizacion-pdf")
-        const blob = await pdf(<CotizacionPDF data={data} />).toBlob()
-        objectUrl  = URL.createObjectURL(blob)
+        const generado = await pdf(<CotizacionPDF data={data} />).toBlob()
+        objectUrl  = URL.createObjectURL(generado)
+        setBlob(generado)
         setUrl(objectUrl)
       } catch {
         setError(true)
@@ -36,6 +41,29 @@ export function CotizacionPreviewModal({ data, onClose, onDownload }: Props) {
     })()
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [data])
+
+  async function subirASharePoint() {
+    if (!blob) return
+    setSharePoint({ tipo: "subiendo" })
+    try {
+      const anio = data.fecha.match(/(\d{4})/)?.[1] ?? String(new Date().getFullYear())
+      const form = new FormData()
+      form.append("file", blob, `Cotizacion_${data.numero}.pdf`)
+      form.append("numero", String(data.numero))
+      form.append("anio", anio)
+      const res = await fetch("/api/cotizaciones/sharepoint", { method: "POST", body: form })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error ?? "No se pudo subir a SharePoint")
+      setSharePoint({ tipo: "ok" })
+    } catch (err) {
+      setSharePoint({ tipo: "error", mensaje: err instanceof Error ? err.message : "Error desconocido" })
+    }
+  }
+
+  function handleDescargar() {
+    onDownload()
+    subirASharePoint()
+  }
 
   useEffect(() => {
     function handler(e: KeyboardEvent) { if (e.key === "Escape") onClose() }
@@ -53,8 +81,23 @@ export function CotizacionPreviewModal({ data, onClose, onDownload }: Props) {
             <p className="text-[11px] text-muted-foreground">{data.cliente.razonSocial} · {data.emisor.nombre}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={onDownload} disabled={loading || error} className="h-8 gap-1.5 text-[12px]">
+        <div className="flex items-center gap-3">
+          {sharePoint?.tipo === "subiendo" && (
+            <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <CloudUpload className="h-3.5 w-3.5 animate-pulse" /> Subiendo a SharePoint…
+            </span>
+          )}
+          {sharePoint?.tipo === "ok" && (
+            <span className="flex items-center gap-1.5 text-[11px] text-emerald-600">
+              <CloudCheck className="h-3.5 w-3.5" /> Guardado en SharePoint
+            </span>
+          )}
+          {sharePoint?.tipo === "error" && (
+            <span className="flex items-center gap-1.5 text-[11px] text-destructive" title={sharePoint.mensaje}>
+              <CloudAlert className="h-3.5 w-3.5" /> No se pudo subir a SharePoint
+            </span>
+          )}
+          <Button size="sm" variant="outline" onClick={handleDescargar} disabled={loading || error} className="h-8 gap-1.5 text-[12px]">
             <Download className="h-3.5 w-3.5" />
             Descargar
           </Button>
