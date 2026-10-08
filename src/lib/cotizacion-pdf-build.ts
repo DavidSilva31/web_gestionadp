@@ -13,7 +13,7 @@ export const EMISOR_DATOS: Record<Emisor, { direccion: string; telefono: string;
 export const FIRMA = {
   nombre: "Gonzalo Bozzolo Artaza",
   cargo: "Gerente de Operaciones, Altos del Puerto",
-  telefono: "Fono: 62483906",
+  telefono: "Fono: +56962483906",
   email: "gonzalobozzolo@altosdelpuerto.cl",
   imagenUri: FIRMA_GONZALO_DATA_URI,
 }
