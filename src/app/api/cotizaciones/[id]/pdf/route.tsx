@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const { data: cot, error } = await supabase.from("cotizaciones")
-    .select("numero, fecha, emisor, atencion, ciudad, direccion, valor_uf, neto, iva, total, observaciones_extra, clientes_cotizacion(nombre, rut)")
+    .select("numero, fecha, emisor, atencion, ciudad, direccion, valor_uf, neto, iva, total, observaciones_extra, ocultar_totales, clientes_cotizacion(nombre, rut)")
     .eq("id", id).single()
   if (error || !cot) return NextResponse.json({ error: "Cotización no encontrada" }, { status: 404 })
 

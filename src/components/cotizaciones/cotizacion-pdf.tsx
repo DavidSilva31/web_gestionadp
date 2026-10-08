@@ -34,6 +34,7 @@ export type CotizacionPDFData = {
   total:           number
   observaciones:   CotizacionObservacion[]
   observacionesExtra: string | null
+  ocultarTotales:  boolean
   firma:           { nombre: string; cargo: string; telefono: string; email: string; imagenUri?: string }
 }
 
@@ -171,14 +172,16 @@ export function CotizacionPDF({ data }: { data: CotizacionPDFData }) {
               </View>
             </View>
 
-            <View style={s.totales}>
-              <View style={s.totFila}><Text style={s.totLbl}>Neto</Text><Text style={s.totVal}>$ {fmtCL(data.neto)}</Text></View>
-              <View style={s.totFila}><Text style={s.totLbl}>IVA 19%</Text><Text style={s.totVal}>$ {fmtCL(data.iva)}</Text></View>
-              <View style={s.totFinal}>
-                <Text style={s.totFinalLbl}>Total</Text>
-                <Text style={s.totFinalVal}>$ {fmtCL(data.total)}</Text>
+            {!data.ocultarTotales && (
+              <View style={s.totales}>
+                <View style={s.totFila}><Text style={s.totLbl}>Neto</Text><Text style={s.totVal}>$ {fmtCL(data.neto)}</Text></View>
+                <View style={s.totFila}><Text style={s.totLbl}>IVA 19%</Text><Text style={s.totVal}>$ {fmtCL(data.iva)}</Text></View>
+                <View style={s.totFinal}>
+                  <Text style={s.totFinalLbl}>Total</Text>
+                  <Text style={s.totFinalVal}>$ {fmtCL(data.total)}</Text>
+                </View>
               </View>
-            </View>
+            )}
           </View>
 
           {Object.entries(obsPorTipo).map(([tipo, textos]) => (

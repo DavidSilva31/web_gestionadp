@@ -63,6 +63,7 @@ export default function CotizacionFormPage() {
   const [ufError, setUfError] = useState<string | null>(null)
   const [ufRetry, setUfRetry] = useState(0)
   const [lineas, setLineas] = useState<Linea[]>([nuevaLinea()])
+  const [ocultarTotales, setOcultarTotales] = useState(false)
   const [obsSel, setObsSel] = useState<Set<string>>(new Set())
   const [obsExtra, setObsExtra] = useState("")
   const [editandoObsId, setEditandoObsId] = useState<string | null>(null)
@@ -102,6 +103,7 @@ export default function CotizacionFormPage() {
         setDireccion(c.direccion ?? "")
         setValorUF(Number(c.valor_uf))
         setObsExtra(c.observaciones_extra ?? "")
+        setOcultarTotales(c.ocultar_totales ?? false)
         setLineas((li.data ?? []).length
           ? (li.data ?? []).map(l => ({ key: l.id, item_id: l.item_id, cantidad: Number(l.cantidad), descripcion: l.descripcion, valor_uf: Number(l.valor_uf), descuento_pct: Number(l.descuento_pct) }))
           : [nuevaLinea()])
@@ -201,7 +203,7 @@ export default function CotizacionFormPage() {
     const cabecera = {
       emisor, fecha, cliente_id: clienteId, atencion: atencion || null, ciudad: ciudad || null,
       direccion: direccion || null, valor_uf: valorUF, neto: calc.neto, iva: calc.iva, total: calc.total,
-      observaciones_extra: obsExtra.trim() || null, updated_by: user?.id ?? null,
+      observaciones_extra: obsExtra.trim() || null, ocultar_totales: ocultarTotales, updated_by: user?.id ?? null,
     }
 
     let id = cotId
@@ -265,6 +267,7 @@ export default function CotizacionFormPage() {
       total: calc.total,
       observaciones: obsPorTipo,
       observacionesExtra: obsExtra.trim() || null,
+      ocultarTotales,
       firma: FIRMA,
     }
   }
@@ -279,7 +282,8 @@ export default function CotizacionFormPage() {
     const { data: nueva, error: eCot } = await supabase.from("cotizaciones").insert({
       emisor, fecha: new Date().toISOString().slice(0, 10), cliente_id: clienteId, atencion: atencion || null,
       ciudad: ciudad || null, direccion: direccion || null, valor_uf: valorUF, neto: calc.neto, iva: calc.iva,
-      total: calc.total, observaciones_extra: obsExtra.trim() || null, created_by: user?.id ?? null, updated_by: user?.id ?? null,
+      total: calc.total, observaciones_extra: obsExtra.trim() || null, ocultar_totales: ocultarTotales,
+      created_by: user?.id ?? null, updated_by: user?.id ?? null,
     }).select("id").single()
     if (eCot || !nueva) { setError(eCot?.message ?? "No se pudo duplicar"); setGuardando(false); return }
 
@@ -409,7 +413,8 @@ export default function CotizacionFormPage() {
                 {lineas.map((l, i) => (
                   <tr key={l.key} className={i % 2 === 1 ? "bg-muted/20" : ""}>
                     <td className="px-2 py-1.5">
-                      <Input value={l.descripcion} onChange={e => actualizarLinea(l.key, { descripcion: e.target.value })} className="h-8 text-xs" />
+                      <textarea value={l.descripcion} onChange={e => actualizarLinea(l.key, { descripcion: e.target.value })}
+                        rows={l.descripcion.split("\n").length} className="w-full min-h-8 rounded-md border border-input bg-background px-3 py-1.5 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-ring" />
                     </td>
                     <td className="px-2 py-1.5">
                       <Input type="number" step="0.01" value={l.cantidad} onChange={e => actualizarLinea(l.key, { cantidad: Number(e.target.value) })} className="h-8 text-xs text-right" />
@@ -433,7 +438,11 @@ export default function CotizacionFormPage() {
               </tbody>
             </table>
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end items-start gap-4">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+              <Checkbox checked={ocultarTotales} onCheckedChange={v => setOcultarTotales(v === true)} />
+              Ocultar Neto/IVA/Total en el PDF
+            </label>
             <div className="w-64 text-sm space-y-1">
               <div className="flex justify-between"><span className="text-muted-foreground">Neto</span><span>$ {fmtCL(calc.neto)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">IVA 19%</span><span>$ {fmtCL(calc.iva)}</span></div>

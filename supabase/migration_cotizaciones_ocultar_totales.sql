@@ -1,0 +1,1 @@
+ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS ocultar_totales BOOLEAN NOT NULL DEFAULT false;

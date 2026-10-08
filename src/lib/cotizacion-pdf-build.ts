@@ -38,6 +38,7 @@ type CotizacionRow = {
   iva: number
   total: number
   observaciones_extra: string | null
+  ocultar_totales: boolean
 }
 type ClienteRow = { nombre: string; rut: string | null }
 type LineaRow = { cantidad: number; descripcion: string; valor_uf: number; descuento_pct: number }
@@ -73,6 +74,7 @@ export function construirCotizacionPDFData(
     total: neto + iva,
     observaciones: observaciones.map(o => ({ tipo: o.observacion_tipos?.nombre ?? "", texto: o.texto })),
     observacionesExtra: cot.observaciones_extra,
+    ocultarTotales: cot.ocultar_totales,
     firma: FIRMA,
   }
 }
