@@ -262,6 +262,11 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
               <Field label={report.sec3_cuyd ? "CUyD:" : "CDA:"} value={report.sec3_cuyd_detalle} med />
             )}
           </View>
+          {report.observaciones && (
+            <View style={s.row}>
+              <Field label="Observaciones:" value={report.observaciones} long />
+            </View>
+          )}
         </View>
 
         {/* ── Sección 1: Depósito Contenedores ── */}
