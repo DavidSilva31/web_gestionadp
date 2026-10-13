@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
-import { resolveEffectiveClienteId, type InventarioItemOption } from "@/lib/inventario"
+import { resolveEffectiveClienteId, partesProducto, type InventarioItemOption } from "@/lib/inventario"
 import { ItemFormDialog } from "@/components/inventario/item-form-dialog"
 import { Field } from "./report-form-sections"
 import type { BodegajeItemFormData } from "./report-form-types"
@@ -461,29 +461,26 @@ export function ConductorComboboxes({
 // tipo solo queda para tipar esa lista, sin selector propio.
 export interface TarifaOption { id: string; clase_imo: string | null; cotizacion_numero: string }
 
-export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear, readOnly }: {
+export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSelect, onClear, readOnly }: {
   clienteId: string
   value: string
+  // Ítem elegido (id) — dos productos pueden llamarse igual, así que el nombre solo no alcanza para saber cuál.
+  selectedId?: string
   onChange: (v: string) => void
   onSelect: (item: InventarioItemOption) => void
   onClear: () => void
   readOnly?: boolean
 }) {
-  // inventario_items no tiene columna SKU propia — el código vive en
-  // movimientos (se carga al registrar el ítem o se edita inline en
-  // Detalle). skuPorItem guarda el SKU más reciente de cada ítem, solo para
-  // mostrarlo acá; si un ítem nunca tuvo un movimiento con código, queda
-  // sin entrada y no se muestra nada.
+  // SKU y envase de cada producto: salen del propio ítem (codigo / unidad) y,
+  // si el ítem no los tiene, del último movimiento que los registró. Se muestran
+  // como "{producto} ({envase}) {sku}" (ver partesProducto).
   const [items,  setItems]  = useState<InventarioItemOption[]>([])
   const [skuPorItem, setSkuPorItem] = useState<Record<string, string>>({})
+  const [envasePorItem, setEnvasePorItem] = useState<Record<string, string>>({})
   const [open,   setOpen]   = useState(false)
   const [query,  setQuery]  = useState(value)
   const [highlighted, setHighlighted] = useState(0)
   const [nuevoOpen, setNuevoOpen] = useState(false)
-  // SKU del producto actualmente seleccionado — se muestra pegado al nombre
-  // en el input mientras no se está buscando/editando (ver value del Input
-  // más abajo), igual que ya se ve en cada opción del desplegable.
-  const [selectedSku, setSelectedSku] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   // Al cerrar el dialog de "Nuevo producto" el foco vuelve al input y su
   // onFocus reabriría el dropdown justo después de elegir/crear — se
@@ -493,12 +490,13 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
   useEffect(() => {
     setItems([])
     setSkuPorItem({})
+    setEnvasePorItem({})
     if (!clienteId) return
     const supabase = createClient()
     resolveEffectiveClienteId(supabase, clienteId).then(effectiveId => {
       supabase
         .from("inventario_items")
-        .select("id, descripcion, clase_imo, nu")
+        .select("id, descripcion, clase_imo, nu, codigo, unidad")
         .eq("cliente_id", effectiveId)
         .eq("activo", true)
         .order("descripcion", { ascending: true })
@@ -506,32 +504,37 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
 
       supabase
         .from("movimientos")
-        .select("inventario_item_id, codigo, fecha")
+        .select("inventario_item_id, codigo, tipo_envase, fecha")
         .eq("cliente_id", effectiveId)
         .not("inventario_item_id", "is", null)
-        .not("codigo", "is", null)
         .order("fecha", { ascending: false })
         .then(({ data }) => {
           if (!data) return
-          const map: Record<string, string> = {}
-          for (const m of data as { inventario_item_id: string; codigo: string }[]) {
-            if (!map[m.inventario_item_id]) map[m.inventario_item_id] = m.codigo
+          const skus: Record<string, string> = {}
+          const envases: Record<string, string> = {}
+          for (const m of data as { inventario_item_id: string; codigo: string | null; tipo_envase: string | null }[]) {
+            if (m.codigo && !skus[m.inventario_item_id]) skus[m.inventario_item_id] = m.codigo
+            if (m.tipo_envase && !envases[m.inventario_item_id]) envases[m.inventario_item_id] = m.tipo_envase
           }
-          setSkuPorItem(map)
+          setSkuPorItem(skus)
+          setEnvasePorItem(envases)
         })
     })
   }, [clienteId])
 
   // Sincronizar query si el valor externo cambia (ej: al limpiar, o al
-  // cargar un report ya guardado) — también resuelve el SKU a mostrar
-  // buscando el ítem por nombre una vez que items/skuPorItem terminan de
-  // cargar (llegan async, después de que value ya pudo estar seteado).
-  useEffect(() => {
-    setQuery(value)
-    if (!value) { setSelectedSku(null); return }
-    const match = items.find(i => i.descripcion === value)
-    setSelectedSku(match ? (skuPorItem[match.id] ?? null) : null)
-  }, [value, items, skuPorItem])
+  // cargar un report ya guardado).
+  useEffect(() => { setQuery(value) }, [value])
+
+  const partes = (it: InventarioItemOption) =>
+    partesProducto(it, { sku: skuPorItem[it.id], envase: envasePorItem[it.id] })
+  const etiqueta = (it: InventarioItemOption) => {
+    const p = partes(it)
+    return `${p.nombre}${p.envase ? ` (${p.envase})` : ""}${p.sku ? ` ${p.sku}` : ""}`
+  }
+  // Producto ya elegido (por id): mientras no se busca, el campo muestra su
+  // etiqueta completa en vez del nombre suelto.
+  const seleccionado = selectedId ? items.find(i => i.id === selectedId) : undefined
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -541,8 +544,9 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
     return () => document.removeEventListener("mousedown", onClickOutside)
   }, [])
 
+  // Se busca por nombre, envase o SKU.
   const filtered = query
-    ? items.filter(i => i.descripcion.toLowerCase().includes(query.toLowerCase()))
+    ? items.filter(i => i.descripcion.toLowerCase().includes(query.toLowerCase()) || etiqueta(i).toLowerCase().includes(query.toLowerCase()))
     : items
 
   useEffect(() => { setHighlighted(0) }, [query, open])
@@ -551,7 +555,6 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
     setQuery(item.descripcion)
     onChange(item.descripcion)
     onSelect(item)
-    setSelectedSku(skuPorItem[item.id] ?? null)
     setOpen(false)
   }
 
@@ -574,8 +577,8 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
   return (
     <div ref={ref} className="relative">
       <Input
-        value={!open && selectedSku ? `${query} · SKU ${selectedSku}` : query}
-        onChange={e => { const v = e.target.value.toUpperCase(); setQuery(v); onChange(v); onClear(); setSelectedSku(null); setOpen(true) }}
+        value={!open && seleccionado ? etiqueta(seleccionado) : query}
+        onChange={e => { const v = e.target.value.toUpperCase(); setQuery(v); onChange(v); onClear(); setOpen(true) }}
         onFocus={() => {
           if (suppressFocusOpen.current) { suppressFocusOpen.current = false; return }
           if (!readOnly) setOpen(true)
@@ -588,7 +591,9 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
       />
       {open && !readOnly && clienteId && (filtered.length > 0 || query.length > 0) && (
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-          {filtered.map((item, i) => (
+          {filtered.map((item, i) => {
+            const p = partes(item)
+            return (
             <button
               key={item.id}
               type="button"
@@ -597,10 +602,8 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
               className={cn("w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors", i === highlighted && "bg-muted")}
             >
               <span className="min-w-0 truncate">
-                <span className="font-medium text-foreground">{item.descripcion}</span>
-                {skuPorItem[item.id] && (
-                  <span className="text-muted-foreground"> · SKU {skuPorItem[item.id]}</span>
-                )}
+                <span className="font-medium text-foreground">{p.nombre}{p.envase ? ` (${p.envase})` : ""}</span>
+                {p.sku && <span className="text-muted-foreground font-mono"> {p.sku}</span>}
               </span>
               {item.clase_imo && (
                 <span className="text-[10px] font-mono text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded flex-shrink-0">
@@ -608,7 +611,8 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
                 </span>
               )}
             </button>
-          ))}
+            )
+          })}
           {filtered.length === 0 && query.length > 0 && (
             <p className="px-3 py-2 text-xs text-muted-foreground">Sin coincidencias en Inventario</p>
           )}
@@ -858,6 +862,7 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
               <ProductoCombobox
                 clienteId={clienteId}
                 value={item.sec3_producto}
+                selectedId={item.sec3_inventario_item_id}
                 onChange={v => onChange(index, { sec3_producto: v })}
                 onSelect={selected => onChange(index, {
                   sec3_peso_neto:          "",

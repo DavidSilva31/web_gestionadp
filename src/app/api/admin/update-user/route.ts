@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { createServerSupabaseClient } from "@/lib/supabase-server"
 import { logAuditServer } from "@/lib/audit"
+import { MODULE_LABEL, ROLE_MODULE_DEFAULTS } from "@/lib/modulos"
+import { ROLE_LABELS, type UserRole } from "@/types/auth"
 
 const VALID_ROLES = ["super_admin", "operador", "operador_carga"] as const
 
@@ -32,6 +34,10 @@ export async function PATCH(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "ID requerido" }, { status: 400 })
     if (id === user.id)
       return NextResponse.json({ error: "No puedes modificar tu propio rol o estado" }, { status: 400 })
+
+    // Estado anterior del usuario, para describir qué cambió en la auditoría.
+    const { data: antes } = await supabaseAdmin
+      .from("profiles").select("nombre, role, activo, permisos").eq("id", id).single()
 
     const updates: Record<string, unknown> = {}
 
@@ -70,9 +76,30 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    const cambios = Object.entries(updates)
-      .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-      .join(", ")
+    // Mensaje legible: a quién se le cambió y qué cambió, con nombres de módulo
+    // (no el arreglo crudo de rutas). Ej: "Gonzalo Bozzolo: permisos +Reports, −Auditoría".
+    const nombreRol = (r: unknown) => ROLE_LABELS[r as UserRole] ?? String(r)
+    const nombreMod = (ruta: string) => MODULE_LABEL[ruta] ?? ruta
+    const partes: string[] = []
+    if (updates.role !== undefined && updates.role !== antes?.role) {
+      partes.push(`rol ${antes ? nombreRol(antes.role) : "?"} → ${nombreRol(updates.role)}`)
+    }
+    if (updates.activo !== undefined && updates.activo !== antes?.activo) {
+      partes.push(updates.activo ? "reactivado" : "desactivado")
+    }
+    if (updates.permisos !== undefined) {
+      if (updates.permisos === null) {
+        partes.push("permisos restablecidos a los del rol")
+      } else {
+        const nuevos = updates.permisos as string[]
+        const previos: string[] = antes?.permisos ?? (antes ? ROLE_MODULE_DEFAULTS[antes.role as UserRole] ?? [] : [])
+        const agregados = nuevos.filter(p => !previos.includes(p)).map(nombreMod)
+        const quitados  = previos.filter(p => !nuevos.includes(p)).map(nombreMod)
+        const cambiosPerm = [...agregados.map(m => `+${m}`), ...quitados.map(m => `−${m}`)]
+        partes.push(cambiosPerm.length > 0 ? `permisos ${cambiosPerm.join(", ")}` : "permisos sin cambios")
+      }
+    }
+    const cambios = `${antes?.nombre ?? "Usuario"}: ${partes.length > 0 ? partes.join("; ") : "sin cambios"}`
 
     await logAuditServer({
       tabla:          "profiles",

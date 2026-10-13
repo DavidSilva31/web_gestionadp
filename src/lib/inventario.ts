@@ -22,7 +22,31 @@ export const ENVASES_CONTENEDOR = ["Full", "Vacío"] as const
 
 // Ítem mínimo que necesita un selector de producto (ProductoCombobox) — lo
 // que devuelve el alta rápida de ItemFormDialog al crear uno nuevo.
-export interface InventarioItemOption { id: string; descripcion: string; clase_imo: string | null; nu: string | null }
+export interface InventarioItemOption {
+  id: string; descripcion: string; clase_imo: string | null; nu: string | null
+  codigo?: string | null; unidad?: string | null
+}
+
+// Cómo se muestra un producto al elegirlo en un report: "{producto} ({envase}) {sku}".
+// Dos productos pueden llamarse igual y distinguirse solo por envase y SKU
+// (ej. PHILMPLUS 5065 en IBC y en Tambor), así que se muestran siempre.
+//  - sku: el código del ítem; si no tiene, el del último movimiento (extra.sku).
+//  - envase: el sufijo "(IBC)" del nombre, si lo trae; si no, la unidad del ítem
+//    cuando es un envase real; si no, el envase del último movimiento (extra.envase).
+//  - nombre: sin el "(envase)" ni el "(SKU)" finales, que se muestran aparte.
+export function partesProducto(
+  item: { descripcion: string; codigo?: string | null; unidad?: string | null },
+  extra?: { sku?: string | null; envase?: string | null },
+): { nombre: string; envase: string | null; sku: string | null } {
+  const sku = item.codigo?.trim() || extra?.sku?.trim() || null
+  const comoEnvase = (v?: string | null) => TIPOS_ENVASE.find(t => t.toUpperCase() === (v ?? "").trim().toUpperCase())
+  const sufijo = item.descripcion.match(/\(([^()]*)\)\s*$/)
+  const envase = comoEnvase(sufijo?.[1]) ?? comoEnvase(item.unidad) ?? comoEnvase(extra?.envase) ?? null
+  let nombre = stripEnvaseSuffix(item.descripcion)
+  const m = nombre.match(/\s*\(([^()]*)\)\s*$/)
+  if (m && sku && m[1].trim().toUpperCase() === sku.toUpperCase()) nombre = nombre.slice(0, m.index).trim()
+  return { nombre, envase, sku }
+}
 
 // El nombre de un ítem suele incluir el envase entre paréntesis (ej.
 // "BENCINA (TAMBOR)") — pero movimientos.carga es lo que agrupa Detalle por
