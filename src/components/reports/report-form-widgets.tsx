@@ -732,6 +732,101 @@ function LoteField({ inventarioItemId, carga, value, onChange, disabled }: {
   )
 }
 
+// Pesos netos que ya tiene el producto + lote elegidos. Un mismo lote puede tener
+// 2 o más pesos distintos (cada fila de ingreso del inventario guarda el suyo,
+// ej. 800 kg y 770 kg), así que al ingresar o despachar el operador elige de cuál.
+// Muestra, por cada peso, las posiciones que quedan (ingresos - despachos de ese
+// peso). Texto libre igual: un ingreso nuevo puede traer un peso que aún no existe.
+// El campo solo se muestra cuando el producto + lote ya tienen algún peso registrado
+// (o el report ya trae uno guardado): si no, no hay nada que elegir y no aparece.
+function PesoNetoField({ inventarioItemId, carga, lote, value, onChange, disabled }: {
+  inventarioItemId: string
+  carga: string
+  lote: string
+  value: string
+  onChange: (v: string) => void
+  disabled?: boolean
+}) {
+  const [opciones, setOpciones] = useState<{ peso: number; disponibles: number }[]>([])
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const loteTrim = lote.trim()
+
+  useEffect(() => {
+    const cargaTrim = carga.trim()
+    if (!loteTrim || (!inventarioItemId && !cargaTrim)) { setOpciones([]); return }
+    type Fila = { id: string; tipo: string; posiciones: number | null; peso_envase: number | null }
+    let vivo = true
+    const supabase = createClient()
+    const cols = "id, tipo, posiciones, peso_envase"
+    // Dos queries (no .or()) por el mismo motivo que LoteField: carga trae paréntesis.
+    Promise.all([
+      inventarioItemId
+        ? supabase.from("movimientos").select(cols).eq("inventario_item_id", inventarioItemId).eq("lote", loteTrim).eq("oculto", false).not("peso_envase", "is", null)
+        : Promise.resolve({ data: [] as Fila[] }),
+      cargaTrim
+        ? supabase.from("movimientos").select(cols).eq("carga", cargaTrim).eq("lote", loteTrim).eq("oculto", false).not("peso_envase", "is", null)
+        : Promise.resolve({ data: [] as Fila[] }),
+    ]).then(([a, b]) => {
+      if (!vivo) return
+      const porId = new Map<string, Fila>()
+      for (const m of [...(a.data ?? []), ...(b.data ?? [])] as Fila[]) porId.set(m.id, m)
+      const neto = new Map<number, number>()
+      for (const m of porId.values()) {
+        const k = Number(m.peso_envase)
+        neto.set(k, (neto.get(k) ?? 0) + (m.tipo === "ingreso" ? 1 : -1) * (m.posiciones ?? 0))
+      }
+      setOpciones([...neto.entries()].map(([peso, disponibles]) => ({ peso, disponibles })).sort((x, y) => x.peso - y.peso))
+    })
+    return () => { vivo = false }
+  }, [inventarioItemId, carga, loteTrim])
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onClickOutside)
+    return () => document.removeEventListener("mousedown", onClickOutside)
+  }, [])
+
+  if (opciones.length === 0 && !value) return null
+
+  return (
+    <Field label="Peso neto">
+    <div ref={ref} className="relative">
+      <Input
+        type="number" min={0} step="any"
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true) }}
+        onFocus={() => !disabled && opciones.length > 0 && setOpen(true)}
+        placeholder={loteTrim ? "kg" : "Elige el lote"}
+        className="h-8 text-xs"
+        autoComplete="off"
+        disabled={disabled}
+      />
+      {open && !disabled && opciones.length > 0 && (
+        <div className="absolute z-50 w-full min-w-40 mt-1 bg-background border rounded-lg shadow-lg max-h-40 overflow-y-auto">
+          {opciones.map(o => (
+            <button
+              key={o.peso}
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onChange(String(o.peso)); setOpen(false) }}
+              className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-xs text-left hover:bg-muted transition-colors"
+            >
+              <span className="font-mono">{o.peso} kg</span>
+              <span className={cn("text-[10px]", o.disponibles > 0 ? "text-muted-foreground" : "text-muted-foreground/50")}>
+                {o.disponibles} pos.
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+    </Field>
+  )
+}
+
 export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove, tarifasCliente, readOnly }: {
   clienteId: string
   items: BodegajeItemFormData[]
@@ -765,6 +860,7 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
                 value={item.sec3_producto}
                 onChange={v => onChange(index, { sec3_producto: v })}
                 onSelect={selected => onChange(index, {
+                  sec3_peso_neto:          "",
                   sec3_inventario_item_id: selected.id,
                   sec3_producto:           selected.descripcion,
                   sec3_clase_imo:          selected.clase_imo ?? "",
@@ -772,7 +868,7 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
                   tarifa_cliente_id: tarifasCliente.find(t => tarifaCubreClase(t.clase_imo, selected.clase_imo))?.id ?? "",
                 })}
                 onClear={() => onChange(index, {
-                  sec3_inventario_item_id: "", sec3_clase_imo: "", sec3_nu: "", tarifa_cliente_id: "",
+                  sec3_inventario_item_id: "", sec3_clase_imo: "", sec3_nu: "", sec3_peso_neto: "", tarifa_cliente_id: "",
                 })}
                 readOnly={readOnly}
               />
@@ -807,16 +903,24 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
                 placeholder="0" className="h-8 text-xs" disabled={readOnly} />
             </Field>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
             <Field label="Lote">
               <LoteField
                 inventarioItemId={item.sec3_inventario_item_id}
                 carga={item.sec3_producto}
                 value={item.sec3_lote}
-                onChange={v => onChange(index, { sec3_lote: v })}
+                onChange={v => onChange(index, { sec3_lote: v, sec3_peso_neto: "" })}
                 disabled={readOnly}
               />
             </Field>
+            <PesoNetoField
+              inventarioItemId={item.sec3_inventario_item_id}
+              carga={item.sec3_producto}
+              lote={item.sec3_lote}
+              value={item.sec3_peso_neto}
+              onChange={v => onChange(index, { sec3_peso_neto: v })}
+              disabled={readOnly}
+            />
             <Field label="CAS">
               <Input value={item.sec3_cas} onChange={e => onChange(index, { sec3_cas: e.target.value })}
                 className="h-8 text-xs font-mono" disabled={readOnly} />

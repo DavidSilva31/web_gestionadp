@@ -83,6 +83,9 @@ export interface BodegajeItemFormData {
   sec3_orden_compra:       string
   sec3_fecha_elaboracion:  string
   sec3_fecha_vencimiento:  string
+  // Peso neto (kg) de la fila del lote que se ingresa o despacha — un mismo lote
+  // puede tener 2 o más pesos distintos (ver PesoNetoField).
+  sec3_peso_neto:          string
   // Tarifa/contrato derivada por línea (Clase IMO de ESTE producto contra
   // los contratos del cliente) — no una sola por report.
   tarifa_cliente_id:       string
@@ -93,7 +96,7 @@ export function emptyBodegajeItem(): BodegajeItemFormData {
     sec3_inventario_item_id: "", sec3_producto: "", sec3_clase_imo: "", sec3_nu: "",
     sec3_numero_bodega: "", sec3_numero_pallets: "", sec3_numero_unidades: "",
     sec3_lote: "", sec3_cas: "", sec3_orden_compra: "",
-    sec3_fecha_elaboracion: "", sec3_fecha_vencimiento: "", tarifa_cliente_id: "",
+    sec3_fecha_elaboracion: "", sec3_fecha_vencimiento: "", sec3_peso_neto: "", tarifa_cliente_id: "",
   }
 }
 
@@ -114,6 +117,7 @@ export function bodegajeItemFromDb(data: Record<string, any>): BodegajeItemFormD
     sec3_orden_compra:       s(data.sec3_orden_compra),
     sec3_fecha_elaboracion:  s(data.sec3_fecha_elaboracion),
     sec3_fecha_vencimiento:  s(data.sec3_fecha_vencimiento),
+    sec3_peso_neto:          data.sec3_peso_neto != null ? String(data.sec3_peso_neto) : "",
     tarifa_cliente_id:       s(data.tarifa_cliente_id),
   }
 }

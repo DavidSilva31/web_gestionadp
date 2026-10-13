@@ -624,6 +624,9 @@ export default function ReportDetailPage() {
             sec3_orden_compra:       it.sec3_orden_compra       || null,
             sec3_fecha_elaboracion:  it.sec3_fecha_elaboracion  || null,
             sec3_fecha_vencimiento:  it.sec3_fecha_vencimiento  || null,
+            // Solo se envía si tiene valor: así guardar sin peso sigue funcionando aunque
+            // la columna todavía no exista (migration_report_bodegaje_peso_neto.sql).
+            ...(it.sec3_peso_neto ? { sec3_peso_neto: Number(it.sec3_peso_neto) } : {}),
             tarifa_cliente_id:       it.tarifa_cliente_id       || null,
           }))
         )

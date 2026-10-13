@@ -150,6 +150,8 @@ export interface ReportBodegajeItem {
   sec3_orden_compra:       string | null
   sec3_fecha_elaboracion:  string | null
   sec3_fecha_vencimiento:  string | null
+  // Peso neto del lote que se ingresa/despacha (un lote puede tener varios pesos).
+  sec3_peso_neto:          number | null
   tarifa_cliente_id:       string | null
   created_at:              string
   updated_at:              string

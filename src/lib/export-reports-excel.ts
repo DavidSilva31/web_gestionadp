@@ -120,6 +120,7 @@ export async function exportReportsToExcel(reports: ReportConItems[], filename =
       "N° Pallets":  it.sec3_numero_pallets  ?? "",
       "N° Unidades": it.sec3_numero_unidades ?? "",
       "Lote":        str(it.sec3_lote),
+      "Peso neto":   it.sec3_peso_neto ?? "",
       "CAS":         str(it.sec3_cas),
       "OC":          str(it.sec3_orden_compra),
       "Elab.":       str(it.sec3_fecha_elaboracion),
