@@ -188,7 +188,7 @@ export default function ReportesPage() {
     let borradores = 0, pendientes = 0, despachados = 0
     for (const r of reportsData ?? []) {
       if (r.estado === "borrador")             borradores++
-      else if (r.estado === "pendiente_operaciones" || r.estado === "pendiente_despacho") pendientes++
+      else if (r.estado === "pendiente_operaciones" || r.estado === "pendiente_despacho" || r.estado === "en_proceso") pendientes++
       else if (r.estado === "despachado")      despachados++
     }
 

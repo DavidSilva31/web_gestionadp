@@ -35,6 +35,7 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "borrador",              label: "Ingresados",        icon: <FileText className="h-3.5 w-3.5" /> },
   { key: "pendiente_operaciones", label: "Pend. operaciones", icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "pendiente_despacho",    label: "Pend. despacho",    icon: <Clock className="h-3.5 w-3.5" /> },
+  { key: "en_proceso",            label: "En proceso",        icon: <Truck className="h-3.5 w-3.5" /> },
   { key: "despachado",            label: "Despachados",       icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
   { key: "anulado",               label: "Anulados",          icon: <Ban className="h-3.5 w-3.5" /> },
 ]
@@ -43,6 +44,7 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   borrador:              { label: "Ingresado",         className: "badge-neutral" },
   pendiente_operaciones: { label: "Pend. operaciones", className: "badge-info" },
   pendiente_despacho:    { label: "Pend. despacho",    className: "badge-warning" },
+  en_proceso:            { label: "En proceso",        className: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
   despachado:            { label: "Despachado",        className: "badge-success" },
   anulado:               { label: "Anulado",           className: "badge-neutral line-through" },
 }
@@ -132,6 +134,7 @@ export default function TransportePage() {
     todos:                 reports.filter(r => r.estado !== "anulado").length,
     pendiente_operaciones: reports.filter(r => r.estado === "pendiente_operaciones").length,
     pendiente_despacho:    reports.filter(r => r.estado === "pendiente_despacho").length,
+    en_proceso:            reports.filter(r => r.estado === "en_proceso").length,
     despachado:            reports.filter(r => r.estado === "despachado").length,
     borrador:              reports.filter(r => r.estado === "borrador").length,
     anulado:               reports.filter(r => r.estado === "anulado").length,

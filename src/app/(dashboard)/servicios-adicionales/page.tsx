@@ -172,6 +172,7 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   borrador:              { label: "Ingresado",         className: "badge-neutral" },
   pendiente_operaciones: { label: "Pend. operaciones", className: "badge-info" },
   pendiente_despacho:    { label: "Pend. despacho",    className: "badge-warning" },
+  en_proceso:            { label: "En proceso",        className: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
   despachado:            { label: "Despachado",        className: "badge-success" },
   anulado:               { label: "Anulado",           className: "badge-neutral line-through" },
 }

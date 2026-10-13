@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs"
 import type { Report, ReportBodegajeItem } from "@/types/database"
 import { sanitizeSpreadsheetCell } from "@/lib/sanitize"
-import { estadoDespachadoLabel } from "@/components/reports/report-estado-semaforo"
+import { estadoDespachadoLabel, estadoEnProcesoLabel } from "@/components/reports/report-estado-semaforo"
 
 // Los reports pueden traer sus productos de Bodegaje embebidos (join
 // report_bodegaje_items vía PostgREST) — opcional para no romper llamadas
@@ -34,6 +34,7 @@ export async function exportReportsToExcel(reports: ReportConItems[], filename =
     "N° Report":            r.numero,
     "Estado":               r.estado === "despachado"
       ? estadoDespachadoLabel(r.sec3_tipo)
+      : r.estado === "en_proceso" ? estadoEnProcesoLabel(r)
       : ({ borrador: "Ingresado", pendiente_operaciones: "Pendiente operaciones", pendiente_despacho: "Pendiente despacho", anulado: "Anulado" }[r.estado] ?? r.estado),
     "Fecha":                str(r.fecha),
     "Fecha despacho":       r.fecha_despacho ? new Date(r.fecha_despacho).toLocaleString("es-CL") : "",
@@ -50,6 +51,7 @@ export async function exportReportsToExcel(reports: ReportConItems[], filename =
     "Sec1 Activa":          yn(r.sec1_activa),
     "Sec1 Tipo movimiento": r.sec1_tipo_movimiento ? TIPO_MOV[r.sec1_tipo_movimiento] ?? r.sec1_tipo_movimiento : "",
     "Sec1 Tipo contenedor": r.sec1_tipo_contenedor ? TIPO_CONT[r.sec1_tipo_contenedor] ?? r.sec1_tipo_contenedor : "",
+    "Sec1 Almacenaje":      r.sec1_almacenaje === "full" ? "Full" : r.sec1_almacenaje === "vacio" ? "Vacío" : "",
     "Sec1 Carga normal":    yn(r.sec1_carga_normal),
     "Sec1 Carga IMO":       yn(r.sec1_carga_imo),
     "Sec1 Clase IMO":       str(r.sec1_clase_imo),

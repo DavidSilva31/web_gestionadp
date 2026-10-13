@@ -19,7 +19,8 @@ import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { FirmaRecepcionDespacho } from "@/components/reports/firma-staff-block"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
-import { EstadoSemaforo, estadoDespachadoLabel } from "@/components/reports/report-estado-semaforo"
+import { EstadoSemaforo, estadoDespachadoLabel, estadoEnProcesoLabel } from "@/components/reports/report-estado-semaforo"
+import { estadoAlDespachar } from "@/lib/report-proceso"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { ReportBodegajeItem } from "@/types/database"
 
@@ -36,6 +37,10 @@ interface ReportRow {
   sec1_activa: boolean
   sec2_activa: boolean
   sec3_activa: boolean
+  sec1_tipo_contenedor: string | null
+  sec1_almacenaje:      string | null
+  sec2_consolidado:     boolean
+  sec2_desconsolidado:  boolean
   sec3_tipo:   string | null
   // Bodegaje puede tener varios productos — uno por fila en
   // report_bodegaje_items, traídos junto al report vía embed de PostgREST.
@@ -48,6 +53,7 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "borrador",               label: "Ingresados",        icon: <Filter className="h-3.5 w-3.5" /> },
   { key: "pendiente_operaciones",  label: "Pend. operaciones", icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "pendiente_despacho",     label: "Pend. despacho",    icon: <Clock className="h-3.5 w-3.5" /> },
+  { key: "en_proceso",             label: "En proceso",        icon: <Truck className="h-3.5 w-3.5" /> },
   { key: "despachado",             label: "Despachados",       icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
   // Los reports se anulan, no se eliminan — quedan aparte en su propia
   // pestaña para no ensuciar el flujo operativo normal (no aparecen en "Todos").
@@ -58,6 +64,7 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   borrador:              { label: "Ingresado",         className: "badge-neutral" },
   pendiente_operaciones: { label: "Pend. operaciones", className: "badge-info" },
   pendiente_despacho:    { label: "Pend. despacho",    className: "badge-warning" },
+  en_proceso:            { label: "En proceso",        className: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
   despachado:            { label: "Despachado",        className: "badge-success" },
   anulado:               { label: "Anulado",           className: "badge-neutral line-through" },
 }
@@ -98,7 +105,7 @@ export default function ReportsPage() {
   const [filesFor, setFilesFor] = useState<ReportRow | null>(null)
   useCloseOnBack(filesFor !== null, () => setFilesFor(null))
 
-  const SELECT_COLS = "id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa, sec3_tipo, archivos_pendiente_despacho, report_bodegaje_items(*)"
+  const SELECT_COLS = "id, numero, estado, cliente, fecha, patente, conductor, sec1_activa, sec2_activa, sec3_activa, sec1_tipo_contenedor, sec1_almacenaje, sec2_consolidado, sec2_desconsolidado, sec3_tipo, archivos_pendiente_despacho, report_bodegaje_items(*)"
 
   // La grilla solo muestra los últimos 6 meses por defecto (va a seguir
   // creciendo indefinidamente si no se acota) — lo anterior queda
@@ -248,10 +255,13 @@ export default function ReportsPage() {
     try {
       const supabase = createClient()
       const now = new Date().toISOString()
+      // 20ft / 40ft / Almacenaje Full: el camión sale pero el report queda
+      // "en_proceso" hasta que Operaciones lo cierre (stock y movimientos recién ahí).
+      const nuevoEstado = estadoAlDespachar(dispatchFor)
       const { error: updateErr } = await supabase
         .from("reports")
         .update({
-          estado:                "despachado",
+          estado:                nuevoEstado,
           nombre_despachador:    dispatchNombre,
           fecha_despacho:        now,
           dispatched_by:         user?.id ?? null,
@@ -275,7 +285,7 @@ export default function ReportsPage() {
       // en la transición a 'despachado') — el log de auditoría de stock va en
       // el mismo momento, no al crear/editar el report. Un report puede tener
       // varios productos de Bodegaje, uno por fila en report_bodegaje_items.
-      if (dispatchFor.sec3_activa && dispatchFor.sec3_tipo) {
+      if (nuevoEstado === "despachado" && dispatchFor.sec3_activa && dispatchFor.sec3_tipo) {
         for (const it of dispatchFor.report_bodegaje_items) {
           if (!it.sec3_inventario_item_id) continue
           const delta     = it.sec3_numero_pallets ?? 0
@@ -332,6 +342,7 @@ export default function ReportsPage() {
     todos:                 reports.filter(r => r.estado !== "anulado").length,
     pendiente_operaciones: reports.filter(r => r.estado === "pendiente_operaciones").length,
     pendiente_despacho:    reports.filter(r => r.estado === "pendiente_despacho").length,
+    en_proceso:            reports.filter(r => r.estado === "en_proceso").length,
     despachado:            reports.filter(r => r.estado === "despachado").length,
     borrador:              reports.filter(r => r.estado === "borrador").length,
     anulado:               reports.filter(r => r.estado === "anulado").length,
@@ -589,7 +600,9 @@ export default function ReportsPage() {
                         <div className="inline-flex items-center gap-1.5">
                           <EstadoSemaforo estado={r.estado} />
                           <Badge className={cn("text-xs font-semibold border-0 whitespace-nowrap", ESTADO_STYLE[r.estado].className)}>
-                            {r.estado === "despachado" ? estadoDespachadoLabel(r.sec3_tipo) : ESTADO_STYLE[r.estado].label}
+                            {r.estado === "despachado" ? estadoDespachadoLabel(r.sec3_tipo)
+                              : r.estado === "en_proceso" ? estadoEnProcesoLabel(r)
+                              : ESTADO_STYLE[r.estado].label}
                           </Badge>
                         </div>
                       </td>

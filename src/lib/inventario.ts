@@ -16,6 +16,10 @@ export const TIPOS_ENVASE = [
   "Maxisaco", "Tineta", "Cilindro", "Cuñete", "Otro",
 ] as const
 
+// Solo para los movimientos del producto "CONTENEDORES" (20ft/40ft con Almacenaje
+// Full/Vacío): van aparte de TIPOS_ENVASE para no aparecer al crear productos.
+export const ENVASES_CONTENEDOR = ["Full", "Vacío"] as const
+
 // Ítem mínimo que necesita un selector de producto (ProductoCombobox) — lo
 // que devuelve el alta rápida de ItemFormDialog al crear uno nuevo.
 export interface InventarioItemOption { id: string; descripcion: string; clase_imo: string | null; nu: string | null }

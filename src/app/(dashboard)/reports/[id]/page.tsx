@@ -27,7 +27,7 @@ import type { ReportEstado } from "@/types/database"
 import { dbToForm, emptyBodegajeItem, bodegajeItemFromDb } from "@/components/reports/report-form-types"
 import type { ReportFormData, BodegajeItemFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
-import { EstadoSemaforo, estadoDespachadoLabel } from "@/components/reports/report-estado-semaforo"
+import { EstadoSemaforo, estadoDespachadoLabel, estadoEnProcesoLabel } from "@/components/reports/report-estado-semaforo"
 import { ClienteCombobox, FirmaCanvas, ServiciosSection, EmpresaTransporteCombobox, BodegajeItemsList, ConductorComboboxes, type ServicioSeleccionado, type TarifaOption } from "@/components/reports/report-form-widgets"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
@@ -44,6 +44,7 @@ const ACCION_ICON: Record<string, React.ReactNode> = {
   "report.enviar_despacho":    <FileCheck2 className="h-4 w-4 text-amber-500"   />,
   "report.confirmar_despacho": <Truck      className="h-4 w-4 text-emerald-600" />,
   "report.despachar":          <ScanLine   className="h-4 w-4 text-emerald-600" />,
+  "report.finalizar":          <CheckCircle2 className="h-4 w-4 text-violet-600" />,
   "report.anular":             <Trash2     className="h-4 w-4 text-red-500"     />,
   "report.desanular":          <History    className="h-4 w-4 text-blue-500"    />,
 }
@@ -52,6 +53,7 @@ const ESTADO_STYLE: Record<ReportEstado, { label: string; className: string }> =
   borrador:              { label: "Ingresado",         className: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
   pendiente_operaciones: { label: "Pend. operaciones", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
   pendiente_despacho:    { label: "Pend. despacho",    className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
+  en_proceso:            { label: "En proceso",        className: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
   despachado:            { label: "Despachado",        className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
   anulado:               { label: "Anulado",           className: "bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400 line-through" },
 }
@@ -116,6 +118,7 @@ export default function ReportDetailPage() {
   const [anulando,      setAnulando]      = useState(false)
   const [confirmAnular, setConfirmAnular] = useState(false)
   const [confirmEnviarDespacho, setConfirmEnviarDespacho] = useState(false)
+  const [confirmFinalizar, setConfirmFinalizar] = useState(false)
   const [notFound,      setNotFound]      = useState(false)
   const [historialOpen, setHistorialOpen] = useState(false)
   const [auditLogs,    setAuditLogs]    = useState<AuditLog[]>([])
@@ -233,6 +236,7 @@ export default function ReportDetailPage() {
 
   useCloseOnBack(confirmAnular, () => setConfirmAnular(false))
   useCloseOnBack(confirmEnviarDespacho, () => setConfirmEnviarDespacho(false))
+  useCloseOnBack(confirmFinalizar, () => setConfirmFinalizar(false))
   useCloseOnBack(previewFile !== null, () => setPreviewFile(null))
 
   // Javier Navarro (operador) tiene el mismo permiso de edición total que
@@ -251,7 +255,9 @@ export default function ReportDetailPage() {
   // editables en ambas mitades (recién se congelan al entrar a despacho).
   // super_admin y Javier Navarro se saltan todos estos candados.
   const leftReadOnly   = !editorTotal && estado !== "borrador"
-  const rightReadOnly  = !editorTotal && estado !== "pendiente_operaciones"
+  // "en_proceso": el camión ya salió pero Operaciones sigue llenando Consolidado/
+  // Desconsolidado y Bodegaje, así que su mitad sigue editable hasta que lo cierre.
+  const rightReadOnly  = !editorTotal && estado !== "pendiente_operaciones" && estado !== "en_proceso"
   const sharedReadOnly = !editorTotal && (estado === "pendiente_despacho" || estado === "despachado" || estado === "anulado")
   // Las firmas se pueden aplicar/rehacer hasta que el report se despacha.
   const firmaBloqueada = !editorTotal && (estado === "despachado" || estado === "anulado")
@@ -357,7 +363,7 @@ export default function ReportDetailPage() {
   const autofillOperadorRef = useRef(false)
   useEffect(() => { autofillOperadorRef.current = false }, [id])
   useEffect(() => {
-    if (autofillOperadorRef.current || !profile?.nombre || estado !== "pendiente_operaciones") return
+    if (autofillOperadorRef.current || !profile?.nombre || (estado !== "pendiente_operaciones" && estado !== "en_proceso")) return
     setForm(prev => {
       if (!prev || prev.nombre_operador) return prev
       autofillOperadorRef.current = true
@@ -434,6 +440,7 @@ export default function ReportDetailPage() {
       // report antiguo, se conserva el que ya tenía la Sección 1.
       sec1_tipo_movimiento: sec1Activa ? (form.sec3_tipo || form.sec1_tipo_movimiento || null) : null,
       sec1_tipo_contenedor: form.sec1_tipo_contenedor || null,
+      sec1_almacenaje:      form.sec1_tipo_contenedor === "isotanque" ? null : (form.sec1_almacenaje || null),
       sec1_carga_normal:    form.sec1_carga_normal,
       sec1_carga_imo:       form.sec1_carga_imo,
       sec1_clase_imo:       form.sec1_clase_imo    || null,
@@ -578,7 +585,13 @@ export default function ReportDetailPage() {
     // devuelto por Supabase) dejaba "saving" en true para siempre.
     try {
     const supabase = createClient()
-    const payload = buildPayload(newEstado)
+    // Cerrar un report "en_proceso": primero se guarda todo (incluidos los productos
+    // de Bodegaje) manteniendo el estado, y recién al final se pasa a "despachado".
+    // Si se cambiara el estado de entrada, el trigger de despacho generaría los
+    // movimientos con los productos viejos y la base rechazaría guardar los nuevos
+    // (un report despachado bloquea la edición de sus productos).
+    const cerrando = newEstado === "despachado" && estado === "en_proceso"
+    const payload = buildPayload(cerrando ? "en_proceso" : newEstado)
     const { error: err } = await supabase.from("reports").update(payload).eq("id", id)
     if (err) {
       setError(err.message)
@@ -716,6 +729,17 @@ export default function ReportDetailPage() {
       if (!(await firmarConductor())) return
     }
 
+    if (cerrando) {
+      const { error: cierreErr } = await supabase
+        .from("reports")
+        .update({ estado: "despachado", updated_at: new Date().toISOString() })
+        .eq("id", id)
+      if (cierreErr) {
+        setError("Se guardó el avance pero no se pudo finalizar: " + cierreErr.message)
+        return
+      }
+    }
+
     // stock_actual solo lo mueve el trigger de BD reports_sync_inventario
     // cuando el report queda en estado 'despachado' — una edición mientras
     // sigue en borrador/pendiente_despacho no toca stock. syncPesoTon corre
@@ -728,10 +752,29 @@ export default function ReportDetailPage() {
       for (const itemId of itemIds) await syncPesoTon(supabase, itemId)
     }
 
+    // Al cerrar un report "en_proceso" recién se mueve el stock (trigger de la
+    // transición a 'despachado'): el log de inventario va en este momento,
+    // igual que en la cola de despacho para los reports que cierran al salir el camión.
+    if (newEstado === "despachado" && estado === "en_proceso" && form.sec3_activa && form.sec3_tipo) {
+      for (const it of bodegajeItems) {
+        if (!it.sec3_inventario_item_id) continue
+        const delta = Number(it.sec3_numero_pallets) || 0
+        logAudit({
+          tabla:          "inventario_items",
+          registro_id:    it.sec3_inventario_item_id,
+          accion:         form.sec3_tipo === "ingreso" ? "inventario.ingreso" : "inventario.despacho",
+          descripcion:    `Stock ${form.sec3_tipo === "ingreso" ? "+" : "-"}${delta} · ${it.sec3_producto ?? ""} via Report #${numero}`,
+          usuario_id:     user?.id,
+          usuario_nombre: profile?.nombre ?? user?.email,
+        })
+      }
+    }
+
     logAudit({
       tabla:          "reports",
       registro_id:    id,
-      accion:         newEstado === "pendiente_despacho"    ? "report.enviar_despacho" :
+      accion:         newEstado === "despachado" && estado === "en_proceso" ? "report.finalizar" :
+                      newEstado === "pendiente_despacho"    ? "report.enviar_despacho" :
                       newEstado === "pendiente_operaciones" && estado === "borrador" ? "report.enviar_operaciones" :
                       "report.actualizar",
       descripcion:    `Report #${numero} — ${form.cliente} (${form.patente})`,
@@ -832,6 +875,34 @@ export default function ReportDetailPage() {
       </AlertDialogContent>
     </AlertDialog>
 
+    <AlertDialog open={confirmFinalizar} onOpenChange={setConfirmFinalizar}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-violet-100">
+              <CheckCircle2 className="h-4 w-4 text-violet-600" />
+            </span>
+            ¿Finalizar este report?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            El report <strong>#{numero}</strong> ({form?.cliente}) pasa a <strong>Finalizado</strong>: se generan sus movimientos y el stock
+            se actualiza con lo que cargaste en Consolidado/Desconsolidado y Bodegaje. Revisa que todo esté completo antes de continuar.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={saving}
+            className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+            onClick={() => { setConfirmFinalizar(false); handleSave("despachado") }}
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Finalizar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-background flex-shrink-0 flex-wrap gap-2">
@@ -848,7 +919,9 @@ export default function ReportDetailPage() {
               </h1>
               <EstadoSemaforo estado={estado} />
               <Badge className={cn("text-[10px] font-semibold border-0", ESTADO_STYLE[estado].className)}>
-                {estado === "despachado" ? estadoDespachadoLabel(form.sec3_tipo) : ESTADO_STYLE[estado].label}
+                {estado === "despachado" ? estadoDespachadoLabel(form.sec3_tipo)
+                  : estado === "en_proceso" ? estadoEnProcesoLabel(form)
+                  : ESTADO_STYLE[estado].label}
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground">{form.cliente} · {form.patente}</p>
@@ -927,6 +1000,19 @@ export default function ReportDetailPage() {
             </Button>
           )}
 
+          {estado === "en_proceso" && (
+            <>
+              <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" disabled={saving} onClick={() => handleSave("en_proceso")}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                Guardar avance
+              </Button>
+              <Button size="sm" className="gap-1.5 h-8 text-xs bg-violet-600 hover:bg-violet-700 text-white" disabled={saving || !form.nombre_operador.trim()} onClick={() => setConfirmFinalizar(true)}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                Finalizar
+              </Button>
+            </>
+          )}
+
           {estado === "pendiente_despacho" && (
             <Link href="/reports/despacho">
               <Button size="sm" className="gap-1.5 h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white">
@@ -969,7 +1055,7 @@ export default function ReportDetailPage() {
         </div>
       )}
 
-      {editorTotal && estado !== "borrador" && estado !== "pendiente_operaciones" && estado !== "anulado" && (
+      {editorTotal && estado !== "borrador" && estado !== "pendiente_operaciones" && estado !== "en_proceso" && estado !== "anulado" && (
         <div className="flex items-center gap-2 px-6 py-2 bg-blue-50 dark:bg-blue-900/20 border-b text-xs text-blue-700 dark:text-blue-400 flex-shrink-0">
           <FilePen className="h-3.5 w-3.5 flex-shrink-0" />
           Edición habilitada para tu rol — este report normalmente estaría bloqueado en este estado.
@@ -1381,16 +1467,16 @@ export default function ReportDetailPage() {
               bodega firma mientras el report está en Operaciones; Recepción
               firma al confirmar el despacho (cola de despacho) — acá solo se
               muestra si ya firmó. */}
-          {(estado === "pendiente_operaciones" || bodegaPath || recepcionPath) && (
+          {(estado === "pendiente_operaciones" || estado === "en_proceso" || bodegaPath || recepcionPath) && (
             <div className="border-t mt-3 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {(estado === "pendiente_operaciones" || bodegaPath) && (
+              {(estado === "pendiente_operaciones" || estado === "en_proceso" || bodegaPath) && (
                 <FirmaStaffBlock
                   reportId={id}
                   rol="bodega"
                   titulo="Firma del encargado de bodega"
                   path={bodegaPath}
                   evidencia={firmaEvidencia.bodega}
-                  bloqueada={estado !== "pendiente_operaciones"}
+                  bloqueada={estado !== "pendiente_operaciones" && estado !== "en_proceso"}
                   tieneFirmaPerfil={!!profile?.firma_url}
                   onSigned={res => { setBodegaPath(res.path); setFirmaEvidencia(res.evidencia) }}
                 />

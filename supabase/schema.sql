@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS reports (
   sec1_activa           BOOLEAN DEFAULT FALSE,
   sec1_tipo_movimiento  TEXT CHECK (sec1_tipo_movimiento IN ('ingreso', 'despacho')),
   sec1_tipo_contenedor  TEXT CHECK (sec1_tipo_contenedor IN ('20ft', '40ft', 'isotanque')),
+  sec1_almacenaje       TEXT CHECK (sec1_almacenaje IN ('full', 'vacio')),
   sec1_carga_normal     BOOLEAN DEFAULT FALSE,
   sec1_carga_imo        BOOLEAN DEFAULT FALSE,
   sec1_clase_imo        TEXT,

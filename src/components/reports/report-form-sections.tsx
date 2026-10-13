@@ -101,22 +101,28 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
       set(key, (uc ? e.target.value.toUpperCase() : e.target.value) as ReportFormData[typeof key])
 
   const esIso = form.sec1_tipo_contenedor === "isotanque"
+  // 20ft/40ft con Almacenaje Full/Vacío: el contenedor entero se ingresa o despacha
+  // como una unidad con su sigla (SKU), igual que un isotanque — producto "CONTENEDORES".
+  const esContenedorUnidad = (form.sec1_tipo_contenedor === "20ft" || form.sec1_tipo_contenedor === "40ft") && !!form.sec1_almacenaje
+  const esUnidad = esIso || esContenedorUnidad
+  const productoUnidad = esIso ? { descripcion: "ISOTANQUE", categoria: "Isotanque" } : { descripcion: "CONTENEDORES", categoria: "Contenedor IMO" }
   // El Ingreso/Despacho ya no se pregunta en la Sección 1: se toma del
   // "Tipo de movimiento" de Antecedentes (sec3_tipo). sec1_tipo_movimiento
   // queda como respaldo para reports antiguos que solo lo tenían ahí.
-  const esDespachoIso = esIso && (form.sec3_tipo || form.sec1_tipo_movimiento) === "despacho"
-  const [isoEnBodega, setIsoEnBodega] = useState<string[]>([])
+  const esDespachoUnidad = esUnidad && (form.sec3_tipo || form.sec1_tipo_movimiento) === "despacho"
+  const [enBodega, setEnBodega] = useState<string[]>([])
+  const { descripcion: descProducto, categoria: catProducto } = productoUnidad
 
   useEffect(() => {
-    if (!esDespachoIso || !form.cliente) return
+    if (!esDespachoUnidad || !form.cliente) return
     let vivo = true
     ;(async () => {
       const supabase = createClient()
       const { data: cli } = await supabase.from("clientes").select("id").eq("nombre", form.cliente).limit(1).maybeSingle()
-      if (!cli) { if (vivo) setIsoEnBodega([]); return }
+      if (!cli) { if (vivo) setEnBodega([]); return }
       const { data: items } = await supabase.from("inventario_items").select("id")
-        .eq("cliente_id", cli.id).eq("descripcion", "ISOTANQUE").eq("categoria", "Isotanque")
-      if (!items?.length) { if (vivo) setIsoEnBodega([]); return }
+        .eq("cliente_id", cli.id).eq("descripcion", descProducto).eq("categoria", catProducto)
+      if (!items?.length) { if (vivo) setEnBodega([]); return }
       const { data: movs } = await supabase.from("movimientos").select("codigo, tipo")
         .in("inventario_item_id", items.map(i => i.id)).not("codigo", "is", null)
       const neto = new Map<string, number>()
@@ -124,10 +130,10 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
         const k = m.codigo as string
         neto.set(k, (neto.get(k) ?? 0) + (m.tipo === "ingreso" ? 1 : -1))
       }
-      if (vivo) setIsoEnBodega([...neto.entries()].filter(([, n]) => n > 0).map(([k]) => k).sort())
+      if (vivo) setEnBodega([...neto.entries()].filter(([, n]) => n > 0).map(([k]) => k).sort())
     })()
     return () => { vivo = false }
-  }, [esDespachoIso, form.cliente])
+  }, [esDespachoUnidad, form.cliente, descProducto, catProducto])
 
   return (
     <div className="space-y-2">
@@ -147,11 +153,33 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
           <Field label="Tipo de contenedor">
             <RadioGroup<TipoContenedor>
               value={form.sec1_tipo_contenedor}
-              onChange={v => set("sec1_tipo_contenedor", v)}
+              onChange={v => { set("sec1_tipo_contenedor", v); if (v === "isotanque") set("sec1_almacenaje", "") }}
               options={[{ value: "20ft", label: "20ft" }, { value: "40ft", label: "40ft" }, { value: "isotanque", label: "Isotanque" }]}
               readOnly={readOnly}
             />
           </Field>
+          {/* Con 20ft/40ft: ingresar o despachar el contenedor entero (como un
+              isotanque) — full o vacío. Sin marcar ninguno, el contenedor lo
+              trabaja Operaciones (consolidado/desconsolidado) después de que el
+              camión se vaya. */}
+          {(form.sec1_tipo_contenedor === "20ft" || form.sec1_tipo_contenedor === "40ft") && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <Checkbox id="sec1_almacenaje_full" checked={form.sec1_almacenaje === "full"}
+                    onCheckedChange={v => !readOnly && set("sec1_almacenaje", v === true ? "full" : "")}
+                    className="h-3.5 w-3.5" disabled={readOnly} />
+                  <label htmlFor="sec1_almacenaje_full" className="text-xs text-foreground/80 cursor-pointer">Almacenaje Full</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox id="sec1_almacenaje_vacio" checked={form.sec1_almacenaje === "vacio"}
+                    onCheckedChange={v => !readOnly && set("sec1_almacenaje", v === true ? "vacio" : "")}
+                    className="h-3.5 w-3.5" disabled={readOnly} />
+                  <label htmlFor="sec1_almacenaje_vacio" className="text-xs text-foreground/80 cursor-pointer">Almacenaje Vacío</label>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-6">
@@ -191,16 +219,16 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
             <Input type="time" value={form.sec1_hora_termino}
               onChange={e => set("sec1_hora_termino", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
-          <Field label={esDespachoIso ? "Isotanque a despachar" : esIso ? "Código del isotanque" : "Sigla"}>
-            {esDespachoIso ? (
+          <Field label={esDespachoUnidad ? (esIso ? "Isotanque a despachar" : "Contenedor a despachar") : esUnidad ? (esIso ? "Código del isotanque" : "Sigla del contenedor") : "Sigla"}>
+            {esDespachoUnidad ? (
               <select value={form.sec1_sigla} onChange={e => set("sec1_sigla", e.target.value)}
                 disabled={readOnly} className="h-8 text-xs rounded-md border bg-background px-2">
                 <option value="">— Seleccionar —</option>
-                {[...new Set(form.sec1_sigla ? [form.sec1_sigla, ...isoEnBodega] : isoEnBodega)].map(c => <option key={c} value={c}>{c}</option>)}
+                {[...new Set(form.sec1_sigla ? [form.sec1_sigla, ...enBodega] : enBodega)].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             ) : (
               <Input value={form.sec1_sigla} onChange={str("sec1_sigla")}
-                placeholder={esIso ? "Ej: BLKU257599-0" : "Sigla del contenedor"} className="h-8 text-xs" disabled={readOnly} />
+                placeholder={esUnidad ? "Ej: BLKU257599-0" : "Sigla del contenedor"} className="h-8 text-xs" disabled={readOnly} />
             )}
           </Field>
           <Field label="Interchange">

@@ -139,8 +139,14 @@ un camión por las instalaciones. Flujo en DOS FASES:
      flujos de despacho — ya no bloquea el despacho si el report está firmado
      digitalmente.
 Estados de un report: borrador ("Ingresado"), pendiente_operaciones, pendiente_
-despacho, despachado, anulado. El semáforo de colores en las listas refleja
-este estado.
+despacho, en_proceso, despachado, anulado. El semáforo de colores en las listas
+refleja este estado. "En proceso" aplica solo a Depósito de Contenedores con
+20ft o 40ft SIN "Almacenaje Full" ni "Almacenaje Vacío": al despachar el camión
+el report queda "En proceso - Consolidado/Desconsolidado" (el chofer se va y el
+PDF ya está disponible) hasta que Operaciones completa esa información y lo
+finaliza; recién ahí se generan los movimientos y el stock. Isotanque, y 20ft/40ft
+con Almacenaje Full o Vacío (se ingresa o despacha el contenedor entero), se
+cierran al despachar el camión.
 Los reports NUNCA se eliminan, solo se anulan — así no se pierde nada del
 historial. Un report anulado queda en su propia pestaña "Anulados" (no
 aparece en "Todos" ni en el resto) y queda congelado para la mayoría de los

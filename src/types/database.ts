@@ -1,4 +1,4 @@
-export type ReportEstado = 'borrador' | 'pendiente_operaciones' | 'pendiente_despacho' | 'despachado' | 'anulado'
+export type ReportEstado = 'borrador' | 'pendiente_operaciones' | 'pendiente_despacho' | 'en_proceso' | 'despachado' | 'anulado'
 export type InventarioCategoria = 'Contenedor IMO' | 'Isotanque' | 'Residuo peligroso' | 'Carga general'
 export type InventarioArea = 'Bodega IMO' | 'Zona Isotanques' | 'Zona RESPEL' | 'Bodega General'
 export type MovimientoTipo = 'ingreso' | 'despacho'
@@ -6,9 +6,12 @@ export type MovimientoServicio = 'Almacenaje' | 'Transporte' | 'Porteo' | 'Logí
 export type MovimientoEstado = 'en_proceso' | 'completado'
 export type TipoMovimiento = 'ingreso' | 'despacho'
 export type TipoContenedor = '20ft' | '40ft' | 'isotanque'
+export type AlmacenajeContenedor = 'full' | 'vacio'
 export type SolicitadoPor = 'clientes' | 'hds' | 'operaciones'
 export type TransporteTipo = 'propio' | 'externo'
 export type TipoEnvase = 'Tambor' | 'Bidón' | 'IBC' | 'Saco' | 'Caja' | 'Pallet' | 'Granel' | 'Maxisaco' | 'Tineta' | 'Cilindro' | 'Cuñete' | 'Otro'
+// Contenedores 20ft/40ft con Almacenaje Full/Vacío: el "envase" del movimiento indica si va lleno o vacío.
+export type EnvaseContenedor = 'Full' | 'Vacío'
 
 export interface Report {
   id: string
@@ -35,6 +38,7 @@ export interface Report {
   sec1_activa: boolean
   sec1_tipo_movimiento: TipoMovimiento | null
   sec1_tipo_contenedor: TipoContenedor | null
+  sec1_almacenaje: AlmacenajeContenedor | null
   sec1_carga_normal: boolean
   sec1_carga_imo: boolean
   sec1_clase_imo: string | null
@@ -241,7 +245,7 @@ export interface Movimiento {
   fecha_elaboracion:  string | null
   fecha_vencimiento:  string | null
   peso_envase:        number | null
-  tipo_envase:        TipoEnvase | null
+  tipo_envase:        TipoEnvase | EnvaseContenedor | null
   posiciones:         number | null
   numero_pallet:      string | null
   guia_numero:        string | null

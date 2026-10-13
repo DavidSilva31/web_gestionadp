@@ -192,7 +192,10 @@ function TablaBodegaje({ items }: { items: ReportBodegajeItem[] }) {
 }
 
 export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report; firmas?: FirmasPdf; items?: ReportBodegajeItem[] }) {
-  const isDespachado = report.estado === "despachado"
+  // "en_proceso": el camión ya salió (se despachó en portería) pero Operaciones aún
+  // completa el consolidado/desconsolidado — el PDF lleva el mismo sello desde ese
+  // momento, y se regenera con la información nueva cuando Operaciones la carga.
+  const isDespachado = report.estado === "despachado" || report.estado === "en_proceso"
   // El sello decía siempre "DESPACHADO" sin importar si el movimiento real
   // fue un ingreso — ahora sigue la Sección activa: Sección 1 usa su propio
   // tipo (ingreso/despacho), Sección 3 (Bodegaje) usa sec3_tipo, y Sección 2
@@ -289,6 +292,10 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
                 <CbItem checked={report.sec1_tipo_contenedor === "40ft"} label="40'" />
               </View>
               <CbItem checked={report.sec1_tipo_contenedor === "isotanque"} label="       Isotanque" />
+              <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                <CbItem checked={report.sec1_almacenaje === "full"} label="       Almacenaje Full" />
+                <CbItem checked={report.sec1_almacenaje === "vacio"} label="Almacenaje Vacío" />
+              </View>
             </View>
           </View>
 

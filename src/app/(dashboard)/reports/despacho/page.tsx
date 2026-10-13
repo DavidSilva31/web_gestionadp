@@ -13,6 +13,7 @@ import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { FirmaRecepcionDespacho } from "@/components/reports/firma-staff-block"
 import { cn } from "@/lib/utils"
 import type { ReportBodegajeItem } from "@/types/database"
+import { estadoAlDespachar } from "@/lib/report-proceso"
 
 interface PendingReport {
   id:                   string
@@ -26,6 +27,7 @@ interface PendingReport {
   sec2_activa:          boolean
   sec3_activa:          boolean
   sec1_tipo_contenedor: string | null
+  sec1_almacenaje:      string | null
   sec3_tipo:            string | null
   // Bodegaje puede tener varios productos — uno por fila en
   // report_bodegaje_items, traídos junto al report vía embed de PostgREST.
@@ -41,6 +43,8 @@ interface DispatchedReport {
   conductor:          string
   fecha_despacho:     string
   nombre_despachador: string | null
+  // "en_proceso": el camión salió pero Operaciones aún debe cerrar el report.
+  estado?:            string
 }
 
 function minutosEsperando(createdAt: string): number {
@@ -410,6 +414,9 @@ function DispatchedCard({ report }: { report: DispatchedReport }) {
         <div className="flex items-center gap-1.5 mb-0.5">
           <span className="text-xs font-bold text-foreground font-mono">#{report.numero}</span>
           <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1 rounded">{report.patente}</span>
+          {report.estado === "en_proceso" && (
+            <span className="text-[9px] font-semibold text-violet-700 bg-violet-100 dark:bg-violet-900/30 dark:text-violet-400 px-1 rounded">En proceso</span>
+          )}
           <span className="ml-auto text-[10px] text-muted-foreground flex-shrink-0">{horaFormateada(report.fecha_despacho)}</span>
         </div>
         <p className="text-[10px] text-foreground font-medium truncate">{report.cliente}</p>
@@ -444,14 +451,14 @@ export default function DespachoPage() {
     const [pendingRes, dispatchedRes] = await Promise.all([
       supabase
         .from("reports")
-        .select("id, numero, cliente, patente, conductor, created_at, nombre_operador, sec1_activa, sec2_activa, sec3_activa, sec1_tipo_contenedor, sec3_tipo, archivos_pendiente_despacho, report_bodegaje_items(*)")
+        .select("id, numero, cliente, patente, conductor, created_at, nombre_operador, sec1_activa, sec2_activa, sec3_activa, sec1_tipo_contenedor, sec1_almacenaje, sec3_tipo, archivos_pendiente_despacho, report_bodegaje_items(*)")
         .eq("estado", "pendiente_despacho")
         .order("created_at", { ascending: true }),
 
       supabase
         .from("reports")
-        .select("id, numero, cliente, patente, conductor, fecha_despacho, nombre_despachador")
-        .eq("estado", "despachado")
+        .select("id, numero, cliente, patente, conductor, fecha_despacho, nombre_despachador, estado")
+        .in("estado", ["despachado", "en_proceso"])
         .gte("fecha_despacho", todayStart())
         .order("fecha_despacho", { ascending: false }),
     ])
@@ -506,10 +513,14 @@ export default function DespachoPage() {
     try {
       const supabase = createClient()
       const now = new Date().toISOString()
+      const r = pending.find(x => x.id === id)
+      // 20ft / 40ft / Almacenaje Full: el camión sale pero el report queda
+      // "en_proceso" hasta que Operaciones lo cierre (stock y movimientos recién ahí).
+      const nuevoEstado = r ? estadoAlDespachar(r) : "despachado"
       const { error } = await supabase
         .from("reports")
         .update({
-          estado:                 "despachado",
+          estado:                 nuevoEstado,
           nombre_despachador:     nombre,
           fecha_despacho:         now,
           dispatched_by:          user?.id ?? null,
@@ -519,7 +530,6 @@ export default function DespachoPage() {
 
       if (error) return "Error al registrar el despacho: " + error.message
 
-      const r = pending.find(x => x.id === id)
       if (r) {
         setDispatched(prev => [{
           id:                 r.id,
@@ -529,6 +539,7 @@ export default function DespachoPage() {
           conductor:          r.conductor,
           fecha_despacho:     now,
           nombre_despachador: nombre,
+          estado:             nuevoEstado,
         }, ...prev])
       }
       // fire-and-forget — siempre registrar aunque r no esté en memoria
@@ -544,7 +555,7 @@ export default function DespachoPage() {
       // en la transición a 'despachado') — el log de auditoría de stock va en
       // el mismo momento, no al crear/editar el report. Un report puede tener
       // varios productos de Bodegaje, uno por fila en report_bodegaje_items.
-      if (r?.sec3_activa && r.sec3_tipo) {
+      if (nuevoEstado === "despachado" && r?.sec3_activa && r.sec3_tipo) {
         for (const it of r.report_bodegaje_items) {
           if (!it.sec3_inventario_item_id) continue
           const delta     = it.sec3_numero_pallets ?? 0

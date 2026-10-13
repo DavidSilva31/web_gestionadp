@@ -17,7 +17,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
-import { resolveEffectiveClienteId, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE } from "@/lib/inventario"
+import { resolveEffectiveClienteId, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE, ENVASES_CONTENEDOR } from "@/lib/inventario"
 import { ItemFormDialog } from "@/components/inventario/item-form-dialog"
 import { cn } from "@/lib/utils"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
@@ -119,7 +119,7 @@ const EMPTY_FORM: InventarioItemInsert = {
   peso_unitario_ton: null,
 }
 
-const KARDEX_ENVASES = TIPOS_ENVASE
+const KARDEX_ENVASES = [...TIPOS_ENVASE, ...ENVASES_CONTENEDOR]
 const KARDEX_TIPOS = ["ingreso", "despacho"] as const
 
 // Línea angosta entre dos filas del Kardex — casi invisible hasta que se le

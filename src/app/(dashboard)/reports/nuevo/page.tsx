@@ -23,7 +23,7 @@ interface FormData extends ReportFormData {
 const INITIAL: FormData = {
   cliente: "", cliente_id: "", fecha: new Date().toISOString().split("T")[0], patente: "", conductor: "",
   rut_conductor: "", empresa_transporte: "", transporte_tipo: "externo", hds_header: false, guia_despacho_header: false, observaciones: "",
-  sec1_activa: false, sec1_tipo_movimiento: "", sec1_tipo_contenedor: "", sec1_carga_normal: false,
+  sec1_activa: false, sec1_tipo_movimiento: "", sec1_tipo_contenedor: "", sec1_almacenaje: "", sec1_carga_normal: false,
   sec1_carga_imo: false, sec1_clase_imo: "", sec1_nu: "", sec1_hora_inicio: "", sec1_hora_termino: "",
   sec1_sigla: "", sec1_interchange: "", sec1_hds: false,
   sec2_activa: false, sec2_consolidado: false, sec2_desconsolidado: false, sec2_picking: false,
@@ -152,7 +152,11 @@ export default function NuevoReportPage() {
     // ya puede ir directo a la cola de despacho, sin pasar por
     // "pendiente_operaciones". Si además tiene Sección 2/3 activa, esas sí
     // necesitan a Operaciones, así que sigue el flujo normal.
-    const soloDeposito = !!form.sec3_tipo && sec1Activa && !sec2Activa && !sec3Activa
+    // Con cualquier tipo de contenedor (20ft, 40ft o Isotanque) el siguiente paso es
+    // despachar el camión, aunque se haya marcado Consolidado/Desconsolidado. Si es un
+    // 20ft/40ft sin Almacenaje Full/Vacío, Operaciones completa ese proceso después, con
+    // el report ya "en_proceso" (ver lib/report-proceso.ts).
+    const soloDeposito = !!form.sec3_tipo && sec1Activa && (!!form.sec1_tipo_contenedor || (!sec2Activa && !sec3Activa))
     const estado = soloDeposito ? "pendiente_despacho" as const : "pendiente_operaciones" as const
 
     return {
@@ -173,6 +177,7 @@ export default function NuevoReportPage() {
       // lo pregunta por separado, pero el trigger de movimientos y el PDF lo leen de acá.
       sec1_tipo_movimiento: sec1Activa ? (form.sec3_tipo || null) : null,
       sec1_tipo_contenedor: form.sec1_tipo_contenedor || null,
+      sec1_almacenaje:      form.sec1_tipo_contenedor === "isotanque" ? null : (form.sec1_almacenaje || null),
       sec1_carga_normal:    form.sec1_carga_normal,
       sec1_carga_imo:       form.sec1_carga_imo,
       sec1_clase_imo:       form.sec1_clase_imo   || null,

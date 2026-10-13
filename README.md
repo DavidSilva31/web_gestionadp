@@ -149,6 +149,10 @@ Informes de recepción de carga:
 - **CUyD / CDA** (Sección 3): son mutuamente excluyentes — al completar uno se bloquea el otro
 - **Catálogo de conductores** (`conductores`): los campos Conductor y RUT se autocompletan entre sí; al enviar a Operaciones el chofer se guarda (upsert por RUT), así un mismo RUT siempre trae el mismo nombre aunque cambie de camión
 - **Firma del conductor y firma personal**: además del canvas, se puede arrastrar y soltar o seleccionar una imagen de firma
+- **Contenedores 20ft / 40ft (Sección 1)**: además del tipo de contenedor (20ft, 40ft, Isotanque) hay dos casillas excluyentes, **Almacenaje Full** y **Almacenaje Vacío** (solo con 20ft/40ft), para ingresar o despachar el contenedor entero. Esos contenedores se llevan como el producto **CONTENEDORES** del cliente (1 unidad cada uno, la sigla hace de SKU y el envase del movimiento dice Full o Vacío), igual que los isotanques
+- **Estado "En proceso"**: un 20ft/40ft **sin** Almacenaje Full/Vacío requiere que Operaciones complete el consolidado/desconsolidado, que es lento. Al despachar el camión el report queda "En proceso - Consolidado/Desconsolidado" (el chofer se va y el PDF ya sale con el sello), y Operaciones lo cierra con "Finalizar" desde el detalle; recién ahí pasa a "Finalizado" y se generan movimientos y stock. Isotanque y los contenedores con Full/Vacío se cierran al despachar el camión. Hay una pestaña "En proceso" en la lista
+- **Un solo "Tipo de movimiento" y una sola hora**: el Ingreso/Despacho de Antecedentes manda también en la Sección 1, y las horas de inicio/término de la Sección 3 mandan para todo el report (la Sección 2 ya no las pide)
+- **Teclado en el formulario**: Enter salta al siguiente campo y, en las listas desplegables (cliente, empresa, conductor/RUT, producto), las flechas mueven la selección y Enter elige la opción
 - **Resync de Bodegaje en reports despachados**: cuando un super_admin o Javier Navarro edita los productos, cantidades o lotes de un report ya despachado, el stock y los movimientos generados se recalculan automáticamente (vía `rebuild_bodegaje_movimientos()`)
 - Exportar listado filtrado a **Excel** (incluye una hoja "Bodegaje - Detalle" con una fila por report × producto)
 - Registro de auditoría en cada acción
@@ -394,6 +398,9 @@ src/
 | `migration_conductores.sql` | Catálogo de conductores |
 | `migration_reports_sec3_cda.sql` / `migration_reports_sec3_cuyd.sql` | Campos CUyD / CDA de la Sección 3 |
 | `migration_movimientos_oculto.sql` | Columna `movimientos.oculto` (ocultar movimientos del Kardex y de las sugerencias de lote) |
+| `migration_reports_sec1_almacenaje.sql` | Columna `reports.sec1_almacenaje` (Almacenaje Full / Vacío de la Sección 1) |
+| `migration_reports_en_proceso.sql` | Estado `en_proceso` y la transición pendiente_despacho → en_proceso en `validate_report_transition()` |
+| `migration_reports_contenedores.sql` | Producto CONTENEDORES: envase Full/Vacío en movimientos y rama de contenedores en `create_movimiento_from_report()` |
 | `migration_movimientos_sync_pos_und.sql` | `sync_inventario_from_movimiento()`: `stock_actual` ← posiciones y `stock_unidades` ← unidades (mismo criterio que reports) |
 | `migration_inventario_items_protege_stock.sql` | Trigger que bloquea cambios directos a `stock_actual`/`stock_unidades`/`cliente_id` (solo se puede mover stock vía movimientos) |
 | `migration_inventario_items_codigo.sql` | Columna `inventario_items.codigo` (SKU del producto) |

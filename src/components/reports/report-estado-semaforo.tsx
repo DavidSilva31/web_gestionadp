@@ -7,11 +7,14 @@ import type { ReportEstado } from "@/types/database"
 // su parte, le toca a Operaciones completar Consolidado/Desconsolidado y
 // Bodegaje (estado "pendiente_operaciones"); azul = Operaciones terminó, el
 // chofer debe volver a recepción a buscar el físico (estado
-// "pendiente_despacho"); verde = cerrado (estado "despachado").
+// "pendiente_despacho"); violeta = el camión ya salió pero Operaciones debe
+// completar el consolidado/desconsolidado (estado "en_proceso"); verde =
+// cerrado (estado "despachado").
 const SEMAFORO_COLOR: Record<ReportEstado, string> = {
   borrador:              "bg-yellow-400",
   pendiente_operaciones: "bg-orange-500",
   pendiente_despacho:    "bg-blue-500",
+  en_proceso:            "bg-violet-500",
   despachado:            "bg-emerald-500",
   anulado:               "bg-gray-400",
 }
@@ -20,6 +23,7 @@ const SEMAFORO_TITLE: Record<ReportEstado, string> = {
   borrador:              "Recepción — llenando Antecedentes y Depósito de Contenedores",
   pendiente_operaciones: "Esperando a Operaciones — Consolidado/Desconsolidado y Bodegaje",
   pendiente_despacho:    "Operador de carga listo — esperando devolución del físico en recepción",
+  en_proceso:            "Camión despachado — Operaciones debe completar el consolidado/desconsolidado",
   despachado:            "Cerrado",
   anulado:               "Anulado — no cuenta para stock ni facturación",
 }
@@ -34,6 +38,15 @@ export function estadoDespachadoLabel(sec3Tipo: string | null | undefined): stri
   if (sec3Tipo === "ingreso")  return "Finalizado - Ingreso"
   if (sec3Tipo === "despacho") return "Finalizado - Despacho"
   return "Finalizado"
+}
+
+// Etiqueta del badge para "en_proceso" — indica qué proceso está haciendo
+// Operaciones según lo marcado en la Sección 2 (si aún no marcó nada, solo
+// "En proceso").
+export function estadoEnProcesoLabel(r: { sec2_consolidado?: boolean | null; sec2_desconsolidado?: boolean | null }): string {
+  if (r.sec2_consolidado)    return "En proceso - Consolidado"
+  if (r.sec2_desconsolidado) return "En proceso - Desconsolidado"
+  return "En proceso"
 }
 
 export function EstadoSemaforo({ estado, className }: { estado: ReportEstado; className?: string }) {

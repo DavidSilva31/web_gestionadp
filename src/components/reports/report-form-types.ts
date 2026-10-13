@@ -1,5 +1,8 @@
 export type TipoMovimiento = "ingreso" | "despacho"
 export type TipoContenedor = "20ft" | "40ft" | "isotanque"
+// Con 20ft/40ft: meter o sacar el contenedor entero ("full" = con carga, "vacio" = vacío).
+// Sin ninguno de los dos, el contenedor pasa a Operaciones (consolidado/desconsolidado).
+export type AlmacenajeContenedor = "full" | "vacio"
 export type SolicitadoPor  = "clientes" | "hds" | "operaciones"
 export type TransporteTipo = "propio" | "externo"
 
@@ -18,6 +21,7 @@ export interface ReportFormData {
   sec1_activa:          boolean
   sec1_tipo_movimiento: TipoMovimiento | ""
   sec1_tipo_contenedor: TipoContenedor | ""
+  sec1_almacenaje:      AlmacenajeContenedor | ""
   sec1_carga_normal:    boolean
   sec1_carga_imo:       boolean
   sec1_clase_imo:       string
@@ -129,6 +133,7 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
     sec1_activa: b(data.sec1_activa),
     sec1_tipo_movimiento: s(data.sec1_tipo_movimiento) as TipoMovimiento | "",
     sec1_tipo_contenedor: s(data.sec1_tipo_contenedor) as TipoContenedor | "",
+    sec1_almacenaje: s(data.sec1_almacenaje) as AlmacenajeContenedor | "",
     sec1_carga_normal: b(data.sec1_carga_normal), sec1_carga_imo: b(data.sec1_carga_imo),
     sec1_clase_imo: s(data.sec1_clase_imo), sec1_nu: s(data.sec1_nu),
     sec1_hora_inicio: s(data.sec1_hora_inicio), sec1_hora_termino: s(data.sec1_hora_termino),

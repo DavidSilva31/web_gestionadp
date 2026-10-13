@@ -12,6 +12,7 @@ export type AuditAccion =
   | "report.enviar_despacho"
   | "report.confirmar_despacho"
   | "report.despachar"
+  | "report.finalizar"
   | "report.eliminar"
   | "report.anular"
   | "report.desanular"
@@ -55,6 +56,7 @@ const ACCION_LABEL: Record<AuditAccion, string> = {
   "report.enviar_despacho":      "Enviado a cola de despacho",
   "report.confirmar_despacho":   "Despacho confirmado",
   "report.despachar":            "Despacho confirmado con documento firmado",
+  "report.finalizar":            "Report finalizado por Operaciones",
   "report.eliminar":             "Report eliminado",
   "report.anular":               "Report anulado",
   "report.desanular":            "Report restaurado desde anulado",
