@@ -405,14 +405,16 @@ export default function ReportDetailPage() {
     const sec2Activa = !!(
       form.sec2_consolidado || form.sec2_desconsolidado || form.sec2_picking ||
       form.sec2_paletizado || form.sec2_etiquetado || form.sec2_otro ||
-      form.sec2_hora_inicio || form.sec2_hora_termino || form.sec2_sigla_numero || form.sec2_observaciones
+      form.sec2_sigla_numero || form.sec2_observaciones
     )
     // sec3_numero_guia/sec3_solicitado_por/sec3_cuyd_detalle quedaron fuera:
     // ahora viven en Antecedentes (los llena Recepción en TODO report, incluso
     // sin Bodegaje), así que ya no sirven como señal de que Bodegaje se usó.
+    // Las horas de la Sección 3 mandan para todo el report (también Sección 2),
+    // así que ya no cuentan como señal de Bodegaje: marcarlo activo hace que
+    // el trigger de despacho ignore el movimiento de las otras secciones.
     const sec3Activa = !!(
-      bodegajeItems.length > 0 || form.sec3_hora_inicio || form.sec3_hora_termino ||
-      form.sec3_tipo || form.sec3_observaciones
+      bodegajeItems.length > 0 || form.sec3_tipo || form.sec3_observaciones
     )
 
     return {
@@ -428,7 +430,9 @@ export default function ReportDetailPage() {
       guia_despacho_header: form.guia_despacho_header,
       observaciones:      form.observaciones || null,
       sec1_activa:          sec1Activa,
-      sec1_tipo_movimiento: form.sec1_tipo_movimiento || null,
+      // Se copia del "Tipo de movimiento" de Antecedentes; si está vacío en un
+      // report antiguo, se conserva el que ya tenía la Sección 1.
+      sec1_tipo_movimiento: sec1Activa ? (form.sec3_tipo || form.sec1_tipo_movimiento || null) : null,
       sec1_tipo_contenedor: form.sec1_tipo_contenedor || null,
       sec1_carga_normal:    form.sec1_carga_normal,
       sec1_carga_imo:       form.sec1_carga_imo,
@@ -446,8 +450,6 @@ export default function ReportDetailPage() {
       sec2_paletizado:     form.sec2_paletizado,
       sec2_etiquetado:     form.sec2_etiquetado,
       sec2_otro:           form.sec2_otro,
-      sec2_hora_inicio:    form.sec2_hora_inicio    || null,
-      sec2_hora_termino:   form.sec2_hora_termino   || null,
       sec2_sigla_numero:   form.sec2_sigla_numero   || null,
       sec2_observaciones:  form.sec2_observaciones  || null,
       sec3_activa:              sec3Activa,

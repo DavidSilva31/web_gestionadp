@@ -6,11 +6,38 @@ import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import { createClient } from "@/lib/supabase"
 import { cn }       from "@/lib/utils"
-import type { ReportFormData, TipoMovimiento, TipoContenedor } from "./report-form-types"
+import type { ReportFormData, TipoContenedor } from "./report-form-types"
 
 // ── Setter type ────────────────────────────────────────────────────────────────
 
 export type FormSetter = <K extends keyof ReportFormData>(key: K, value: ReportFormData[K]) => void
+
+// ── Enter → siguiente campo ──────────────────────────────────────────────────
+// El form no es un <form> nativo (se guarda con un botón, no con submit), así
+// que Enter no hacía nada. Puesto en el contenedor raíz del formulario: salta
+// al siguiente input/select visible en vez de someter nada. Deja pasar Enter
+// en textarea (salto de línea), checkbox/radio y botones, para no pisar su
+// comportamiento normal (p. ej. "+ Agregar producto" o los combobox).
+export function handleEnterFocusNext(e: React.KeyboardEvent<HTMLDivElement>) {
+  if (e.key !== "Enter") return
+  const target = e.target as HTMLElement
+  const tag = target.tagName
+  if (tag === "TEXTAREA" || tag === "BUTTON" || tag === "A") return
+  if (tag === "INPUT") {
+    const tipo = (target as HTMLInputElement).type
+    if (["checkbox", "radio", "file", "button", "submit"].includes(tipo)) return
+  }
+  if (tag !== "INPUT" && tag !== "SELECT") return
+  e.preventDefault()
+  const focusables = Array.from(
+    e.currentTarget.querySelectorAll<HTMLElement>(
+      "input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not(:disabled), select:not(:disabled), textarea:not(:disabled)"
+    )
+  ).filter(el => el.offsetParent !== null)
+  const idx = focusables.indexOf(target)
+  if (idx === -1) return
+  focusables[idx + 1]?.focus()
+}
 
 // ── Field ──────────────────────────────────────────────────────────────────────
 
@@ -74,7 +101,10 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
       set(key, (uc ? e.target.value.toUpperCase() : e.target.value) as ReportFormData[typeof key])
 
   const esIso = form.sec1_tipo_contenedor === "isotanque"
-  const esDespachoIso = esIso && form.sec1_tipo_movimiento === "despacho"
+  // El Ingreso/Despacho ya no se pregunta en la Sección 1: se toma del
+  // "Tipo de movimiento" de Antecedentes (sec3_tipo). sec1_tipo_movimiento
+  // queda como respaldo para reports antiguos que solo lo tenían ahí.
+  const esDespachoIso = esIso && (form.sec3_tipo || form.sec1_tipo_movimiento) === "despacho"
   const [isoEnBodega, setIsoEnBodega] = useState<string[]>([])
 
   useEffect(() => {
@@ -113,15 +143,7 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
       )}
 
       <div className={cn("space-y-2 transition-opacity", !hideActivation && !form.sec1_activa && "opacity-40 pointer-events-none")}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <Field label="Tipo de movimiento">
-            <RadioGroup<TipoMovimiento>
-              value={form.sec1_tipo_movimiento}
-              onChange={v => set("sec1_tipo_movimiento", v)}
-              options={[{ value: "ingreso", label: "Ingreso" }, { value: "despacho", label: "Despacho" }]}
-              readOnly={readOnly}
-            />
-          </Field>
+        <div className="grid grid-cols-1 gap-2">
           <Field label="Tipo de contenedor">
             <RadioGroup<TipoContenedor>
               value={form.sec1_tipo_contenedor}
@@ -266,15 +288,9 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc, hideActivati
           </div>
         </div>
 
+        {/* Las horas de inicio/término ya no se piden acá: manda la Hora inicio/
+            término de la Sección 3 (Operaciones), que cubre todo el report. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <Field label="Hora inicio">
-            <Input type="time" value={form.sec2_hora_inicio}
-              onChange={e => set("sec2_hora_inicio", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
-          </Field>
-          <Field label="Hora término">
-            <Input type="time" value={form.sec2_hora_termino}
-              onChange={e => set("sec2_hora_termino", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
-          </Field>
           <Field label="Sigla / N°" className="col-span-2">
             <Input value={form.sec2_sigla_numero} onChange={str("sec2_sigla_numero")}
               placeholder="Sigla o número" className="h-8 text-xs" disabled={readOnly} />

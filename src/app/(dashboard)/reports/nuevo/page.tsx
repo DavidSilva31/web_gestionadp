@@ -12,7 +12,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import type { ReportFormData } from "@/components/reports/report-form-types"
-import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, type FormSetter } from "@/components/reports/report-form-sections"
+import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, handleEnterFocusNext, type FormSetter } from "@/components/reports/report-form-sections"
 import { ClienteCombobox, ServiciosSection, EmpresaTransporteCombobox, ConductorComboboxes, formatRut, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 
@@ -132,7 +132,7 @@ export default function NuevoReportPage() {
   // "pendiente_operaciones".
   function buildPayload() {
     const sec1Activa = !!(
-      form.sec1_tipo_movimiento || form.sec1_tipo_contenedor || form.sec1_carga_normal ||
+      form.sec1_tipo_contenedor || form.sec1_carga_normal ||
       form.sec1_carga_imo || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
       form.sec1_hora_termino || form.sec1_sigla || form.sec1_interchange ||
       form.sec1_hds
@@ -140,7 +140,7 @@ export default function NuevoReportPage() {
     const sec2Activa = !!(
       form.sec2_consolidado || form.sec2_desconsolidado || form.sec2_picking ||
       form.sec2_paletizado || form.sec2_etiquetado || form.sec2_otro ||
-      form.sec2_hora_inicio || form.sec2_hora_termino || form.sec2_sigla_numero || form.sec2_observaciones
+      form.sec2_sigla_numero || form.sec2_observaciones
     )
     // Sección 3 (Bodegaje) es de solo lectura acá — la completa Operaciones
     // después, en reports/[id] — así que nunca queda activa al crear.
@@ -152,7 +152,7 @@ export default function NuevoReportPage() {
     // ya puede ir directo a la cola de despacho, sin pasar por
     // "pendiente_operaciones". Si además tiene Sección 2/3 activa, esas sí
     // necesitan a Operaciones, así que sigue el flujo normal.
-    const soloDeposito = !!form.sec1_tipo_movimiento && sec1Activa && !sec2Activa && !sec3Activa
+    const soloDeposito = !!form.sec3_tipo && sec1Activa && !sec2Activa && !sec3Activa
     const estado = soloDeposito ? "pendiente_despacho" as const : "pendiente_operaciones" as const
 
     return {
@@ -169,7 +169,9 @@ export default function NuevoReportPage() {
       observaciones:      form.observaciones || null,
       // Sección 1
       sec1_activa:          sec1Activa,
-      sec1_tipo_movimiento: form.sec1_tipo_movimiento || null,
+      // Se copia del "Tipo de movimiento" de Antecedentes — la Sección 1 ya no
+      // lo pregunta por separado, pero el trigger de movimientos y el PDF lo leen de acá.
+      sec1_tipo_movimiento: sec1Activa ? (form.sec3_tipo || null) : null,
       sec1_tipo_contenedor: form.sec1_tipo_contenedor || null,
       sec1_carga_normal:    form.sec1_carga_normal,
       sec1_carga_imo:       form.sec1_carga_imo,
@@ -188,8 +190,6 @@ export default function NuevoReportPage() {
       sec2_paletizado:     form.sec2_paletizado,
       sec2_etiquetado:     form.sec2_etiquetado,
       sec2_otro:           form.sec2_otro,
-      sec2_hora_inicio:    form.sec2_hora_inicio   || null,
-      sec2_hora_termino:   form.sec2_hora_termino  || null,
       sec2_sigla_numero:   form.sec2_sigla_numero  || null,
       sec2_observaciones:  form.sec2_observaciones || null,
       // Sección 3
@@ -219,6 +219,17 @@ export default function NuevoReportPage() {
   async function handleSave() {
     if (!form.cliente || !form.patente || !form.conductor || !form.rut_conductor || !form.sec3_numero_guia) {
       setError("Cliente, patente, conductor, RUT conductor y N° Guía son obligatorios.")
+      return
+    }
+    // Con la Sección 1 llena, el Ingreso/Despacho sale de Antecedentes: sin él
+    // el movimiento se registraría como ingreso por defecto, aunque fuera un despacho.
+    const sec1ConDatos = !!(
+      form.sec1_tipo_contenedor || form.sec1_carga_normal || form.sec1_carga_imo || form.sec1_clase_imo ||
+      form.sec1_nu || form.sec1_hora_inicio || form.sec1_hora_termino || form.sec1_sigla ||
+      form.sec1_interchange || form.sec1_hds
+    )
+    if (sec1ConDatos && !form.sec3_tipo) {
+      setError("Selecciona el Tipo de movimiento (Ingreso o Despacho) en Antecedentes.")
       return
     }
     // La tarifa/contrato ahora la elige Operaciones (columna derecha, bloqueada
@@ -391,7 +402,7 @@ export default function NuevoReportPage() {
 
       {/* Form area — un solo formulario, sin scroll de página */}
       <div className="flex-1 min-h-0 overflow-hidden bg-muted/30 p-3">
-        <div className="bg-card rounded-xl border h-full p-4 overflow-y-auto">
+        <div className="bg-card rounded-xl border h-full p-4 overflow-y-auto" onKeyDown={handleEnterFocusNext}>
           <div className="flex flex-col lg:flex-row gap-x-6 gap-y-3">
             {/* Columna izquierda: Antecedentes + Sección 1 (independiente de la derecha, evita que un archivo HDS adjunto desplace la Sección 2/3) */}
             <div className="flex-1 min-w-0 flex flex-col gap-y-3">

@@ -1517,8 +1517,14 @@ function InventarioContent() {
                                   {item.categoria}
                                 </td>
                                 <td className="px-4 py-3 text-right">
-                                  <span className="text-sm font-bold">{item.stock_actual}</span>
-                                  <span className="text-[10px] text-muted-foreground ml-1">{item.unidad}</span>
+                                  <div className="flex flex-col items-end leading-tight">
+                                    <span className="text-sm font-bold">
+                                      {item.stock_actual} <span className="text-[10px] font-normal text-muted-foreground">pos</span>
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {item.stock_unidades} und
+                                    </span>
+                                  </div>
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                   <Badge className={cn(

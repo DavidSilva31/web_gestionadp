@@ -31,6 +31,7 @@ export function ClienteCombobox({ value, onChange, onChangeId, readOnly, tabla =
   const [clientes, setClientes] = useState<ClienteOption[]>([])
   const [open,     setOpen]     = useState(false)
   const [query,    setQuery]    = useState(value)
+  const [highlighted, setHighlighted] = useState(0)
   const [aEliminar, setAEliminar] = useState<ClienteOption | null>(null)
   const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -73,11 +74,24 @@ export function ClienteCombobox({ value, onChange, onChangeId, readOnly, tabla =
       )
     : clientes
 
+  useEffect(() => { setHighlighted(0) }, [query, open])
+
   function select(c: ClienteOption) {
     setQuery(c.nombre)
     onChange(c.nombre)
     onChangeId(c.id)
     setOpen(false)
+  }
+
+  // Flechas para moverse por las sugerencias y Enter para elegir la
+  // resaltada (la primera por defecto) — sin esto Enter no hacía nada y el
+  // cliente quedaba sin seleccionar aunque se hubiera escrito su nombre.
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open || filtered.length === 0) return
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlighted(i => Math.min(i + 1, filtered.length - 1)) }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlighted(i => Math.max(i - 1, 0)) }
+    else if (e.key === "Enter") { e.preventDefault(); select(filtered[highlighted] ?? filtered[0]) }
+    else if (e.key === "Escape") { setOpen(false) }
   }
 
   return (
@@ -86,6 +100,7 @@ export function ClienteCombobox({ value, onChange, onChangeId, readOnly, tabla =
         value={query}
         onChange={e => { const v = e.target.value.toUpperCase(); setQuery(v); onChange(v); onChangeId(""); setOpen(true) }}
         onFocus={() => !readOnly && setOpen(true)}
+        onKeyDown={onKeyDown}
         placeholder="Seleccionar o escribir cliente"
         className="h-8 text-xs"
         autoComplete="off"
@@ -93,8 +108,8 @@ export function ClienteCombobox({ value, onChange, onChangeId, readOnly, tabla =
       />
       {open && !readOnly && filtered.length > 0 && (
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-          {filtered.map(c => (
-            <div key={c.id} className="flex items-center hover:bg-muted transition-colors">
+          {filtered.map((c, i) => (
+            <div key={c.id} className={cn("flex items-center hover:bg-muted transition-colors", i === highlighted && "bg-muted")}>
               <button
                 type="button"
                 onMouseDown={e => e.preventDefault()}
@@ -153,6 +168,7 @@ export function EmpresaTransporteCombobox({ value, onChange, readOnly }: {
   const [empresas, setEmpresas] = useState<EmpresaTransporteOption[]>([])
   const [open,     setOpen]     = useState(false)
   const [query,    setQuery]    = useState(value)
+  const [highlighted, setHighlighted] = useState(0)
   const [deleting,     setDeleting]     = useState<EmpresaTransporteOption | null>(null)
   const [deletingBusy, setDeletingBusy] = useState(false)
   const [deleteError,  setDeleteError]  = useState<string | null>(null)
@@ -182,10 +198,20 @@ export function EmpresaTransporteCombobox({ value, onChange, readOnly }: {
     ? empresas.filter(e => e.nombre.includes(query.toUpperCase()))
     : empresas
 
+  useEffect(() => { setHighlighted(0) }, [query, open])
+
   function select(nombre: string) {
     setQuery(nombre)
     onChange(nombre)
     setOpen(false)
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open || filtered.length === 0) return
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlighted(i => Math.min(i + 1, filtered.length - 1)) }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlighted(i => Math.max(i - 1, 0)) }
+    else if (e.key === "Enter") { e.preventDefault(); select((filtered[highlighted] ?? filtered[0]).nombre) }
+    else if (e.key === "Escape") { setOpen(false) }
   }
 
   async function handleDelete() {
@@ -213,6 +239,7 @@ export function EmpresaTransporteCombobox({ value, onChange, readOnly }: {
         value={query}
         onChange={e => { const v = e.target.value.toUpperCase(); setQuery(v); onChange(v); setOpen(true) }}
         onFocus={() => !readOnly && setOpen(true)}
+        onKeyDown={onKeyDown}
         placeholder="Seleccionar o escribir empresa"
         className="h-8 text-xs"
         autoComplete="off"
@@ -220,8 +247,8 @@ export function EmpresaTransporteCombobox({ value, onChange, readOnly }: {
       />
       {open && !readOnly && filtered.length > 0 && (
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-          {filtered.map(e => (
-            <div key={e.id} className="group flex items-center justify-between hover:bg-muted transition-colors">
+          {filtered.map((e, i) => (
+            <div key={e.id} className={cn("group flex items-center justify-between hover:bg-muted transition-colors", i === highlighted && "bg-muted")}>
               <button
                 type="button"
                 onMouseDown={ev => ev.preventDefault()}
@@ -307,6 +334,8 @@ export function ConductorComboboxes({
   const [conductores, setConductores] = useState<ConductorOption[]>([])
   const [openNombre, setOpenNombre] = useState(false)
   const [openRut,    setOpenRut]    = useState(false)
+  const [highlightedNombre, setHighlightedNombre] = useState(0)
+  const [highlightedRut,    setHighlightedRut]    = useState(0)
   const refNombre = useRef<HTMLDivElement>(null)
   const refRut    = useRef<HTMLDivElement>(null)
 
@@ -341,6 +370,24 @@ export function ConductorComboboxes({
     ? conductores.filter(c => c.rut.includes(rutConductor))
     : conductores
 
+  useEffect(() => { setHighlightedNombre(0) }, [conductor, openNombre])
+  useEffect(() => { setHighlightedRut(0) }, [rutConductor, openRut])
+
+  function onKeyDownNombre(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!openNombre || filteredByNombre.length === 0) return
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlightedNombre(i => Math.min(i + 1, filteredByNombre.length - 1)) }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlightedNombre(i => Math.max(i - 1, 0)) }
+    else if (e.key === "Enter") { e.preventDefault(); select(filteredByNombre[highlightedNombre] ?? filteredByNombre[0]) }
+    else if (e.key === "Escape") { setOpenNombre(false) }
+  }
+  function onKeyDownRut(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!openRut || filteredByRut.length === 0) return
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlightedRut(i => Math.min(i + 1, filteredByRut.length - 1)) }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlightedRut(i => Math.max(i - 1, 0)) }
+    else if (e.key === "Enter") { e.preventDefault(); select(filteredByRut[highlightedRut] ?? filteredByRut[0]) }
+    else if (e.key === "Escape") { setOpenRut(false) }
+  }
+
   return (
     <>
       <Field label="Conductor" required>
@@ -349,6 +396,7 @@ export function ConductorComboboxes({
             value={conductor}
             onChange={e => { onChangeConductor(e.target.value.toUpperCase()); setOpenNombre(true) }}
             onFocus={() => !readOnly && setOpenNombre(true)}
+            onKeyDown={onKeyDownNombre}
             placeholder="Nombre completo"
             className="h-8 text-xs"
             autoComplete="off"
@@ -356,13 +404,13 @@ export function ConductorComboboxes({
           />
           {openNombre && !readOnly && filteredByNombre.length > 0 && (
             <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-              {filteredByNombre.map(c => (
+              {filteredByNombre.map((c, i) => (
                 <button
                   key={c.id}
                   type="button"
                   onMouseDown={e => e.preventDefault()}
                   onClick={() => select(c)}
-                  className="w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors"
+                  className={cn("w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors", i === highlightedNombre && "bg-muted")}
                 >
                   <span className="font-medium text-foreground truncate">{c.nombre}</span>
                   <span className="text-muted-foreground font-mono text-[10px] flex-shrink-0">{c.rut}</span>
@@ -378,6 +426,7 @@ export function ConductorComboboxes({
             value={rutConductor}
             onChange={e => { onChangeRutConductor(formatRut(e.target.value)); setOpenRut(true) }}
             onFocus={() => !readOnly && setOpenRut(true)}
+            onKeyDown={onKeyDownRut}
             placeholder="12.345.678-9"
             className="h-8 text-xs font-mono"
             autoComplete="off"
@@ -385,13 +434,13 @@ export function ConductorComboboxes({
           />
           {openRut && !readOnly && filteredByRut.length > 0 && (
             <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-              {filteredByRut.map(c => (
+              {filteredByRut.map((c, i) => (
                 <button
                   key={c.id}
                   type="button"
                   onMouseDown={e => e.preventDefault()}
                   onClick={() => select(c)}
-                  className="w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors"
+                  className={cn("w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors", i === highlightedRut && "bg-muted")}
                 >
                   <span className="font-mono text-foreground flex-shrink-0">{c.rut}</span>
                   <span className="text-muted-foreground truncate">{c.nombre}</span>
@@ -429,6 +478,7 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
   const [skuPorItem, setSkuPorItem] = useState<Record<string, string>>({})
   const [open,   setOpen]   = useState(false)
   const [query,  setQuery]  = useState(value)
+  const [highlighted, setHighlighted] = useState(0)
   const [nuevoOpen, setNuevoOpen] = useState(false)
   // SKU del producto actualmente seleccionado — se muestra pegado al nombre
   // en el input mientras no se está buscando/editando (ver value del Input
@@ -495,6 +545,8 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
     ? items.filter(i => i.descripcion.toLowerCase().includes(query.toLowerCase()))
     : items
 
+  useEffect(() => { setHighlighted(0) }, [query, open])
+
   function select(item: InventarioItemOption) {
     setQuery(item.descripcion)
     onChange(item.descripcion)
@@ -509,6 +561,16 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
     select(item)
   }
 
+  // Enter solo elige una fila de Inventario (nunca dispara "Nuevo producto",
+  // que es una acción distinta y queda solo para click/Enter sobre ese botón).
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open || filtered.length === 0) return
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlighted(i => Math.min(i + 1, filtered.length - 1)) }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlighted(i => Math.max(i - 1, 0)) }
+    else if (e.key === "Enter") { e.preventDefault(); select(filtered[highlighted] ?? filtered[0]) }
+    else if (e.key === "Escape") { setOpen(false) }
+  }
+
   return (
     <div ref={ref} className="relative">
       <Input
@@ -518,6 +580,7 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
           if (suppressFocusOpen.current) { suppressFocusOpen.current = false; return }
           if (!readOnly) setOpen(true)
         }}
+        onKeyDown={onKeyDown}
         placeholder={clienteId ? "Buscar producto en inventario..." : "Selecciona un cliente primero"}
         className="h-8 text-xs"
         autoComplete="off"
@@ -525,13 +588,13 @@ export function ProductoCombobox({ clienteId, value, onChange, onSelect, onClear
       />
       {open && !readOnly && clienteId && (filtered.length > 0 || query.length > 0) && (
         <div className="absolute z-50 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-          {filtered.map(item => (
+          {filtered.map((item, i) => (
             <button
               key={item.id}
               type="button"
               onMouseDown={e => e.preventDefault()}
               onClick={() => select(item)}
-              className="w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors"
+              className={cn("w-full flex items-center justify-between gap-3 px-3 py-2 text-xs hover:bg-muted text-left transition-colors", i === highlighted && "bg-muted")}
             >
               <span className="min-w-0 truncate">
                 <span className="font-medium text-foreground">{item.descripcion}</span>
@@ -717,11 +780,6 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
             {item.sec3_producto.trim() && !item.sec3_inventario_item_id && (
               <p className="text-[10px] text-amber-600 mt-1">
                 No vinculado al catálogo — este producto no actualizará el stock.
-              </p>
-            )}
-            {item.sec3_inventario_item_id && tarifasCliente.length > 1 && !item.tarifa_cliente_id && (
-              <p className="text-[10px] text-amber-600 mt-1">
-                Ningún contrato de este cliente coincide con la Clase IMO &quot;{item.sec3_clase_imo || "—"}&quot; — revisa antes de enviar a despacho.
               </p>
             )}
           </div>

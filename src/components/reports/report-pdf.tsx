@@ -347,8 +347,10 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
               <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2 }}>
                 <CbItem checked={report.sec2_paletizado} label="2.2  Paletizado" />
                 <View style={{ marginLeft: 8 }}>
-                  <Field label="Horas  I:" value={report.sec2_hora_inicio} short />
-                  <Field label="              T:" value={report.sec2_hora_termino} short />
+                  {/* Manda la hora de la Sección 3; las de la Sección 2 solo
+                      se usan en reports antiguos que no tienen la de Bodegaje. */}
+                  <Field label="Horas  I:" value={report.sec3_hora_inicio || report.sec2_hora_inicio} short />
+                  <Field label="              T:" value={report.sec3_hora_termino || report.sec2_hora_termino} short />
                 </View>
               </View>
               <CbItem checked={report.sec2_etiquetado} label="2.3  Etiquetado" />
