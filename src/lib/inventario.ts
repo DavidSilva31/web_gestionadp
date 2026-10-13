@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { InventarioArea, InventarioCategoria, InstalacionAlmacenamiento } from "@/types/database"
+import { consultaCacheada, sembrarCache } from "@/lib/cache-consultas"
 
 // Compartido entre /inventario (dialog de alta/edición) y el alta rápida de
 // producto nuevo desde Bodegaje en un report — un solo lugar para no
@@ -101,11 +102,21 @@ export async function syncPesoTon(supabase: SupabaseClient, itemId: string) {
 // devuelve a sí mismo. Único punto de esta regla — reusar acá siempre que
 // se filtre inventario_items por cliente_id.
 export async function resolveEffectiveClienteId(supabase: SupabaseClient, clienteId: string): Promise<string> {
-  const { data, error } = await supabase
+  // Se pide una vez por cliente (varias pantallas y selectores lo necesitan, y cada
+  // consulta cuesta ~300 ms); el vínculo de stock compartido casi nunca cambia.
+  const { data, error } = await consultaCacheada(`efectivo:${clienteId}`, () => supabase
     .from("clientes")
     .select("stock_compartido_con")
     .eq("id", clienteId)
-    .single()
+    .single(), 10 * 60 * 1000)
   if (error) { console.error("[resolveEffectiveClienteId] error:", clienteId, error); return clienteId }
   return data?.stock_compartido_con ?? clienteId
+}
+
+// Cuando una pantalla ya trajo la lista de clientes, el dato del stock compartido ya
+// está a mano: se deja en la caché para no pedirlo de nuevo cliente por cliente.
+export function sembrarClienteEfectivo(clientes: { id: string; stock_compartido_con: string | null }[]) {
+  for (const c of clientes) {
+    sembrarCache(`efectivo:${c.id}`, { data: { stock_compartido_con: c.stock_compartido_con }, error: null })
+  }
 }

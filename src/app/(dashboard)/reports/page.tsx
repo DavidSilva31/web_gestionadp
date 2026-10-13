@@ -466,18 +466,16 @@ export default function ReportsPage() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 px-4 sm:px-6 pt-4 pb-3 flex-shrink-0">
+      <div className="grid grid-cols-3 gap-2 px-4 sm:px-6 pt-2 pb-2 flex-shrink-0">
         {[
-          { icon: <FileText className="h-4 w-4 text-primary" />, bg: "bg-primary/10", count: counts.todos,              label: "Total"          },
-          { icon: <Clock className="h-4 w-4 text-amber-600" />,                 bg: "bg-amber-50 dark:bg-amber-900/20", count: counts.pendiente_despacho, label: "Pendientes" },
-          { icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,        bg: "bg-emerald-50 dark:bg-emerald-900/20", count: counts.despachado,  label: "Despachados"    },
+          { icon: <FileText className="h-3.5 w-3.5 text-primary" />, bg: "bg-primary/10", count: counts.todos,              label: "Total"          },
+          { icon: <Clock className="h-3.5 w-3.5 text-amber-600" />,                 bg: "bg-amber-50 dark:bg-amber-900/20", count: counts.pendiente_despacho, label: "Pendientes" },
+          { icon: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />,        bg: "bg-emerald-50 dark:bg-emerald-900/20", count: counts.despachado,  label: "Despachados"    },
         ].map(s => (
-          <div key={s.label} className="bg-card rounded-lg border p-2.5 sm:p-3 flex items-center gap-2 sm:gap-3">
-            <div className={cn("h-8 w-8 sm:h-10 sm:w-10 rounded-lg flex items-center justify-center flex-shrink-0", s.bg)}>{s.icon}</div>
-            <div className="min-w-0">
-              <p className="text-base sm:text-lg font-bold text-foreground leading-none">{loading ? "—" : s.count}</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 truncate">{s.label}</p>
-            </div>
+          <div key={s.label} className="bg-card rounded-md border px-2.5 py-1.5 flex items-center gap-2">
+            <div className={cn("h-6 w-6 rounded-md flex items-center justify-center flex-shrink-0", s.bg)}>{s.icon}</div>
+            <p className="text-sm font-bold text-foreground leading-none">{loading ? "—" : s.count}</p>
+            <p className="text-xs text-muted-foreground truncate">{s.label}</p>
           </div>
         ))}
       </div>

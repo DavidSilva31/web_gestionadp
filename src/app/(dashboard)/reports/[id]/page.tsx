@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase"
+import { consultaCacheada, invalidarCache } from "@/lib/cache-consultas"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit, accionLabel } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
@@ -195,12 +196,12 @@ export default function ReportDetailPage() {
     const clienteId = form?.cliente_id
     setTarifasCliente([])
     if (!clienteId) return
-    createClient()
+    consultaCacheada(`tarifas:${clienteId}`, () => createClient()
       .from("tarifas_cliente")
       .select("id, clase_imo, cotizacion_numero")
       .eq("cliente_id", clienteId)
       .eq("activo", true)
-      .order("clase_imo")
+      .order("clase_imo"), 60 * 1000)
       .then(({ data, error }) => {
         if (error) { console.error("[report] error obteniendo tarifas del cliente:", error); return }
         setTarifasCliente((data as TarifaOption[]) ?? [])
@@ -298,7 +299,15 @@ export default function ReportDetailPage() {
     let cancelled = false
     async function fetchReport() {
       const supabase = createClient()
-      const { data, error } = await supabase.from("reports").select("*").eq("id", id).single()
+      // Report, sus productos de Bodegaje y el catálogo de clientes (para resolver el
+      // cliente_id) se piden a la vez: antes eran 3 viajes seguidos (~300 ms cada uno)
+      // y los selectores de cliente/producto/tarifas recién partían después del tercero.
+      const [repRes, itemsRes, clientesRes] = await Promise.all([
+        supabase.from("reports").select("*").eq("id", id).single(),
+        supabase.from("report_bodegaje_items").select("*").eq("report_id", id).order("orden"),
+        consultaCacheada("clientes:nombres", () => supabase.from("clientes").select("id, nombre")),
+      ])
+      const { data, error } = repRes
       if (cancelled) return
       if (error || !data) { setNotFound(true); setLoading(false); return }
       setEstado(data.estado as ReportEstado)
@@ -313,10 +322,24 @@ export default function ReportDetailPage() {
       const nombreOperadorInicial = !base.nombre_operador && data.estado === "pendiente_operaciones" && profile?.nombre
         ? profile.nombre.toUpperCase()
         : base.nombre_operador
-      setForm({ ...base, nombre_operador: nombreOperadorInicial, cliente_id: "" })
+      // El report solo guarda el nombre del cliente — se resuelve su id con el catálogo ya
+      // traído, para que ProductoCombobox/ServiciosSection/tarifasCliente (que filtran por
+      // cliente_id) funcionen igual que en reports/nuevo. Si no está en el catálogo (cliente
+      // nuevo o catálogo desactualizado) se consulta directo; si tampoco existe, el cliente
+      // fue renombrado después de crear este report: se avisa en vez de dejar esos selectores
+      // vacíos en silencio.
+      let clienteId = (clientesRes.data as { id: string; nombre: string }[] | null)?.find(c => c.nombre === data.cliente)?.id ?? ""
+      if (!clienteId && data.cliente) {
+        const { data: cli } = await supabase.from("clientes").select("id").eq("nombre", data.cliente as string).maybeSingle()
+        if (cancelled) return
+        clienteId = cli?.id ?? ""
+        if (!cli) {
+          setError(`No se encontró el cliente "${data.cliente}" — puede que haya sido renombrado. Tarifa, producto y servicios no cargarán hasta corregirlo.`)
+        }
+      }
+      setForm({ ...base, nombre_operador: nombreOperadorInicial, cliente_id: clienteId })
 
-      const { data: items, error: itemsErr } = await supabase
-        .from("report_bodegaje_items").select("*").eq("report_id", id).order("orden")
+      const { data: items, error: itemsErr } = itemsRes
       if (itemsErr) console.error("[reports/id] error obteniendo productos de Bodegaje:", itemsErr)
       setBodegajeItems(((items as Record<string, unknown>[] | null) ?? []).map(bodegajeItemFromDb))
       // servicios_ids es un uuid[] plano — un servicio usado 2 veces quedó
@@ -335,22 +358,6 @@ export default function ReportDetailPage() {
       setBodegaPath((data.firma_bodega_url as string | null) ?? null)
       setFirmaEvidencia((data.firma_evidencia as FirmaEvidencia | null) ?? {})
       setLoading(false)
-
-      // El report solo guarda el nombre del cliente — resolver su id para que
-      // ProductoCombobox/ServiciosSection/tarifasCliente (que filtran por
-      // cliente_id) funcionen igual que en reports/nuevo. Si el cliente fue
-      // renombrado después de crear este report, el lookup por nombre no
-      // encuentra nada y esos selectores quedarían vacíos en silencio —
-      // avisar en vez de dejarlo pasar sin explicación.
-      if (data.cliente) {
-        const { data: cli } = await supabase.from("clientes").select("id").eq("nombre", data.cliente as string).maybeSingle()
-        if (cancelled) return
-        if (cli) {
-          setForm(prev => prev ? { ...prev, cliente_id: cli.id } : prev)
-        } else {
-          setError(`No se encontró el cliente "${data.cliente}" — puede que haya sido renombrado. Tarifa, producto y servicios no cargarán hasta corregirlo.`)
-        }
-      }
     }
     fetchReport()
     return () => { cancelled = true }
@@ -640,7 +647,7 @@ export default function ReportDetailPage() {
     if (form.transporte_tipo === "externo" && form.empresa_transporte.trim()) {
       supabase.from("empresas_transporte")
         .upsert({ nombre: form.empresa_transporte.trim(), created_by: user?.id ?? null }, { onConflict: "nombre", ignoreDuplicates: true })
-        .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/id] error guardando empresa de transporte en el catálogo:", catalogErr) })
+        .then(({ error: catalogErr }) => { invalidarCache("catalogo:empresas_transporte"); if (catalogErr) console.error("[reports/id] error guardando empresa de transporte en el catálogo:", catalogErr) })
     }
 
     // Mismo patrón para el chofer — upsert por RUT (no ignoreDuplicates: si
@@ -648,7 +655,7 @@ export default function ReportDetailPage() {
     if (form.rut_conductor.trim() && form.conductor.trim()) {
       supabase.from("conductores")
         .upsert({ rut: form.rut_conductor.trim(), nombre: form.conductor.trim(), ultima_patente: form.patente.trim() || null, created_by: user?.id ?? null }, { onConflict: "rut" })
-        .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/id] error guardando conductor en el catálogo:", catalogErr) })
+        .then(({ error: catalogErr }) => { invalidarCache("catalogo:conductores"); if (catalogErr) console.error("[reports/id] error guardando conductor en el catálogo:", catalogErr) })
     }
 
     // Subir adjuntos nuevos de Antecedentes (HDS y/o Guía de despacho
@@ -784,6 +791,7 @@ export default function ReportDetailPage() {
       usuario_id:     user?.id,
       usuario_nombre: profile?.nombre ?? user?.email,
     })
+    invalidarCache("movprod:")
     router.push("/reports")
     } catch (err) {
       console.error("[reports/id] error inesperado al guardar:", err)

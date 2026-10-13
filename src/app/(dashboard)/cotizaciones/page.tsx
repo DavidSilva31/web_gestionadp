@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Plus, Loader2, Copy, ArrowUp, ArrowDown, ArrowUpDown, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -26,26 +26,17 @@ const EMISORES = ["Altos del Puerto", "Incomex", "Mar Azul"]
 const fmtCL = (n: number, dec = 0) =>
   n.toLocaleString("es-CL", { minimumFractionDigits: dec, maximumFractionDigits: dec })
 
-const valorCampo = (f: FilaCotizacion, campo: Campo): string | number => {
-  switch (campo) {
-    case "numero": return f.numero
-    case "fecha": return f.fecha
-    case "emisor": return f.emisor
-    case "cliente": return f.clientes_cotizacion?.nombre ?? ""
-    case "atencion": return f.atencion ?? ""
-    case "valor_uf": return f.valor_uf
-    case "total": return f.total
-  }
-}
-
 export default function CotizacionesPage() {
   const router = useRouter()
-  const [filas, setFilas] = useState<FilaCotizacion[]>([])
-  const [loading, setLoading] = useState(true)
+  const [filas, setFilas] = useState<FilaCotizacion[]>([])   // solo la página actual
+  const [total, setTotal] = useState(0)                      // coincidencias en toda la base
+  const [loading, setLoading] = useState(true)               // primera carga
+  const [buscando, setBuscando] = useState(false)            // recarga por filtro/orden/página
   const [error, setError] = useState<string | null>(null)
   const [duplicando, setDuplicando] = useState<string | null>(null)
 
   const [texto, setTexto] = useState("")
+  const [textoBusqueda, setTextoBusqueda] = useState("")   // texto ya "asentado" (con retardo) que se envía al servidor
   const [emisorFiltro, setEmisorFiltro] = useState("")
   const [desde, setDesde] = useState("")
   const [hasta, setHasta] = useState("")
@@ -87,55 +78,60 @@ export default function CotizacionesPage() {
     router.push(`/cotizaciones/${nueva.id}`)
   }
 
+  // El texto se envía al servidor con un pequeño retardo (no una consulta por tecla).
   useEffect(() => {
-    (async () => {
+    const t = setTimeout(() => { setTextoBusqueda(texto); setPagina(1) }, 300)
+    return () => clearTimeout(t)
+  }, [texto])
+
+  // Búsqueda, filtros, orden y página se resuelven en el servidor y solo se trae la página
+  // que se ve (25 filas). Antes se descargaban las 1.547 cotizaciones (2 pedidos de 1.000,
+  // uno tras otro) y se filtraban/ordenaban en el navegador en cada visita.
+  const solicitud = useRef(0)
+  useEffect(() => {
+    const mia = ++solicitud.current
+    setBuscando(true)
+    ;(async () => {
       const supabase = createClient()
-      const bloque = 1000
-      const todas: FilaCotizacion[] = []
-      for (let desde = 0; ; desde += bloque) {
-        const { data, error } = await supabase
-          .from("cotizaciones")
-          .select("id, numero, fecha, emisor, valor_uf, total, atencion, clientes_cotizacion(nombre)")
-          .order("numero", { ascending: false })
-          .range(desde, desde + bloque - 1)
-        if (error) { setError(error.message); break }
-        todas.push(...((data ?? []) as unknown as FilaCotizacion[]))
-        if (!data || data.length < bloque) break
+      let filtrada = supabase
+        .from("cotizaciones")
+        .select("id, numero, fecha, emisor, valor_uf, total, atencion, clientes_cotizacion(nombre)", { count: "exact" })
+      if (emisorFiltro) filtrada = filtrada.eq("emisor", emisorFiltro)
+      if (desde) filtrada = filtrada.gte("fecha", desde)
+      if (hasta) filtrada = filtrada.lte("fecha", hasta)
+      // Se buscan N° (exacto), atención, emisor y nombre de cliente. Los caracteres que
+      // rompen la sintaxis del filtro se reemplazan por espacio.
+      const t = textoBusqueda.trim().replace(/[,()%*\\"]/g, " ").trim()
+      if (t) {
+        const { data: cli } = await supabase.from("clientes_cotizacion").select("id").ilike("nombre", `%${t}%`).limit(300)
+        const ids = (cli ?? []).map(c => c.id as string)
+        const partes = [`atencion.ilike.%${t}%`, `emisor.ilike.%${t}%`]
+        if (/^\d+$/.test(t)) partes.push(`numero.eq.${t}`)
+        if (ids.length) partes.push(`cliente_id.in.(${ids.join(",")})`)
+        filtrada = filtrada.or(partes.join(","))
       }
-      setFilas(todas)
+      let ordenada = filtrada.order(orden.campo === "cliente" ? "clientes_cotizacion(nombre)" : orden.campo, { ascending: orden.dir === "asc" })
+      if (orden.campo !== "numero") ordenada = ordenada.order("numero", { ascending: false })
+      const { data, error, count } = await ordenada.range((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA - 1)
+      if (mia !== solicitud.current) return   // ya se pidió algo más nuevo: esta respuesta se descarta
+      if (error) {
+        setError(error.message)
+      } else {
+        setError(null)
+        setFilas((data ?? []) as unknown as FilaCotizacion[])
+        setTotal(count ?? 0)
+      }
       setLoading(false)
+      setBuscando(false)
     })()
-  }, [])
+  }, [textoBusqueda, emisorFiltro, desde, hasta, orden, pagina])
 
-  const visibles = useMemo(() => {
-    const q = texto.trim().toLowerCase()
-    const filtradas = filas.filter(f => {
-      if (emisorFiltro && f.emisor !== emisorFiltro) return false
-      if (desde && f.fecha < desde) return false
-      if (hasta && f.fecha > hasta) return false
-      if (q) {
-        const blanco = [String(f.numero), f.clientes_cotizacion?.nombre ?? "", f.atencion ?? "", f.emisor].join(" ").toLowerCase()
-        if (!blanco.includes(q)) return false
-      }
-      return true
-    })
-    const factor = orden.dir === "asc" ? 1 : -1
-    return [...filtradas].sort((a, b) => {
-      const va = valorCampo(a, orden.campo)
-      const vb = valorCampo(b, orden.campo)
-      if (typeof va === "number" && typeof vb === "number") return (va - vb) * factor
-      return String(va).localeCompare(String(vb), "es", { numeric: true }) * factor
-    })
-  }, [filas, texto, emisorFiltro, desde, hasta, orden])
-
-  useEffect(() => { setPagina(1) }, [texto, emisorFiltro, desde, hasta, orden])
-
-  const totalPaginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA))
+  const totalPaginas = Math.max(1, Math.ceil(total / POR_PAGINA))
   const paginaActual = Math.min(pagina, totalPaginas)
-  const paginaFilas = visibles.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA)
 
   function ordenarPor(campo: Campo) {
     setOrden(o => (o.campo === campo ? { campo, dir: o.dir === "asc" ? "desc" : "asc" } : { campo, dir: "asc" }))
+    setPagina(1)
   }
 
   function Cabecera({ campo, children, className = "" }: { campo: Campo; children: React.ReactNode; className?: string }) {
@@ -168,37 +164,40 @@ export default function CotizacionesPage() {
             <Input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Buscar por N°, cliente, atención…"
               className="h-9 pl-8" />
           </div>
-          <select value={emisorFiltro} onChange={e => setEmisorFiltro(e.target.value)}
+          <select value={emisorFiltro} onChange={e => { setEmisorFiltro(e.target.value); setPagina(1) }}
             className="h-9 rounded-md border bg-background px-2 text-sm">
             <option value="">Todos los emisores</option>
             {EMISORES.map(e => <option key={e} value={e}>{e}</option>)}
           </select>
           <div className="flex items-center gap-1.5 text-sm">
             <span className="text-muted-foreground">Desde</span>
-            <Input type="date" value={desde} onChange={e => setDesde(e.target.value)} className="h-9 w-40" />
+            <Input type="date" value={desde} onChange={e => { setDesde(e.target.value); setPagina(1) }} className="h-9 w-40" />
           </div>
           <div className="flex items-center gap-1.5 text-sm">
             <span className="text-muted-foreground">Hasta</span>
-            <Input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className="h-9 w-40" />
+            <Input type="date" value={hasta} onChange={e => { setHasta(e.target.value); setPagina(1) }} className="h-9 w-40" />
           </div>
           {hayFiltros && (
-            <Button variant="ghost" size="sm" onClick={() => { setTexto(""); setEmisorFiltro(""); setDesde(""); setHasta("") }}>
+            <Button variant="ghost" size="sm" onClick={() => { setTexto(""); setTextoBusqueda(""); setEmisorFiltro(""); setDesde(""); setHasta(""); setPagina(1) }}>
               Limpiar filtros
             </Button>
           )}
-          <span className="ml-auto text-xs text-muted-foreground">{visibles.length} de {filas.length}</span>
+          <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            {buscando && !loading && <Loader2 className="h-3 w-3 animate-spin" />}
+            {total.toLocaleString("es-CL")} {hayFiltros ? "coincidencias" : "cotizaciones"}
+          </span>
         </div>
 
         {loading ? (
           <div className="flex items-center gap-2 text-muted-foreground text-sm"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>
         ) : error ? (
           <p className="text-sm text-destructive">No se pudieron cargar las cotizaciones: {error}</p>
-        ) : filas.length === 0 ? (
+        ) : total === 0 && !hayFiltros && !buscando ? (
           <p className="text-sm text-muted-foreground">Aún no hay cotizaciones. Crea la primera con "Nueva cotización".</p>
-        ) : visibles.length === 0 ? (
+        ) : filas.length === 0 && !buscando ? (
           <p className="text-sm text-muted-foreground">Ninguna cotización coincide con los filtros.</p>
         ) : (
-          <div className="rounded-lg border overflow-x-auto">
+          <div className={`rounded-lg border overflow-x-auto transition-opacity ${buscando ? "opacity-60" : ""}`}>
             <table className="w-full text-sm">
               <thead className="bg-[#1a3a5c] text-white text-left">
                 <tr>
@@ -213,7 +212,7 @@ export default function CotizacionesPage() {
                 </tr>
               </thead>
               <tbody>
-                {paginaFilas.map((f, i) => (
+                {filas.map((f, i) => (
                   <tr key={f.id}
                     onClick={() => router.push(`/cotizaciones/${f.id}`)}
                     className={`cursor-pointer hover:bg-muted/50 ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
@@ -238,10 +237,10 @@ export default function CotizacionesPage() {
             </table>
           </div>
         )}
-        {visibles.length > POR_PAGINA && (
+        {total > POR_PAGINA && (
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="text-muted-foreground">
-              Mostrando {(paginaActual - 1) * POR_PAGINA + 1}–{Math.min(paginaActual * POR_PAGINA, visibles.length)} de {visibles.length}
+              Mostrando {(paginaActual - 1) * POR_PAGINA + 1}–{Math.min(paginaActual * POR_PAGINA, total)} de {total}
             </span>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" disabled={paginaActual <= 1} onClick={() => setPagina(p => p - 1)}>Anterior</Button>

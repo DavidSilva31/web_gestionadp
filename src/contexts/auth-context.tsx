@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 import { useRouter } from "next/navigation"
 import type { User } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase"
+import { invalidarCache } from "@/lib/cache-consultas"
 import type { Profile, UserRole } from "@/types/auth"
 import { DEFAULT_ROUTE } from "@/types/auth"
 
@@ -68,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null)
         setLoading(false)
         if (event === "SIGNED_OUT") {
+          invalidarCache()
           document.documentElement.setAttribute('data-accent', 'celeste')
           router.replace("/login")
         }

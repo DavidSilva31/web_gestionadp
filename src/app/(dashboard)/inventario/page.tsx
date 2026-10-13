@@ -16,8 +16,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
+import { invalidarCache } from "@/lib/cache-consultas"
 import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
-import { resolveEffectiveClienteId, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE, ENVASES_CONTENEDOR } from "@/lib/inventario"
+import { resolveEffectiveClienteId, sembrarClienteEfectivo, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE, ENVASES_CONTENEDOR } from "@/lib/inventario"
 import { ItemFormDialog } from "@/components/inventario/item-form-dialog"
 import { cn } from "@/lib/utils"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
@@ -359,6 +360,7 @@ function InventarioContent() {
     ])
     if (e1 ?? e2) { setFetchError((e1 ?? e2)!.message); setLoading(false); return }
     const clientes = (cData ?? []) as Cliente[]
+    sembrarClienteEfectivo(clientes)
     if (clientes.length) setClientes(clientes)
     const grouped: Record<string, InventarioItem[]> = {}
     for (const c of clientes) grouped[c.id] = []
@@ -692,6 +694,7 @@ function InventarioContent() {
   // ítem (+ su movimiento de ingreso inicial si corresponde) — acá solo hay
   // que refrescar la grilla que esté visible para que aparezca al toque.
   function handleItemCreated() {
+    invalidarCache("productos:")
     if (!selected) return
     fetchItemsForCliente(selected.id)
     if (vista === "kardex") fetchKardexForCliente(selected.id)
@@ -735,6 +738,7 @@ function InventarioContent() {
         usuario_id:     user?.id,
         usuario_nombre: profile?.nombre ?? user?.email,
       })
+      invalidarCache("productos:")
       setDeleting(null)
       if (selected) fetchItemsForCliente(selected.id)
     } catch (err) {
@@ -786,6 +790,7 @@ function InventarioContent() {
         usuario_nombre: profile?.nombre ?? user?.email,
       })
       setSaving(false)
+      invalidarCache("productos:")
       setDialog(null)
       if (selected) fetchItemsForCliente(selected.id)
     } catch (e) {

@@ -402,6 +402,7 @@ src/
 | `migration_reports_sec1_almacenaje.sql` | Columna `reports.sec1_almacenaje` (Almacenaje Full / Vacío de la Sección 1) |
 | `migration_reports_en_proceso.sql` | Estado `en_proceso` y la transición pendiente_despacho → en_proceso en `validate_report_transition()` |
 | `migration_rebuild_bodegaje_manifiesto.sql` | `rebuild_bodegaje_movimientos()` ahora copia al movimiento la Clase IMO, NU, bodega, SKU, envase y transporte del report (antes quedaban vacíos en el Detalle del inventario), y rellena los movimientos ya generados sin pisar datos |
+| `migration_indices_revision.sql` | Índices nuevos según las consultas reales de la app (movimientos por producto y por carga, auditoría por acción y fecha, cotizaciones y transporte por fecha) y se elimina `idx_mov_cliente`, redundante. Incluye consultas de solo lectura para ver el uso real de cada índice |
 | `migration_report_bodegaje_peso_neto.sql` | Columna `report_bodegaje_items.sec3_peso_neto` y copia del peso al movimiento (columna "Peso neto" del Detalle) |
 | `migration_reports_contenedores.sql` | Producto CONTENEDORES: envase Full/Vacío en movimientos y rama de contenedores en `create_movimiento_from_report()` |
 | `migration_movimientos_sync_pos_und.sql` | `sync_inventario_from_movimiento()`: `stock_actual` ← posiciones y `stock_unidades` ← unidades (mismo criterio que reports) |

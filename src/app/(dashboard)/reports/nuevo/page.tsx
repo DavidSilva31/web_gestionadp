@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { createClient } from "@/lib/supabase"
+import { invalidarCache } from "@/lib/cache-consultas"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
@@ -262,7 +263,7 @@ export default function NuevoReportPage() {
     if (form.transporte_tipo === "externo" && form.empresa_transporte.trim()) {
       supabase.from("empresas_transporte")
         .upsert({ nombre: form.empresa_transporte.trim(), created_by: user?.id ?? null }, { onConflict: "nombre", ignoreDuplicates: true })
-        .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/nuevo] error guardando empresa de transporte en el catálogo:", catalogErr) })
+        .then(({ error: catalogErr }) => { invalidarCache("catalogo:empresas_transporte"); if (catalogErr) console.error("[reports/nuevo] error guardando empresa de transporte en el catálogo:", catalogErr) })
     }
 
     // Igual que con la empresa de transporte: el chofer queda guardado en el
@@ -271,7 +272,7 @@ export default function NuevoReportPage() {
     if (form.rut_conductor.trim() && form.conductor.trim()) {
       supabase.from("conductores")
         .upsert({ rut: form.rut_conductor.trim(), nombre: form.conductor.trim(), ultima_patente: form.patente.trim() || null, created_by: user?.id ?? null }, { onConflict: "rut" })
-        .then(({ error: catalogErr }) => { if (catalogErr) console.error("[reports/nuevo] error guardando conductor en el catálogo:", catalogErr) })
+        .then(({ error: catalogErr }) => { invalidarCache("catalogo:conductores"); if (catalogErr) console.error("[reports/nuevo] error guardando conductor en el catálogo:", catalogErr) })
     }
 
     // Subir los adjuntos de Antecedentes (HDS y/o Guía de despacho comparten

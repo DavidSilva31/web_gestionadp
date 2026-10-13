@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Loader2, Wrench, Plus, Minus, X, ChevronDown, ChevronUp, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import { resolveEffectiveClienteId, partesProducto, type InventarioItemOption } from "@/lib/inventario"
+import { consultaCacheada, invalidarCache } from "@/lib/cache-consultas"
 import { ItemFormDialog } from "@/components/inventario/item-form-dialog"
 import { Field } from "./report-form-sections"
 import type { BodegajeItemFormData } from "./report-form-types"
@@ -45,16 +46,21 @@ export function ClienteCombobox({ value, onChange, onChangeId, readOnly, tabla =
     const { error } = await supabase.from("clientes_cotizacion").delete().eq("id", aEliminar.id)
     if (error) { setErrorEliminar(error.message); return }
     setClientes(prev => prev.filter(c => c.id !== aEliminar.id))
+    invalidarCache(`catalogo:${tabla}`)
     if (value === aEliminar.nombre) { onChange(""); onChangeId("") }
     setAEliminar(null)
     setErrorEliminar(null)
   }
 
+  // El catálogo se comparte entre selectores y pantallas (ver cache-consultas.ts).
   useEffect(() => {
-    const consulta = createClient().from(tabla).select("id, nombre, rut")
-    const filtrada = tabla === "clientes" ? consulta.eq("activo", true) : consulta
-    filtrada.order("nombre", { ascending: true })
-      .then(({ data }) => { if (data) setClientes(data as ClienteOption[]) })
+    let vivo = true
+    consultaCacheada(`catalogo:${tabla}`, () => {
+      const consulta = createClient().from(tabla).select("id, nombre, rut")
+      const filtrada = tabla === "clientes" ? consulta.eq("activo", true) : consulta
+      return filtrada.order("nombre", { ascending: true })
+    }).then(({ data }) => { if (vivo && data) setClientes(data as ClienteOption[]) })
+    return () => { vivo = false }
   }, [tabla])
 
   useEffect(() => { setQuery(value) }, [value])
@@ -175,11 +181,11 @@ export function EmpresaTransporteCombobox({ value, onChange, readOnly }: {
   const ref = useRef<HTMLDivElement>(null)
 
   function fetchEmpresas() {
-    createClient()
+    consultaCacheada("catalogo:empresas_transporte", () => createClient()
       .from("empresas_transporte")
       .select("id, nombre")
       .eq("activo", true)
-      .order("nombre", { ascending: true })
+      .order("nombre", { ascending: true }))
       .then(({ data }) => { if (data) setEmpresas(data as EmpresaTransporteOption[]) })
   }
 
@@ -223,6 +229,7 @@ export function EmpresaTransporteCombobox({ value, onChange, readOnly }: {
       const { error } = await supabase.from("empresas_transporte").update({ activo: false }).eq("id", deleting.id)
       if (error) { setDeleteError(error.message); return }
       setEmpresas(prev => prev.filter(e => e.id !== deleting.id))
+      invalidarCache("catalogo:empresas_transporte")
       if (query === deleting.nombre) { setQuery(""); onChange("") }
       setDeleting(null)
     } catch (err) {
@@ -340,11 +347,13 @@ export function ConductorComboboxes({
   const refRut    = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    createClient()
+    let vivo = true
+    consultaCacheada("catalogo:conductores", () => createClient()
       .from("conductores")
       .select("id, nombre, rut")
-      .order("nombre", { ascending: true })
-      .then(({ data }) => { if (data) setConductores(data as ConductorOption[]) })
+      .order("nombre", { ascending: true }))
+      .then(({ data }) => { if (vivo && data) setConductores(data as ConductorOption[]) })
+    return () => { vivo = false }
   }, [])
 
   useEffect(() => {
@@ -494,20 +503,20 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
     if (!clienteId) return
     const supabase = createClient()
     resolveEffectiveClienteId(supabase, clienteId).then(effectiveId => {
-      supabase
+      consultaCacheada(`productos:items:${effectiveId}`, () => supabase
         .from("inventario_items")
         .select("id, descripcion, clase_imo, nu, codigo, unidad")
         .eq("cliente_id", effectiveId)
         .eq("activo", true)
-        .order("descripcion", { ascending: true })
+        .order("descripcion", { ascending: true }))
         .then(({ data }) => { if (data) setItems(data as InventarioItemOption[]) })
 
-      supabase
+      consultaCacheada(`productos:skus:${effectiveId}`, () => supabase
         .from("movimientos")
         .select("inventario_item_id, codigo, tipo_envase, fecha")
         .eq("cliente_id", effectiveId)
         .not("inventario_item_id", "is", null)
-        .order("fecha", { ascending: false })
+        .order("fecha", { ascending: false }))
         .then(({ data }) => {
           if (!data) return
           const skus: Record<string, string> = {}
@@ -559,6 +568,7 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
   }
 
   function handleCreado(item: InventarioItemOption) {
+    invalidarCache("productos:")
     setItems(prev => [...prev, item].sort((a, b) => a.descripcion.localeCompare(b.descripcion)))
     suppressFocusOpen.current = true
     select(item)
@@ -664,6 +674,39 @@ export function tarifaCubreClase(tarifaClase: string | null, itemClase: string |
 // trigger de stock no cuente el mismo movimiento dos veces— así que buscar
 // solo por inventario_item_id se perdería justo los lotes reales de
 // ingresos/despachos ya hechos, y solo mostraría los de altas manuales.
+// Movimientos (no ocultos) de un producto. Los comparten el selector de lote y el de peso
+// neto: antes cada uno hacía sus propias 2 consultas (4 por cada producto del report); ahora
+// se piden una vez y se reutilizan. Caché corta (30 s): al guardar un report se invalida.
+type MovProducto = { id: string; lote: string | null; tipo: string; posiciones: number | null; peso_envase: number | null }
+function useMovimientosProducto(inventarioItemId: string, carga: string): MovProducto[] {
+  const [movs, setMovs] = useState<MovProducto[]>([])
+  useEffect(() => {
+    const cargaTrim = carga.trim()
+    if (!inventarioItemId && !cargaTrim) { setMovs([]); return }
+    let vivo = true
+    const supabase = createClient()
+    const cols = "id, lote, tipo, posiciones, peso_envase"
+    // Dos consultas separadas (no .or()) para no tener que escapar `carga`, que suele
+    // traer paréntesis (ej. "HIPOCLORITO (IBC)") — rompería el filtro de PostgREST si
+    // fuera texto crudo dentro de un .or(...).
+    Promise.all([
+      inventarioItemId
+        ? consultaCacheada(`movprod:item:${inventarioItemId}`, () => supabase.from("movimientos").select(cols).eq("inventario_item_id", inventarioItemId).eq("oculto", false), 30 * 1000)
+        : Promise.resolve({ data: [] as MovProducto[] }),
+      cargaTrim
+        ? consultaCacheada(`movprod:carga:${cargaTrim}`, () => supabase.from("movimientos").select(cols).eq("carga", cargaTrim).eq("oculto", false), 30 * 1000)
+        : Promise.resolve({ data: [] as MovProducto[] }),
+    ]).then(([a, b]) => {
+      if (!vivo) return
+      const porId = new Map<string, MovProducto>()
+      for (const m of [...(a.data ?? []), ...(b.data ?? [])] as MovProducto[]) porId.set(m.id, m)
+      setMovs([...porId.values()])
+    })
+    return () => { vivo = false }
+  }, [inventarioItemId, carga])
+  return movs
+}
+
 function LoteField({ inventarioItemId, carga, value, onChange, disabled }: {
   inventarioItemId: string
   carga: string
@@ -671,30 +714,14 @@ function LoteField({ inventarioItemId, carga, value, onChange, disabled }: {
   onChange: (v: string) => void
   disabled?: boolean
 }) {
-  const [lotes, setLotes] = useState<string[]>([])
   const [open,  setOpen]  = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const cargaTrim = carga.trim()
-    if (!inventarioItemId && !cargaTrim) { setLotes([]); return }
-    // Dos queries separadas (no .or()) para no tener que escapar `carga`,
-    // que suele traer paréntesis (ej. "HIPOCLORITO (IBC)") — rompería el
-    // filtro de PostgREST si fuera texto crudo dentro de un .or(...).
-    const supabase = createClient()
-    Promise.all([
-      inventarioItemId
-        ? supabase.from("movimientos").select("lote").eq("inventario_item_id", inventarioItemId).eq("oculto", false).not("lote", "is", null)
-        : Promise.resolve({ data: [] as { lote: string | null }[] }),
-      cargaTrim
-        ? supabase.from("movimientos").select("lote").eq("carga", cargaTrim).eq("oculto", false).not("lote", "is", null)
-        : Promise.resolve({ data: [] as { lote: string | null }[] }),
-    ]).then(([a, b]) => {
-      const set = new Set<string>()
-      for (const m of [...(a.data ?? []), ...(b.data ?? [])]) if (m.lote) set.add(m.lote)
-      setLotes([...set].sort((x, y) => x.localeCompare(y, undefined, { numeric: true })))
-    })
-  }, [inventarioItemId, carga])
+  const movs = useMovimientosProducto(inventarioItemId, carga)
+  const lotes = useMemo(() => {
+    const set = new Set<string>()
+    for (const m of movs) if (m.lote) set.add(m.lote)
+    return [...set].sort((x, y) => x.localeCompare(y, undefined, { numeric: true }))
+  }, [movs])
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -751,39 +778,20 @@ function PesoNetoField({ inventarioItemId, carga, lote, value, onChange, disable
   onChange: (v: string) => void
   disabled?: boolean
 }) {
-  const [opciones, setOpciones] = useState<{ peso: number; disponibles: number }[]>([])
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const loteTrim = lote.trim()
-
-  useEffect(() => {
-    const cargaTrim = carga.trim()
-    if (!loteTrim || (!inventarioItemId && !cargaTrim)) { setOpciones([]); return }
-    type Fila = { id: string; tipo: string; posiciones: number | null; peso_envase: number | null }
-    let vivo = true
-    const supabase = createClient()
-    const cols = "id, tipo, posiciones, peso_envase"
-    // Dos queries (no .or()) por el mismo motivo que LoteField: carga trae paréntesis.
-    Promise.all([
-      inventarioItemId
-        ? supabase.from("movimientos").select(cols).eq("inventario_item_id", inventarioItemId).eq("lote", loteTrim).eq("oculto", false).not("peso_envase", "is", null)
-        : Promise.resolve({ data: [] as Fila[] }),
-      cargaTrim
-        ? supabase.from("movimientos").select(cols).eq("carga", cargaTrim).eq("lote", loteTrim).eq("oculto", false).not("peso_envase", "is", null)
-        : Promise.resolve({ data: [] as Fila[] }),
-    ]).then(([a, b]) => {
-      if (!vivo) return
-      const porId = new Map<string, Fila>()
-      for (const m of [...(a.data ?? []), ...(b.data ?? [])] as Fila[]) porId.set(m.id, m)
-      const neto = new Map<number, number>()
-      for (const m of porId.values()) {
-        const k = Number(m.peso_envase)
-        neto.set(k, (neto.get(k) ?? 0) + (m.tipo === "ingreso" ? 1 : -1) * (m.posiciones ?? 0))
-      }
-      setOpciones([...neto.entries()].map(([peso, disponibles]) => ({ peso, disponibles })).sort((x, y) => x.peso - y.peso))
-    })
-    return () => { vivo = false }
-  }, [inventarioItemId, carga, loteTrim])
+  const movs = useMovimientosProducto(inventarioItemId, carga)
+  const opciones = useMemo(() => {
+    if (!loteTrim) return []
+    const neto = new Map<number, number>()
+    for (const m of movs) {
+      if (m.lote !== loteTrim || m.peso_envase == null) continue
+      const k = Number(m.peso_envase)
+      neto.set(k, (neto.get(k) ?? 0) + (m.tipo === "ingreso" ? 1 : -1) * (m.posiciones ?? 0))
+    }
+    return [...neto.entries()].map(([peso, disponibles]) => ({ peso, disponibles })).sort((x, y) => x.peso - y.peso)
+  }, [movs, loteTrim])
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -985,7 +993,7 @@ export function ServiciosSection({
     setFetchError(false)
     if (!clienteId) return
     setLoading(true)
-    createClient()
+    consultaCacheada(`servicios:${clienteId}`, () => createClient()
       .from("servicios_cliente")
       .select("id, nombre, unidad, tarifa_uf, tarifa_clp")
       .eq("cliente_id", clienteId)
@@ -993,7 +1001,7 @@ export function ServiciosSection({
       // Transporte se cobra por viaje en el módulo Transporte Incomex, no
       // acá — mezclarlo acá arriesgaba cobrarlo dos veces en el HES.
       .eq("categoria", "otro")
-      .order("orden")
+      .order("orden"), 30 * 1000)
       .then(({ data, error }) => {
         if (error) console.error("[reports] error obteniendo servicios del cliente:", error)
         setServicios((data as ServicioOption[]) ?? [])

@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { PageHeader } from "@/components/layout/page-header"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase"
+import { invalidarCache } from "@/lib/cache-consultas"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
@@ -171,6 +172,7 @@ export default function ClientesPage() {
       }
       setSaving(false)
       setDialog(null)
+      invalidarCache()
       fetchClientes()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al guardar. Intenta nuevamente.")
