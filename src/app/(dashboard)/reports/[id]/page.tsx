@@ -136,6 +136,11 @@ export default function ReportDetailPage() {
   const [sec2DragOver,           setSec2DragOver]           = useState(false)
   const [previewFile,            setPreviewFile]            = useState<File | null>(null)
   const sec2EvidenciaFileRef = useRef<HTMLInputElement>(null)
+  // Guard síncrono contra doble submit — "disabled={saving}" no alcanza a
+  // bloquear un segundo click disparado antes de que React re-renderice con
+  // el nuevo estado (causó el report #80 con report_bodegaje_items y
+  // movimientos duplicados por un guardado doble).
+  const savingRef = useRef(false)
 
   // Adjuntos de Antecedentes — mismo patrón de dos fases que la evidencia
   // fotográfica, pero HDS y Guía de despacho comparten una sola caja (ver
@@ -578,6 +583,7 @@ export default function ReportDetailPage() {
 
   async function handleSave(newEstado: ReportEstado) {
     if (!form) return
+    if (savingRef.current) return
     if (!form.cliente || !form.patente || !form.conductor || !form.rut_conductor || !form.sec3_numero_guia) {
       setError("Cliente, patente, conductor, RUT conductor y N° Guía son obligatorios.")
       return
@@ -587,6 +593,7 @@ export default function ReportDetailPage() {
     // sin asignar y solo se avisa con el mensaje ámbar bajo Producto, sin
     // bloquear el envío a despacho.
     setError(null)
+    savingRef.current = true
     setSaving(true)
     // try/finally envolviendo todo: antes, una excepción real (no un error
     // devuelto por Supabase) dejaba "saving" en true para siempre.
@@ -797,6 +804,7 @@ export default function ReportDetailPage() {
       console.error("[reports/id] error inesperado al guardar:", err)
       setError("No se pudo conectar con el servidor. Intenta de nuevo.")
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
