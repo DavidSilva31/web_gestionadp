@@ -140,6 +140,43 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
     return () => { vivo = false }
   }, [esDespachoUnidad, form.cliente, descProducto, catProducto])
 
+  const [agregado, setAgregado] = useState(false)
+  // Un camión lleva 2 de 20ft, 1 de 40ft o 1 isotanque: el segundo contenedor
+  // solo existe para 20ft.
+  const puedeDos = form.sec1_tipo_contenedor === "20ft"
+  const hay2 = puedeDos && (agregado || !!form.sec1_sigla_2 || !!form.sec1_interchange_2)
+
+  // Campo de sigla de un contenedor (1 o 2). En despacho de 20ft/40ft/isotanque es
+  // una lista de los que están en bodega — sin repetir el que ya eligió el otro
+  // campo; sin contenedores en bodega un 20ft/40ft cae al campo libre (puede ser
+  // un contenedor que llegó vacío a cargarse y nunca se registró). El isotanque
+  // siempre es lista.
+  const siglaCampo = (n: 1 | 2) => {
+    const key = n === 1 ? "sec1_sigla" : "sec1_sigla_2"
+    const valor = form[key]
+    const otra = n === 1 ? form.sec1_sigla_2 : form.sec1_sigla
+    const base = esDespachoUnidad ? (esIso ? "Isotanque a despachar" : "Contenedor a despachar") : esUnidad ? (esIso ? "Código del isotanque" : "Sigla del contenedor") : "Sigla"
+    const opciones = [...new Set(valor ? [valor, ...enBodega] : enBodega)].filter(c => c === valor || c !== otra)
+    return (
+      <Field label={hay2 ? `${base} ${n}` : base}>
+        {esDespachoUnidad && (esIso || enBodega.length > 0) ? (
+          <select value={valor}
+            onChange={e => {
+              set(key, e.target.value)
+              if (esContenedor && e.target.value && !form.sec1_almacenaje) set("sec1_almacenaje", "vacio")
+            }}
+            disabled={readOnly} className="h-8 text-xs rounded-md border bg-background px-2">
+            <option value="">— Seleccionar —</option>
+            {opciones.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        ) : (
+          <Input value={valor} onChange={str(key)}
+            placeholder={esUnidad ? "Ej: BLKU257599-0" : "Sigla del contenedor"} className="h-8 text-xs" disabled={readOnly} />
+        )}
+      </Field>
+    )
+  }
+
   return (
     <div className="space-y-2">
       {!hideActivation && (
@@ -158,7 +195,11 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
           <Field label="Tipo de contenedor">
             <RadioGroup<TipoContenedor>
               value={form.sec1_tipo_contenedor}
-              onChange={v => { set("sec1_tipo_contenedor", v); if (v === "isotanque") set("sec1_almacenaje", "") }}
+              onChange={v => {
+                set("sec1_tipo_contenedor", v)
+                if (v === "isotanque") set("sec1_almacenaje", "")
+                if (v !== "20ft") { setAgregado(false); set("sec1_sigla_2", ""); set("sec1_interchange_2", "") }
+              }}
               options={[{ value: "20ft", label: "20ft" }, { value: "40ft", label: "40ft" }, { value: "isotanque", label: "Isotanque" }]}
               readOnly={readOnly}
             />
@@ -224,30 +265,37 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
             <Input type="time" value={form.sec1_hora_termino}
               onChange={e => set("sec1_hora_termino", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
-          <Field label={esDespachoUnidad ? (esIso ? "Isotanque a despachar" : "Contenedor a despachar") : esUnidad ? (esIso ? "Código del isotanque" : "Sigla del contenedor") : "Sigla"}>
-            {/* Sin contenedores en bodega (y sin sigla escrita) un 20ft/40ft cae al
-                campo libre: puede ser un contenedor que llegó vacío a cargarse y
-                nunca se registró como producto. El isotanque siempre es lista. */}
-            {esDespachoUnidad && (esIso || enBodega.length > 0) ? (
-              <select value={form.sec1_sigla}
-                onChange={e => {
-                  set("sec1_sigla", e.target.value)
-                  if (esContenedor && e.target.value && !form.sec1_almacenaje) set("sec1_almacenaje", "vacio")
-                }}
-                disabled={readOnly} className="h-8 text-xs rounded-md border bg-background px-2">
-                <option value="">— Seleccionar —</option>
-                {[...new Set(form.sec1_sigla ? [form.sec1_sigla, ...enBodega] : enBodega)].map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            ) : (
-              <Input value={form.sec1_sigla} onChange={str("sec1_sigla")}
-                placeholder={esUnidad ? "Ej: BLKU257599-0" : "Sigla del contenedor"} className="h-8 text-xs" disabled={readOnly} />
-            )}
-          </Field>
-          <Field label="Interchange">
+          {siglaCampo(1)}
+          <Field label={hay2 ? "Interchange 1" : "Interchange"}>
             <Input value={form.sec1_interchange} onChange={str("sec1_interchange")}
               placeholder="N° Interchange" className="h-8 text-xs" disabled={readOnly} />
           </Field>
+          {hay2 && (
+            <>
+              {siglaCampo(2)}
+              <Field label="Interchange 2">
+                <Input value={form.sec1_interchange_2} onChange={str("sec1_interchange_2")}
+                  placeholder="N° Interchange" className="h-8 text-xs" disabled={readOnly} />
+              </Field>
+            </>
+          )}
         </div>
+
+        {/* Un camión puede traer o retirar 1 o 2 contenedores: el segundo lleva su
+            propia sigla e interchange; tipo, horas y Almacenaje se comparten. */}
+        {!readOnly && puedeDos && (
+          hay2 ? (
+            <button type="button" className="text-xs text-muted-foreground hover:text-destructive underline underline-offset-2"
+              onClick={() => { setAgregado(false); set("sec1_sigla_2", ""); set("sec1_interchange_2", "") }}>
+              Quitar segundo contenedor
+            </button>
+          ) : (
+            <button type="button" className="text-xs text-primary hover:underline underline-offset-2"
+              onClick={() => setAgregado(true)}>
+              + Agregar segundo contenedor
+            </button>
+          )
+        )}
 
         <div className="flex items-center gap-2">
           <Checkbox id="sec1_hds" checked={form.sec1_hds}

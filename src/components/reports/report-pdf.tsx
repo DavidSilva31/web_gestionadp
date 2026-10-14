@@ -320,8 +320,9 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
           </View>
 
           <View style={[s.row, { marginTop: 3 }]}>
-            <View style={{ flex: 1.2 }}>
+            <View style={{ flex: 1.2, flexDirection: "row", alignItems: "flex-end", flexWrap: "wrap" }}>
               <Field label="1.5  Sigla:" value={report.sec1_sigla} med />
+              {report.sec1_sigla_2 && <Field label="Sigla 2:" value={report.sec1_sigla_2} med />}
             </View>
             <View style={s.cbRow}>
               <CB checked={report.sec1_hds} />
@@ -331,6 +332,7 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
 
           <View style={[s.row, { marginTop: 3 }]}>
             <Field label="1.6  Interchange N°:" value={report.sec1_interchange} long />
+            {report.sec1_interchange_2 && <Field label="Interchange 2:" value={report.sec1_interchange_2} long />}
           </View>
           </>
           )}

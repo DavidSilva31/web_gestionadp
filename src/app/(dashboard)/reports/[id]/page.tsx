@@ -461,6 +461,8 @@ export default function ReportDetailPage() {
       sec1_hora_termino:    form.sec1_hora_termino  || null,
       sec1_sigla:           form.sec1_sigla         || null,
       sec1_interchange:     form.sec1_interchange   || null,
+      sec1_sigla_2:         form.sec1_sigla_2        || null,
+      sec1_interchange_2:   form.sec1_interchange_2  || null,
       sec1_hds:             form.sec1_hds,
       sec2_activa:         sec2Activa,
       sec2_consolidado:    form.sec2_consolidado,

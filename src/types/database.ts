@@ -48,6 +48,8 @@ export interface Report {
   sec1_sigla: string | null
   sec1_guia_numero: string | null
   sec1_interchange: string | null
+  sec1_sigla_2: string | null
+  sec1_interchange_2: string | null
   sec1_hds: boolean
 
   // Sección 2

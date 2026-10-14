@@ -12,6 +12,8 @@ const CAMPOS_BASE = [
   "nombre_operador", "transporte_tipo", "empresa_transporte", "observaciones",
 ]
 
+const CAMPOS_OPCIONALES = ["sec1_sigla_2", "sec1_interchange_2"]
+
 // Recepción llena Antecedentes + Sección 1 y ese lado queda congelado al pasar
 // a Operaciones; lo que Operaciones completa después (Sección 2/3, nombre del
 // operador) no debe invalidar la firma de Recepción.
@@ -36,6 +38,9 @@ function toHex(buf: ArrayBuffer): string {
 export async function hashContenidoReport(report: Record<string, unknown>, rol: RolFirma): Promise<string> {
   const contenido: Record<string, unknown> = {}
   for (const key of Object.keys(report).filter(k => esCampoFirmable(k, rol)).sort()) {
+    // Columnas agregadas después de que ya había reports firmados: si están
+    // vacías no entran, así la huella de esos reports no cambia al agregarlas.
+    if (CAMPOS_OPCIONALES.includes(key) && report[key] == null) continue
     contenido[key] = report[key] ?? null
   }
   const data = new TextEncoder().encode(JSON.stringify(contenido))
