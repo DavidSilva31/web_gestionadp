@@ -109,7 +109,12 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
   // El Ingreso/Despacho ya no se pregunta en la Sección 1: se toma del
   // "Tipo de movimiento" de Antecedentes (sec3_tipo). sec1_tipo_movimiento
   // queda como respaldo para reports antiguos que solo lo tenían ahí.
-  const esDespachoUnidad = esUnidad && (form.sec3_tipo || form.sec1_tipo_movimiento) === "despacho"
+  // Un 20ft/40ft en despacho ofrece siempre la lista de contenedores que están en
+  // bodega (aunque no se haya marcado Almacenaje): al elegir uno se marca
+  // "Almacenaje Vacío" (ver el select de Sigla), que es lo que hace que el
+  // contenedor se descuente del stock y el report se cierre al salir el camión.
+  const esContenedor = form.sec1_tipo_contenedor === "20ft" || form.sec1_tipo_contenedor === "40ft"
+  const esDespachoUnidad = (esIso || esContenedor) && (form.sec3_tipo || form.sec1_tipo_movimiento) === "despacho"
   const [enBodega, setEnBodega] = useState<string[]>([])
   const { descripcion: descProducto, categoria: catProducto } = productoUnidad
 
@@ -220,8 +225,15 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
               onChange={e => set("sec1_hora_termino", e.target.value)} className="h-8 text-xs" disabled={readOnly} />
           </Field>
           <Field label={esDespachoUnidad ? (esIso ? "Isotanque a despachar" : "Contenedor a despachar") : esUnidad ? (esIso ? "Código del isotanque" : "Sigla del contenedor") : "Sigla"}>
-            {esDespachoUnidad ? (
-              <select value={form.sec1_sigla} onChange={e => set("sec1_sigla", e.target.value)}
+            {/* Sin contenedores en bodega (y sin sigla escrita) un 20ft/40ft cae al
+                campo libre: puede ser un contenedor que llegó vacío a cargarse y
+                nunca se registró como producto. El isotanque siempre es lista. */}
+            {esDespachoUnidad && (esIso || enBodega.length > 0) ? (
+              <select value={form.sec1_sigla}
+                onChange={e => {
+                  set("sec1_sigla", e.target.value)
+                  if (esContenedor && e.target.value && !form.sec1_almacenaje) set("sec1_almacenaje", "vacio")
+                }}
                 disabled={readOnly} className="h-8 text-xs rounded-md border bg-background px-2">
                 <option value="">— Seleccionar —</option>
                 {[...new Set(form.sec1_sigla ? [form.sec1_sigla, ...enBodega] : enBodega)].map(c => <option key={c} value={c}>{c}</option>)}
