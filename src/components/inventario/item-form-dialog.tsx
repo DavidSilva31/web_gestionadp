@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Loader2, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -70,6 +70,13 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Guard síncrono contra doble guardado — "disabled={saving}" no alcanza a
+  // bloquear un segundo click disparado antes de que React re-renderice.
+  const savingRef = useRef(false)
+  // Ítem ya creado en esta apertura del diálogo: si el ingreso inicial falla y
+  // el usuario reintenta, se reutiliza en vez de crear un segundo producto.
+  const creadoRef = useRef<InventarioItemOption | null>(null)
+  useEffect(() => { if (open) creadoRef.current = null }, [open])
 
   // Reset del form al reabrir — ajustado durante el render (no en un efecto)
   // siguiendo el patrón de React para "resetear estado cuando cambia una
@@ -97,10 +104,30 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
   async function handleSave() {
     if (!form.descripcion.trim()) { setError("El nombre es obligatorio"); return }
     if (!form.codigo.trim()) { setError("El SKU es obligatorio"); return }
+    if (savingRef.current) return
+    savingRef.current = true
     setSaving(true); setError(null)
     try {
       const supabase = createClient()
       const ownerId = await resolveEffectiveClienteId(supabase, clienteId)
+
+      // Alta rápida desde un report: si el producto ya existe en el inventario del
+      // cliente (mismo nombre, y mismo SKU o sin SKU), se usa ese en vez de crear
+      // un duplicado — pasa cuando la lista del selector quedó desactualizada (otra
+      // línea del mismo report, otra pestaña u otro usuario lo creó hace un momento).
+      if (compact && !creadoRef.current) {
+        const norm = (s: string) => s.replace(/\s+/g, " ").trim().toUpperCase()
+        const { data: existentes } = await supabase.from("inventario_items")
+          .select("id, descripcion, clase_imo, nu, codigo, unidad").eq("cliente_id", ownerId).eq("activo", true)
+        const dup = (existentes ?? []).find(i => norm(i.descripcion) === norm(form.descripcion)
+          && (!i.codigo?.trim() || norm(i.codigo) === norm(form.codigo)))
+        if (dup) {
+          if (!dup.codigo?.trim()) await supabase.from("inventario_items").update({ codigo: form.codigo.trim() }).eq("id", dup.id)
+          onCreated({ ...dup, codigo: dup.codigo?.trim() || form.codigo.trim() } as InventarioItemOption)
+          onOpenChange(false)
+          return
+        }
+      }
       const stockPos = Math.max(0, form.stockPos)
       const stockUnd = Math.max(0, form.stockUnd)
       // Bodega = código de la Instalación elegida, directo — no hay input
@@ -114,6 +141,7 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
       const itemPayload = {
         cliente_id:     ownerId,
         descripcion:    form.descripcion.trim(),
+        codigo:         form.codigo.trim(),
         categoria:      form.categoria,
         area:           inferInventarioArea(instalaciones.find(i => i.id === form.instalacion_id)),
         clase_imo:      form.clase_imo.trim() || null,
@@ -129,18 +157,24 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
         peso_ton:       null,
         peso_unitario_ton: null,
       }
-      const { data: item, error: itemErr } = await supabase.from("inventario_items")
-        .insert(itemPayload).select("id, descripcion, clase_imo, nu").single()
-      if (itemErr) { setError(itemErr.message); return }
+      let item = creadoRef.current
+      if (!item) {
+        const { data, error: itemErr } = await supabase.from("inventario_items")
+          .insert(itemPayload).select("id, descripcion, clase_imo, nu, codigo, unidad").single()
+        if (itemErr || !data) { setError(itemErr?.message ?? "No se pudo crear el producto"); return }
+        item = data as InventarioItemOption
+        creadoRef.current = item
+      }
 
-      // Movimiento de ingreso inicial: se crea siempre que haya stock o
-      // algún dato de detalle cargado — un ítem sin nada de eso (solo
-      // catálogo, sin stock) no tiene historial real que mostrar en Detalle.
-      // En modo compacto (alta rápida desde un report) el SKU solo vive en
-      // este movimiento (0/0, sin afectar stock), así que siempre se crea —
-      // si no, se perdería en silencio al no haber ningún otro dato cargado.
-      const tieneDetalle = compact || stockPos > 0 || stockUnd > 0 || form.lote.trim() !== "" || form.fecha_vencimiento !== ""
-        || bodega !== "" || form.tipo_envase !== "" || form.transporte.trim() !== ""
+      // Movimiento de ingreso inicial: se crea cuando hay stock o algún dato
+      // de detalle cargado — un ítem sin nada de eso (solo catálogo, sin
+      // stock) no tiene historial real que mostrar en Detalle. El SKU ya vive
+      // en el propio ítem (codigo), así que el alta rápida desde un report
+      // (modo compacto) NO crea una fila 0/0 solo para guardarlo: esa fila
+      // aparecía en el Kardex como una línea vacía sin significado.
+      const tieneDetalle = stockPos > 0 || stockUnd > 0
+        || (!compact && (form.lote.trim() !== "" || form.fecha_vencimiento !== ""
+          || bodega !== "" || form.tipo_envase !== "" || form.transporte.trim() !== ""))
 
       if (tieneDetalle) {
         const movPayload = {
@@ -199,6 +233,7 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
       console.error("[item-form-dialog] error creando ítem:", err)
       setError("No se pudo conectar con el servidor. Intenta de nuevo.")
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }

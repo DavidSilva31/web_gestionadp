@@ -569,7 +569,7 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
 
   function handleCreado(item: InventarioItemOption) {
     invalidarCache("productos:")
-    setItems(prev => [...prev, item].sort((a, b) => a.descripcion.localeCompare(b.descripcion)))
+    setItems(prev => [...prev.filter(i => i.id !== item.id), item].sort((a, b) => a.descripcion.localeCompare(b.descripcion)))
     suppressFocusOpen.current = true
     select(item)
   }
