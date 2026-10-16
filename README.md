@@ -33,6 +33,11 @@ RESEND_API_KEY=...                                   # Envío de HES por correo 
 RESEND_FROM_EMAIL=...
 GEMINI_API_KEY=...                                   # Asistente virtual (/api/chatbot) — sin esta key el widget responde "no configurado"
 GEMINI_MODEL=gemini-3.1-flash-lite                   # Opcional, este es el default
+SHAREPOINT_TENANT_ID=...                             # Subir cotizaciones a SharePoint (Microsoft Graph, app registration con Sites.Selected)
+SHAREPOINT_CLIENT_ID=...
+SHAREPOINT_CLIENT_SECRET=...                         # Valor del secreto del app registration — solo servidor, nunca al cliente
+SHAREPOINT_SITE_ID=...                               # ID Graph del sitio (host,siteCollectionId,webId)
+SHAREPOINT_BASE_PATH=HES Y COTIZACIONES/COTIZACIONES/COTIZACIONES   # Carpeta base; dentro se crea una carpeta por año
 ```
 
 > **Importante:** `SUPABASE_SERVICE_ROLE_KEY` nunca se expone al cliente. Solo se usa en rutas API de servidor (`/api/admin/*`).
@@ -90,6 +95,8 @@ Control de ítems almacenados por cliente:
 - **Vista "Detalle" (Kardex)**: disponible para todos los clientes — toggle Resumen/Detalle junto al agregado habitual; muestra el historial transaccional real **una sola grilla por producto** (agrupado por `carga`, no por lote/código individual) con saldo corrido (posiciones y unidades). El saldo parte del stock actual del ítem (`stock_actual`/`stock_unidades`), así el último saldo coincide siempre con el stock de Resumen. Los productos sin movimientos aparecen con el encabezado "0 movimientos". Filtro de Producto con buscador tipo combobox (escribir para filtrar, sin el viejo `<select>` nativo); navegación solo con scroll nativo horizontal/vertical (barras más gruesas que el resto de la app, sin arrastre por clic). Columnas: **SKU** (código del producto, constante para cada uno), **Nr. Pallet**, fecha, tipo, IMO, **NU**, lote, CAS, guía, OC, fechas de elaboración/vencimiento, envase, report de origen, posiciones/unidades de ingreso y despacho, stock corrido y bodega — todas editables inline
 - **Filtro por lote** en la vista Detalle: el saldo corrido y la grilla se pueden acotar a un lote específico; el stock mostrado se calcula sobre ese lote
 - Los movimientos marcados como **ocultos** (`movimientos.oculto = true`) siguen en la base y mantienen su efecto de stock y su vínculo con el report, pero no aparecen en el Kardex ni en las sugerencias de lote
+- **Stock Pos / Stock Und editables** en la vista Detalle (con el modo "Editar" activado): al cambiar un saldo se inserta un movimiento de ajuste por la diferencia (1 segundo después del movimiento editado), sin tocar los movimientos existentes. Es la forma de corregir un stock sin pasar por SQL
+- **Alta de producto** (formulario de `/inventario` y alta rápida desde un report): el SKU se guarda en el propio ítem (`inventario_items.codigo`). Solo se crea un movimiento de ingreso inicial si hay stock real (o, en el alta completa, lote, vencimiento, envase, bodega o transporte); el alta rápida ya no genera una fila 0/0 vacía en el Kardex. Además hay un guard síncrono contra doble guardado, reutiliza el ítem ya creado si el ingreso inicial falla y se reintenta, y en el alta rápida **reutiliza el producto existente** si el cliente ya tiene uno con el mismo nombre (y mismo SKU o sin SKU) en vez de duplicarlo
 
 ### Movimientos (`/movimientos`)
 
@@ -142,7 +149,9 @@ Informes de recepción de carga:
 - **Cola de despacho** (`/reports/despacho`): cards expandibles con confirmación de salida de vehículo — **el documento firmado es opcional** en ambos flujos de despacho (cola completa y despacho rápido desde la lista), ya no bloquea el despacho si el report ya está firmado digitalmente
 - Exportar report individual a **PDF** (con logotipo `adp_logo_hd.png` en cabecera):
   - Secciones 1/2/3 sin datos se colapsan a solo el nombre de la sección + "N/A — no aplica", en vez de mostrar todos los campos vacíos
-  - Sello **DESPACHADO** rediseñado: logo ADP + RUT 76.499.190-7 + fecha de despacho, con borde doble — ya no muestra el nombre del despachador
+  - Sello rediseñado: logo ADP + RUT 76.499.190-7 + fecha, con borde doble — ya no muestra el nombre del despachador. Dice **INGRESADO** o **DESPACHADO** según el tipo de movimiento del report (antes decía siempre DESPACHADO)
+  - El campo **Observaciones** de Antecedentes se imprime en el recuadro de Antecedentes (antes se guardaba pero no salía en el PDF)
+  - La Sección 1 muestra "Sigla 2" e "Interchange 2" cuando el report tiene un segundo contenedor
   - El nombre de archivo de descarga es siempre `report-{numero}`, tanto desde el botón propio de la app como desde el botón de descarga del visor nativo de PDF del navegador
 - **Filtro "Hoy"** activado por defecto en la lista, para la vista operativa del día (se puede desactivar)
 - **Código de verificación**: cada report recibe automáticamente un código de 5 dígitos (generado por trigger en la base) que siempre suma 15; se imprime en la esquina superior derecha del recuadro "Antecedentes" del PDF
@@ -150,6 +159,13 @@ Informes de recepción de carga:
 - **Catálogo de conductores** (`conductores`): los campos Conductor y RUT se autocompletan entre sí; al enviar a Operaciones el chofer se guarda (upsert por RUT), así un mismo RUT siempre trae el mismo nombre aunque cambie de camión
 - **Firma del conductor y firma personal**: además del canvas, se puede arrastrar y soltar o seleccionar una imagen de firma
 - **Contenedores 20ft / 40ft (Sección 1)**: además del tipo de contenedor (20ft, 40ft, Isotanque) hay dos casillas excluyentes, **Almacenaje Full** y **Almacenaje Vacío** (solo con 20ft/40ft), para ingresar o despachar el contenedor entero. Esos contenedores se llevan como el producto **CONTENEDORES** del cliente (1 unidad cada uno, la sigla hace de SKU y el envase del movimiento dice Full o Vacío), igual que los isotanques
+- **Hasta 2 contenedores de 20ft por report** (Sección 1): un camión puede llevar 2 de 20ft, 1 de 40ft o 1 isotanque. Con 20ft aparece "+ Agregar segundo contenedor" (Sigla 2 e Interchange 2; tipo, horas, Clase IMO/NU y Almacenaje se comparten); al cambiar a 40ft o isotanque el segundo se borra solo. Columnas `reports.sec1_sigla_2` y `sec1_interchange_2`. Cada contenedor genera su propio movimiento (isotanque, Almacenaje Full/Vacío y producto en contenedor); Transporte Incomex muestra "SIGLA1 / SIGLA2". Las columnas nuevas vacías no entran en la huella de firma, así los reports ya firmados no cambian
+- **Despacho de contenedor (20ft/40ft/isotanque)**: con Despacho en Antecedentes, la Sigla pasa a "Contenedor a despachar" y es una **lista de los contenedores que están en bodega** para el cliente (la segunda sigla no repite la primera). En 20ft/40ft, al elegir uno se marca solo "Almacenaje Vacío" (así se descuenta del stock y el report se cierra al salir el camión). Si el cliente no tiene contenedores en bodega, el campo queda libre
+- **Producto que llega en contenedor (Sección 1 + Sección 3)**: en un ingreso con 20ft/40ft y sigla, el Transporte del producto es la sigla del contenedor (antes copiaba el texto libre de la empresa de transporte) y el contenedor queda además registrado como producto **CONTENEDORES** del cliente (SKU = sigla, envase Vacío, o Full si se marcó), para poder despacharlo después. Todo se arma dentro de `rebuild_bodegaje_movimientos()`, así una edición posterior no lo pierde ni lo duplica
+- **N° Pallets vacío = 0**: dejar los pallets en blanco (ej. despacho de unidades sueltas) se calcula como 0 posiciones, no como 1 (corregido en `rebuild_bodegaje_movimientos()`, `sync_inventario_from_movimiento()` y los triggers de revertir/borrar)
+- **Producto vinculado al inventario**: el movimiento usa como `carga` la descripción real del ítem de inventario (antes se le recortaba el envase "(IBC)", lo que partía el Kardex en un grupo "fantasma" con stock negativo)
+- **Sin doble guardado**: `handleSave()` tiene un guard síncrono (un `disabled` en el botón no alcanza a bloquear un segundo click) — un doble guardado duplicaba las líneas de Bodegaje y descontaba el stock dos veces
+- **Despachar más de lo que hay**: el stock nunca queda negativo — un despacho sobre un producto sin ingreso previo se "topa" en 0 y el Kardex muestra solo el despacho. Si la carga entró antes del sistema, hay que registrar su ingreso
 - **Estado "En proceso"**: un 20ft/40ft **sin** Almacenaje Full/Vacío requiere que Operaciones complete el consolidado/desconsolidado, que es lento. Al despachar el camión el report queda "En proceso - Consolidado/Desconsolidado" (el chofer se va y el PDF ya sale con el sello), y Operaciones lo cierra con "Finalizar" desde el detalle; recién ahí pasa a "Finalizado" y se generan movimientos y stock. Isotanque y los contenedores con Full/Vacío se cierran al despachar el camión. Hay una pestaña "En proceso" en la lista
 - **Un solo "Tipo de movimiento" y una sola hora**: el Ingreso/Despacho de Antecedentes manda también en la Sección 1, y las horas de inicio/término de la Sección 3 mandan para todo el report (la Sección 2 ya no las pide)
 - **Peso neto en Bodegaje**: un mismo lote puede tener 2 o más pesos netos distintos (uno por fila de ingreso). Al elegir producto y lote, el formulario muestra el campo "Peso neto" con los pesos que ese lote ya tiene y las posiciones que quedan de cada uno, para elegir de cuál ingresar o despachar. Solo aparece donde hay pesos registrados
@@ -159,7 +175,8 @@ Informes de recepción de carga:
 - Registro de auditoría en cada acción
 - Adjuntos (HDS, guía de despacho, evidencia fotográfica, firma) se guardan en el bucket privado `reports-firmados` de Supabase Storage
 - **Los reports nunca se eliminan, solo se anulan** — no se pierde nada del historial. Botón "Anular" en el detalle (reemplaza al antiguo "Eliminar", bloqueado a nivel de RLS); un report anulado queda en su propia pestaña "Anulados" en la lista (no en "Todos"), congelado para el resto de los usuarios. Si ya estaba despachado, anularlo revierte automáticamente el stock que había movido y borra los movimientos que había generado (para que no se sigan contando en Kardex/HES)
-- **Edición total para `super_admin` y Javier Navarro**: estos dos pueden editar cualquier campo de cualquier report sin importar su estado (incluye despachado y anulado) — incluye poder "Des-anular" un report (restaurarlo exactamente a como estaba antes de anularse; si volvía a "despachado", el stock y los movimientos se regeneran solos). Para el resto de los usuarios, las reglas normales de bloqueo por estado siguen aplicando igual que siempre
+- **Edición total para `super_admin`, Javier Navarro y la cuenta de Recepción**: pueden editar cualquier campo de cualquier report sin importar su estado (incluye despachado y anulado) — incluye poder "Des-anular" un report (restaurarlo exactamente a como estaba antes de anularse; si volvía a "despachado", el stock y los movimientos se regeneran solos). Para el resto de los usuarios, las reglas normales de bloqueo por estado siguen aplicando igual que siempre
+  - **Ojo: la lista de editores totales vive en dos lugares** y hay que mantenerlos iguales: la función SQL `es_editor_total_reports()` (manda en RLS y triggers) y la constante `editorTotal` de `src/app/(dashboard)/reports/[id]/page.tsx` (decide si la pantalla se muestra editable). Agregar a alguien solo en uno de los dos lo deja sin poder editar o viendo un formulario que la base rechaza
 
 ### Transporte (`/transporte`)
 
@@ -186,6 +203,7 @@ Hoja de Estadía — cálculo de almacenaje para facturación mensual:
 - **Valor UF histórico** obtenido automáticamente desde `mindicador.cl/api/uf` — usa el endpoint anual para meses pasados con AbortController de 8s para evitar cuelgues
 - **Múltiples tarifas por cliente**: un cliente puede tener varias tarifas activas simultáneas (ej. clase IMO 8 y clase IMO 3). Selector inline en el header cuando existen más de una. `cotizacion_numero` se auto-genera con formato `COT-YYYY-NNN` mediante secuencia PostgreSQL + trigger si se deja vacío
 - **Cálculo automático**: stock inicial + movimientos diarios del período → pallet-días → monto en UF
+- **Día de corte de facturación por cliente** (`clientes.dia_corte_facturacion`): con corte 1 el período es el mes calendario; con otro día es un ciclo rodante (ej. corte 26 → "Septiembre" va del 26 de agosto al 25 de septiembre, como PROQUIMIN y ENAP)
 - **Facturación mínima una vez por cliente** en modo unificado (varias tarifas/clases activas): se aplica el máximo de los mínimos configurados sobre el total sumado, en vez de un mínimo independiente por clase
 - Tabla día a día con ingresos, despachos, stock al cierre y tarifa
 - **Servicios manuales pendientes de tarifa**: si un operador escribió un servicio a mano en un report (fuera del catálogo del cliente), aparece acá agrupado por nombre con la cantidad de veces que se usó en el período — botón "Tarificar" abre el mismo diálogo de servicios, precargado con el nombre, y al guardar queda en el catálogo del cliente para siempre (no solo para este HES)
@@ -207,17 +225,21 @@ Estadísticas y analítica operacional:
 
 Módulo de cotizaciones, migrado desde el portal anterior ("Gestión de OC y Cotizaciones"). Solo `super_admin`.
 
-- **Lista**: número, fecha, emisor, cliente, atención, valor UF y total; orden por número descendente
+- **Lista**: número, fecha, emisor, cliente, atención, valor UF y total. Búsqueda (N° exacto, atención, emisor y cliente), filtro por emisor y por rango de fechas, ordenamiento por cualquier columna y **paginación en el servidor** (25 por página). Botón **Duplicar** por fila para armar una cotización igual a otra
 - **Formulario** (`/cotizaciones/nueva` y `/cotizaciones/[id]`):
-  - Emisor (Altos del Puerto, Incomex o Mar Azul), fecha, cliente (combobox de `clientes`), valor UF, atención, RUT, ciudad y dirección
+  - Emisor (Altos del Puerto, Incomex o Mar Azul), fecha, cliente, valor UF, atención, ciudad y dirección. El cliente se elige con el mismo combobox de buscar/crear de los reports, pero sobre la tabla propia `clientes_cotizacion` (y con opción de eliminar un cliente, con confirmación, solo si no tiene cotizaciones)
   - Valor UF: al crear, se trae automáticamente desde `/api/uf` según la fecha (con reintento); al editar, se conserva el valor guardado
-  - Líneas en texto libre: cantidad, descripción, valor UF unitario, valor unitario en pesos (calculado), descuento % y neto. Neto, IVA 19% y total se calculan en el formulario
+  - Líneas en texto libre: cantidad, **descripción multilínea** (Enter hace salto de línea, la caja crece, sin límite de caracteres), valor UF unitario, valor unitario en pesos (calculado), descuento % y neto. Neto, IVA 19% y total se calculan en el formulario
+  - Casilla **"Ocultar Neto/IVA/Total en el PDF"** (`cotizaciones.ocultar_totales`) para cotizaciones que se entregan sin totales
   - Observaciones agrupadas por tipo (transporte, almacenaje, generales), con casillas. Desde el mismo formulario se pueden editar las existentes (cambia el catálogo) y agregar nuevas por tipo
-  - Observaciones extras (texto libre)
-- **PDF**: "Ver PDF" abre un visor (mismo patrón que el resto del sistema) con botón de descarga. Diseño con paleta ADP, logos de Incomex y Altos del Puerto, firma del gerente y pie con paginación. Componente en `src/components/cotizaciones/cotizacion-pdf.tsx`
-- **Catálogos** (tablas `items_cotizacion`, `items_cotizacion_categorias`, `observaciones_cotizacion`, `observacion_tipos`): migrados completos desde el portal. Se leen desde el formulario; el catálogo de ítems no se usa en las líneas (son texto libre)
-- Numeración automática desde 1 (`cotizacion_numero_seq`)
-- Sin histórico: las cotizaciones del portal anterior no se importaron
+  - Observaciones extras (texto libre). Botón **Duplicar** también en el detalle
+- **PDF**: "Ver PDF" abre un visor con dos botones. El PDF de una cotización guardada se genera **en el servidor** (`/api/cotizaciones/[id]/pdf`, con `Content-Disposition`) para que el botón de descarga del visor nativo sugiera el nombre correcto **`Cotización_{N°} {Emisor} - {Cliente}.pdf`** (con un `blob:` el navegador inventa un UUID). Diseño con paleta ADP, logos de Incomex y Altos del Puerto del mismo tamaño, firma del gerente y pie con paginación. Los datos del PDF se arman en un solo lugar (`src/lib/cotizacion-pdf-build.ts`) que usan el formulario y la ruta del servidor; **el neto, IVA y total siempre se recalculan desde las líneas** (las columnas guardadas pueden estar desactualizadas)
+- **Subir a SharePoint**: el botón "Subir a SharePoint" del visor sube el PDF a la carpeta del año correspondiente del sitio `PortalADP` (`HES Y COTIZACIONES/COTIZACIONES/COTIZACIONES/<año>`, la carpeta se crea si falta) con el mismo nombre de archivo. Usa Microsoft Graph con una app registration y permiso `Sites.Selected` concedido solo a ese sitio (`src/lib/sharepoint.ts`, ruta `/api/cotizaciones/sharepoint`). Las variables de entorno `SHAREPOINT_*` hay que cargarlas también en Netlify
+- **Histórico migrado**: se importaron las **1.543 cotizaciones del portal anterior**, conservando su id (`cotizaciones.id_portal`) y sus líneas. Sus clientes (515, depurados de duplicados) viven en la tabla separada `clientes_cotizacion` para no llenar el módulo de Clientes con empresas que no son del sistema; `cotizaciones.numero` ya no es único porque el portal tenía números repetidos
+- **Catálogos** (tablas `items_cotizacion`, `items_cotizacion_categorias`, `observaciones_cotizacion`, `observacion_tipos`): migrados completos desde el portal. Las observaciones se leen desde el formulario; el catálogo de ítems no se usa en las líneas (son texto libre)
+- Numeración automática continuando desde el portal (`cotizacion_numero_seq`)
+
+---
 
 ### Auditoría (`/auditoria`)
 
@@ -242,7 +264,7 @@ Registro paginado (50/página) de todas las acciones sobre reports, inventario y
 
 ### Asistente virtual (chatbot)
 
-Widget flotante disponible en todo el dashboard (`src/components/chatbot/chatbot-widget.tsx`), respaldado por Gemini vía `/api/chatbot`:
+Botón "Asistente ADP" en la barra superior (entre el buscador y el interruptor de tema; con etiqueta solo en pantallas anchas), disponible en todo el dashboard (`src/components/chatbot/chatbot-widget.tsx`). Un clic abre o cierra el panel de chat, que se despliega bajo la barra, a la derecha. Respaldado por Gemini vía `/api/chatbot`:
 
 - Responde preguntas sobre cómo usar cualquier módulo y guía paso a paso ("¿cómo lleno un report?", "¿dónde veo el historial de un movimiento?")
 - Puede consultar datos reales y en vivo del sistema (inventario, reports, clientes, viajes de Transporte ADP) mediante function calling de **solo lectura** (`src/lib/chatbot-tools.ts`)
@@ -280,6 +302,8 @@ Todas las rutas verifican sesión (`getUser()`) y rol antes de ejecutar operacio
 | `/api/hes/send-email` | POST | autenticado | Enviar HES generado por correo (Resend) al contacto comercial del cliente |
 | `/api/instalaciones/export` | GET | autenticado | Exportar catálogo de instalaciones a Excel |
 | `/api/chatbot` | POST | autenticado | Asistente virtual (Gemini) — solo lectura vía function calling, sin acciones que modifiquen datos |
+| `/api/cotizaciones/[id]/pdf` | GET | `super_admin` | PDF de una cotización generado en el servidor, con `Content-Disposition` para que la descarga lleve el nombre correcto |
+| `/api/cotizaciones/sharepoint` | POST | `super_admin` | Sube el PDF de una cotización a SharePoint (carpeta del año) vía Microsoft Graph |
 
 ---
 
@@ -322,6 +346,7 @@ src/
 │   ├── api/
 │   │   ├── admin/                     # Gestión de usuarios (service role)
 │   │   ├── auth/                      # Helpers de autenticación
+│   │   ├── cotizaciones/              # PDF en servidor + subida a SharePoint
 │   │   └── hes/export/                # Generación de Excel HES
 │   └── (dashboard)/
 │       ├── layout.tsx                 # Sidebar + topbar
@@ -352,9 +377,9 @@ src/
 │   │   ├── cotizacion-pdf.tsx         # Plantilla PDF de cotización
 │   │   └── cotizacion-preview-modal.tsx # Visor del PDF con descarga
 │   ├── chatbot/
-│   │   └── chatbot-widget.tsx         # Widget flotante del asistente (solo lectura, sin acciones)
+│   │   └── chatbot-widget.tsx         # Botón del asistente en el topbar + panel de chat (solo lectura, sin acciones)
 │   ├── reports/
-│   │   ├── report-pdf.tsx             # Plantilla PDF (secciones N/A, sello DESPACHADO, tabla de Bodegaje)
+│   │   ├── report-pdf.tsx             # Plantilla PDF (secciones N/A, sello INGRESADO/DESPACHADO, tabla de Bodegaje)
 │   │   ├── report-form-sections.tsx   # Secciones reutilizables del formulario
 │   │   ├── report-form-widgets.tsx    # BodegajeItemsList, EmpresaTransporteCombobox, etc.
 │   │   ├── report-form-types.ts       # Tipos y mapper DB → form
@@ -376,6 +401,8 @@ src/
     ├── export-reports-excel.ts        # Exporta reportes a Excel
     ├── report-bodegaje.ts             # cargarBodegajeItems() — productos de la Sección 3
     ├── firma-hash.ts                  # Huella SHA-256 del contenido firmable de un report
+    ├── cotizacion-pdf-build.ts        # Arma los datos del PDF de cotización (formulario y ruta del servidor); recalcula totales
+    ├── sharepoint.ts                  # Microsoft Graph: token, carpetas por año y subida de archivos a SharePoint
     ├── chatbot-knowledge.ts           # Base de conocimiento (system prompt) del asistente
     ├── chatbot-tools.ts               # Function calling de solo lectura para el asistente
     └── excel.ts                       # Helper genérico exportToExcel()
@@ -391,8 +418,7 @@ src/
 | `demo_data.sql` | Datos de demostración base (usuarios, clientes) |
 | `demo_data_hes.sql` | Datos de demostración para HES: tarifas y movimientos de Brenntag, BASF y Air Liquide (Julio 2026) |
 | `demo_data_cleanup.sql` | Limpieza de datos demo — ejecutar antes de pasar a producción |
-| `supabase_security_fixes.sql` | Fixes de seguridad aplicados (search_path, REVOKE, RLS policies) |
-| `migration_*.sql` | Migraciones delta (cambios sobre una BD existente). Cada archivo indica en su encabezado si debe ejecutarse una sola vez y qué hace |
+| `migraciones_aplicadas/` | Historial de las ~100 migraciones delta (`migration_*.sql` y `supabase_security_fixes.sql`) ya ejecutadas en producción, archivadas aquí para que `supabase/` solo tenga lo vigente. Cada archivo indica en su encabezado qué hace; los nombres de abajo están en esa carpeta. **Las migraciones nuevas se dejan en esta carpeta** y se ejecutan una sola vez en el SQL Editor de Supabase |
 | `migration_report_bodegaje_items.sql` | Tabla `report_bodegaje_items`: Sección 3 con múltiples productos por report |
 | `migration_resync_bodegaje_despachado.sql` / `migration_resync_bodegaje_fixes.sql` | `rebuild_bodegaje_movimientos()` y resync de stock al editar un report despachado |
 | `migration_reports_codigo_verificacion.sql` | Código de verificación de 5 dígitos por report (trigger + backfill) |
@@ -406,10 +432,18 @@ src/
 | `migration_report_bodegaje_peso_neto.sql` | Columna `report_bodegaje_items.sec3_peso_neto` y copia del peso al movimiento (columna "Peso neto" del Detalle) |
 | `migration_reports_contenedores.sql` | Producto CONTENEDORES: envase Full/Vacío en movimientos y rama de contenedores en `create_movimiento_from_report()` |
 | `migration_movimientos_sync_pos_und.sql` | `sync_inventario_from_movimiento()`: `stock_actual` ← posiciones y `stock_unidades` ← unidades (mismo criterio que reports) |
-| `migration_inventario_items_protege_stock.sql` | Trigger que bloquea cambios directos a `stock_actual`/`stock_unidades`/`cliente_id` (solo se puede mover stock vía movimientos) |
+| `migration_inventario_items_protege_stock.sql` | Trigger que bloquea cambios directos a `stock_actual`/`stock_unidades`/`cliente_id` (solo se puede mover stock vía movimientos) — el corte es `pg_trigger_depth() <= 1`: medido dentro del propio trigger, un UPDATE directo da 1 (no 0) y uno disparado desde otro trigger da 2. Por eso las funciones de stock solo pueden tocar el stock cuando corren desde un trigger; una corrección manual necesita desactivar este trigger un instante |
 | `migration_inventario_items_codigo.sql` | Columna `inventario_items.codigo` (SKU del producto) |
 | `migration_reports_isotanque.sql` | `create_movimiento_from_report()`: rama de isotanques (código, ítem ISOTANQUE del cliente, ±1 unidad) |
 | `migration_cotizaciones.sql` | Módulo de Cotizaciones: tablas, RLS solo `super_admin` y carga de catálogos (ítems, categorías, observaciones) |
+| `migration_clientes_cotizacion.sql` | Tabla `clientes_cotizacion` (clientes propios de Cotizaciones), `cotizaciones.id_portal` para conservar el id del portal anterior, y `cotizaciones.numero` deja de ser único |
+| `migration_cotizaciones_ocultar_totales.sql` | Columna `cotizaciones.ocultar_totales` (no mostrar Neto/IVA/Total en el PDF) |
+| `migration_reports_recepcion_editor_total.sql` | La cuenta de Recepción pasa a ser "editor total" en `es_editor_total_reports()` (hay que mantenerlo igual en `reports/[id]/page.tsx`) |
+| `migration_fix_default_pallets_bodegaje.sql` | N° Pallets vacío cuenta como 0 y no como 1 en las funciones de stock de Bodegaje |
+| `migration_fix_bodegaje_carga_item_vinculado.sql` | `rebuild_bodegaje_movimientos()` usa la descripción real del ítem vinculado como `carga` (sin recortarle el envase) |
+| `migration_bodegaje_contenedor_transporte_y_sku.sql` | Producto en contenedor 20ft/40ft: Transporte = sigla y el contenedor se registra como producto CONTENEDORES |
+| `migration_reports_sec1_segundo_contenedor.sql` | Columnas `sec1_sigla_2` / `sec1_interchange_2` (hasta 2 contenedores de 20ft) y un movimiento por contenedor; trigger `zz_` que concatena las siglas en Transporte Incomex |
+| `migration_fix_report80_duplicados.sql`, `migration_fix_stock_residual_report80.sql`, `migration_fix_report103_solo_contenedor.sql` | Correcciones puntuales de datos de reports específicos (doble guardado, stock residual, report registrado con secciones de más). Sirven de ejemplo de cómo corregir un report despachado sin romper el stock |
 
 > **Nota de despliegue:** Para aplicar cambios de schema a una BD existente (no desde cero), ejecutar solo los bloques delta en el SQL Editor de Supabase — no correr `schema.sql` completo ya que fallará en tipos y tablas que ya existen.
 
@@ -437,7 +471,8 @@ Tablas principales:
 | `audit_logs` | Registro de acciones de usuarios |
 | `items_cotizacion_categorias` / `items_cotizacion` | Catálogo de ítems de cotización (nombre, valor base, categoría) |
 | `observacion_tipos` / `observaciones_cotizacion` | Catálogo de observaciones de cotización (texto, tipo) |
-| `cotizaciones` / `cotizacion_lineas` / `cotizacion_observaciones` | Cotizaciones emitidas, sus líneas y las observaciones seleccionadas (solo `super_admin`) |
+| `cotizaciones` / `cotizacion_lineas` / `cotizacion_observaciones` | Cotizaciones emitidas (incluye las 1.543 migradas del portal, con `id_portal`), sus líneas y las observaciones seleccionadas (solo `super_admin`) |
+| `clientes_cotizacion` | Clientes propios del módulo de Cotizaciones (separados de `clientes`); `cliente_id` opcional enlaza con el cliente real cuando coincide por nombre |
 
 Función RPC:
 

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { createPortal } from "react-dom"
 import { usePathname } from "next/navigation"
 import { Sparkles, X, Send, Loader2, Bot } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -100,9 +101,10 @@ export function ChatbotWidget() {
 
   return (
     <>
-      {/* Panel de chat */}
-      {open && (
-        <div className="fixed bottom-24 right-6 z-[60] w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-8rem)] flex flex-col rounded-2xl border border-border/60 bg-card shadow-2xl overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-4 duration-200">
+      {/* Panel de chat — por portal al body: el botón vive dentro del Topbar (que
+          tiene su propio z-index) y el panel debe quedar por encima de todo. */}
+      {open && createPortal(
+        <div className="fixed top-[60px] right-4 z-[60] w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-4.5rem)] flex flex-col rounded-2xl border border-border/60 bg-card shadow-2xl overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-top-4 duration-200">
           {/* Header */}
           <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-3.5 bg-gradient-to-r from-[var(--color-adp-blue)] to-[var(--color-adp-blue-mid)]">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -184,33 +186,27 @@ export function ChatbotWidget() {
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Pestaña flotante, pegada al borde derecho — en reposo solo se ve el
-          ícono en su propio cuadro (ancho fijo, sin texto cortado a la
-          mitad); al pasar el mouse o hacer foco se ensancha revelando la
-          etiqueta completa. Un clic la abre en cualquiera de los dos
-          estados. Con el chat abierto, la pestaña se esconde del todo (el
-          panel ya tiene su propia X para cerrar). */}
-      {!open && (
-        <button
-          onClick={() => setOpen(true)}
-          className={cn(
-            "fixed bottom-24 right-0 z-[60] flex items-center h-11 w-11 hover:w-[9.5rem] focus-visible:w-[9.5rem]",
-            "rounded-l-2xl overflow-hidden",
-            "bg-gradient-to-br from-[var(--color-adp-celeste)] via-[var(--color-adp-blue-mid)] to-[var(--color-adp-blue)]",
-            "shadow-md shadow-black/15 ring-1 ring-inset ring-white/15 text-white",
-            "transition-[width] duration-300 ease-out"
-          )}
-          aria-label="Abrir asistente"
-        >
-          <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center">
-            <Sparkles className="h-4 w-4" />
-          </span>
-          <span className="text-[12.5px] font-medium whitespace-nowrap pr-4">Asistente ADP</span>
-        </button>
-      )}
+      {/* Botón en la barra superior, entre el buscador y el interruptor de tema.
+          Con etiqueta solo en pantallas anchas (el buscador está centrado y a
+          anchos medios no hay espacio); un clic abre o cierra el chat. */}
+      <button
+        onClick={() => setOpen(v => !v)}
+        className={cn(
+          "h-7 flex-shrink-0 flex items-center justify-center gap-1.5 rounded-lg px-2 lg:px-2.5",
+          "bg-gradient-to-br from-[var(--color-adp-celeste)] via-[var(--color-adp-blue-mid)] to-[var(--color-adp-blue)]",
+          "text-white shadow-sm ring-1 ring-inset ring-white/15 hover:opacity-90 transition-opacity",
+          open && "ring-2 ring-white/40"
+        )}
+        aria-label={open ? "Cerrar asistente" : "Abrir asistente"}
+        aria-expanded={open}
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        <span className="hidden lg:inline text-[11.5px] font-medium whitespace-nowrap">Asistente ADP</span>
+      </button>
     </>
   )
 }

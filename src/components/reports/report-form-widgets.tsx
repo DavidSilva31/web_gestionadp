@@ -916,8 +916,8 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
                 placeholder="0" className="h-8 text-xs" disabled={readOnly} />
             </Field>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-            <Field label="Lote">
+          <div className="grid grid-cols-2 sm:grid-cols-[minmax(0,2.2fr)_repeat(5,minmax(0,1fr))] gap-2">
+            <Field label="Lote" className="col-span-2 sm:col-span-1">
               <LoteField
                 inventarioItemId={item.sec3_inventario_item_id}
                 carga={item.sec3_producto}

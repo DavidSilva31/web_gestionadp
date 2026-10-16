@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ThemeToggle } from "@/components/layout/theme-toggle"
+import { ChatbotWidget } from "@/components/chatbot/chatbot-widget"
 import { useAuth } from "@/contexts/auth-context"
 import { useNotifications, type NotificationItem } from "@/hooks/use-notifications"
 import { accionLabel, ACCION_STYLE } from "@/lib/audit"
@@ -395,6 +396,8 @@ export function Topbar() {
         >
           <Search className="h-3.5 w-3.5" />
         </button>
+
+        <ChatbotWidget />
 
         <ThemeToggle />
 

@@ -7,7 +7,6 @@ import { NavigationLoadingOverlay } from "@/components/layout/navigation-loading
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuthProvider } from "@/contexts/auth-context"
 import { NavigationPendingProvider } from "@/contexts/navigation-pending-context"
-import { ChatbotWidget } from "@/components/chatbot/chatbot-widget"
 
 export default async function DashboardLayout({
   children,
@@ -47,7 +46,6 @@ export default async function DashboardLayout({
               </div>
             </main>
           </SidebarProvider>
-          <ChatbotWidget />
         </NavigationPendingProvider>
       </TooltipProvider>
     </AuthProvider>
