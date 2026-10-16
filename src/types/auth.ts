@@ -7,6 +7,7 @@ export interface Profile {
   role:                 UserRole
   activo:               boolean
   permisos:             string[] | null
+  inventario_solo_lectura?: boolean
   must_change_password: boolean
   notificaciones_activas: boolean
   avatar_icon:          string | null

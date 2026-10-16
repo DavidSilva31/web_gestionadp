@@ -298,6 +298,10 @@ function SearchableSelect({ value, onChange, options, placeholder, className }: 
 // ── Inner component (requiere useSearchParams → envuelto en Suspense) ──────────
 function InventarioContent() {
   const { user, profile } = useAuth()
+  // Usuario con el Inventario en solo lectura: ve todo, pero no se le muestra ningún
+  // control que cree o modifique (la base de datos además bloquea las escrituras
+  // sobre inventario_items — ver migration_inventario_solo_lectura.sql).
+  const soloLectura = !!profile?.inventario_solo_lectura
   const searchParams = useSearchParams()
   const clienteParam = searchParams.get("cliente")
 
@@ -955,7 +959,7 @@ function InventarioContent() {
             className="h-10 w-10 p-0 text-muted-foreground">
             <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           </Button>
-          {selected && (
+          {selected && !soloLectura && (
             <Button size="sm" onClick={openNew}
               className="gap-1.5 bg-primary hover:bg-primary/85 text-primary-foreground">
               <Plus className="h-3.5 w-3.5" />
@@ -1218,7 +1222,7 @@ function InventarioContent() {
                         </select>
                       </>
                     )}
-                    {(kardexProducto || kardexImoFiltro) && (
+                    {(kardexProducto || kardexImoFiltro) && !soloLectura && (
                       <Button
                         type="button"
                         size="sm"
@@ -1450,9 +1454,11 @@ function InventarioContent() {
                     <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                       <Package className="h-10 w-10 opacity-20" />
                       <p className="text-sm font-medium">Sin ítems registrados</p>
-                      <Button size="sm" onClick={openNew} variant="outline" className="gap-1.5 text-xs">
-                        <Plus className="h-3.5 w-3.5" /> Registrar primer ítem
-                      </Button>
+                      {!soloLectura && (
+                        <Button size="sm" onClick={openNew} variant="outline" className="gap-1.5 text-xs">
+                          <Plus className="h-3.5 w-3.5" /> Registrar primer ítem
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     <div className="h-full overflow-auto">
@@ -1540,18 +1546,20 @@ function InventarioContent() {
                                   </Badge>
                                 </td>
                                 <td className="px-2 py-3 text-center">
-                                  <div className="flex items-center justify-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                                    <Button variant="ghost" size="icon"
-                                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                      onClick={() => openEdit(item)}>
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon"
-                                      className="h-7 w-7 text-muted-foreground hover:text-red-600"
-                                      onClick={() => setDeleting(item)}>
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
+                                  {!soloLectura && (
+                                    <div className="flex items-center justify-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                      <Button variant="ghost" size="icon"
+                                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                        onClick={() => openEdit(item)}>
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                      <Button variant="ghost" size="icon"
+                                        className="h-7 w-7 text-muted-foreground hover:text-red-600"
+                                        onClick={() => setDeleting(item)}>
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  )}
                                 </td>
                               </tr>
                             )

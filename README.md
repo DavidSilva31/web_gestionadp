@@ -63,6 +63,8 @@ npm run start
 | `operador` | Acceso completo excepto gestión de usuarios y auditoría |
 | `operador_carga` | Solo inventario, reports y cola de despacho |
 
+**Inventario en solo lectura**: un usuario con `profiles.inventario_solo_lectura = true` (hoy se asigna por SQL, ver `migration_inventario_solo_lectura.sql`) entra al módulo Inventario pero no ve ningún control de edición (Registrar ítem, lápiz/papelera, "Editar" del Detalle). En la base de datos un trigger rechaza crear, editar o desactivar productos (`inventario_items`) cuando el cambio es directo del usuario; despachar reports sigue funcionando porque esos cambios los hacen triggers internos. **Límite:** las ediciones del Detalle escriben en `movimientos`, tabla que también usa el módulo Movimientos, así que ahí el bloqueo es solo de pantalla. La marca no la puede cambiar el propio usuario (igual que role/permisos).
+
 El proxy (`src/proxy.ts`) protege todas las rutas autenticadas y restringe `/auditoria` y `/configuracion` (tab usuarios) a `super_admin` únicamente, usando `canAccess()` con `ROLE_ROUTES` por rol.
 
 ---
@@ -439,6 +441,7 @@ src/
 | `migration_clientes_cotizacion.sql` | Tabla `clientes_cotizacion` (clientes propios de Cotizaciones), `cotizaciones.id_portal` para conservar el id del portal anterior, y `cotizaciones.numero` deja de ser único |
 | `migration_cotizaciones_ocultar_totales.sql` | Columna `cotizaciones.ocultar_totales` (no mostrar Neto/IVA/Total en el PDF) |
 | `migration_reports_recepcion_editor_total.sql` | La cuenta de Recepción pasa a ser "editor total" en `es_editor_total_reports()` (hay que mantenerlo igual en `reports/[id]/page.tsx`) |
+| `migration_inventario_solo_lectura.sql` | Columna `profiles.inventario_solo_lectura`, trigger que bloquea escrituras directas sobre `inventario_items` para esos usuarios y acceso de Jocelyn a Inventario en solo lectura |
 | `migration_fix_default_pallets_bodegaje.sql` | N° Pallets vacío cuenta como 0 y no como 1 en las funciones de stock de Bodegaje |
 | `migration_fix_bodegaje_carga_item_vinculado.sql` | `rebuild_bodegaje_movimientos()` usa la descripción real del ítem vinculado como `carga` (sin recortarle el envase) |
 | `migration_bodegaje_contenedor_transporte_y_sku.sql` | Producto en contenedor 20ft/40ft: Transporte = sigla y el contenedor se registra como producto CONTENEDORES |
