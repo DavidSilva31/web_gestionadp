@@ -119,8 +119,18 @@ export function ItemFormDialog({ clienteId, open, onOpenChange, onCreated, initi
         const norm = (s: string) => s.replace(/\s+/g, " ").trim().toUpperCase()
         const { data: existentes } = await supabase.from("inventario_items")
           .select("id, descripcion, clase_imo, nu, codigo, unidad").eq("cliente_id", ownerId).eq("activo", true)
-        const dup = (existentes ?? []).find(i => norm(i.descripcion) === norm(form.descripcion)
-          && (!i.codigo?.trim() || norm(i.codigo) === norm(form.codigo)))
+        const mismoNombre = (existentes ?? []).filter(i => norm(i.descripcion) === norm(form.descripcion))
+        let dup = mismoNombre.find(i => i.codigo?.trim() && norm(i.codigo) === norm(form.codigo))
+        // Un ítem sin SKU propio puede tener su SKU solo en sus movimientos (así quedaban los
+        // creados antes de guardar el código en el ítem): si ya trae otro SKU, es OTRO producto
+        // con el mismo nombre (ej. REFRIGERANTE R134A y R507A) y hay que crear uno aparte.
+        if (!dup) {
+          for (const i of mismoNombre.filter(x => !x.codigo?.trim())) {
+            const { data: movs } = await supabase.from("movimientos").select("codigo").eq("inventario_item_id", i.id).not("codigo", "is", null)
+            const skus = new Set((movs ?? []).map(m => norm(String(m.codigo))).filter(Boolean))
+            if (skus.size === 0 || (skus.size === 1 && skus.has(norm(form.codigo)))) { dup = i; break }
+          }
+        }
         if (dup) {
           if (!dup.codigo?.trim()) await supabase.from("inventario_items").update({ codigo: form.codigo.trim() }).eq("id", dup.id)
           onCreated({ ...dup, codigo: dup.codigo?.trim() || form.codigo.trim() } as InventarioItemOption)

@@ -583,11 +583,23 @@ export default function ReportDetailPage() {
     }
   }
 
+  // Un report sin nada que despachar (ni producto en Bodegaje ni Sección 1/2) no puede ir a
+  // la cola de despacho: se cerraría sin generar movimientos ni mover stock (caso #145).
+  const MSG_REPORTE_VACIO = "Report vacío: agrega un producto en Bodegaje o completa la Sección 1/2."
+  function reporteVacio() {
+    const p = buildPayload("pendiente_despacho") as { sec1_activa?: boolean; sec2_activa?: boolean }
+    return !p.sec1_activa && !p.sec2_activa && !bodegajeItems.some(i => i.sec3_producto.trim())
+  }
+
   async function handleSave(newEstado: ReportEstado) {
     if (!form) return
     if (savingRef.current) return
     if (!form.cliente || !form.patente || !form.conductor || !form.rut_conductor || !form.sec3_numero_guia) {
       setError("Cliente, patente, conductor, RUT conductor y N° Guía son obligatorios.")
+      return
+    }
+    if (newEstado === "pendiente_despacho" && estado !== "pendiente_despacho" && reporteVacio()) {
+      setError(MSG_REPORTE_VACIO)
       return
     }
     // La tarifa/contrato se deriva sola de la Clase IMO del producto elegido
@@ -950,7 +962,7 @@ export default function ReportDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {error && <p className="text-xs text-red-500 max-w-xs truncate">{error}</p>}
+          {error && <p className="text-xs text-red-500 max-w-xs truncate" title={error}>{error}</p>}
 
           {/* Vista previa PDF */}
           <Button
@@ -1015,7 +1027,7 @@ export default function ReportDetailPage() {
           )}
 
           {estado === "pendiente_operaciones" && (
-            <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => setConfirmEnviarDespacho(true)}>
+            <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => reporteVacio() ? setError(MSG_REPORTE_VACIO) : setConfirmEnviarDespacho(true)}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               Enviar a despacho
             </Button>
