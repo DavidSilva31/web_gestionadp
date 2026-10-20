@@ -5,8 +5,8 @@ import { auditarInicioRespaldoSharePoint, auditarRespaldoSharePoint } from "@/li
 
 export const dynamic = "force-dynamic"
 
-// Un respaldo "en curso" sin resultado tras este tiempo se da por interrumpido (la función dura ~2 min).
-const MAX_EN_CURSO_MS = 20 * 60 * 1000
+// Un respaldo "en curso" sin resultado tras este tiempo se da por interrumpido (la función dura 2 a 5 min).
+const MAX_EN_CURSO_MS = 10 * 60 * 1000
 
 type Fila = { created_at: string; descripcion: string | null; datos_nuevo: { ok?: boolean; estado?: string } | null; usuario_nombre: string | null }
 

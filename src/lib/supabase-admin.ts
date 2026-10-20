@@ -9,8 +9,16 @@ if (typeof window !== "undefined") {
   throw new Error("supabaseAdmin (service-role) nunca debe importarse en código de cliente.")
 }
 
+// Las funciones de Netlify corren en Node 20, que no trae WebSocket nativo y supabase-js
+// falla al crear el cliente (aunque nunca usemos Realtime). Con un transport de relleno
+// solo en ese caso, el cliente se crea igual; no afecta a Node 22+ ni al resto del sistema.
+const sinWebSocket = typeof globalThis.WebSocket === "undefined"
+
 export const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
+  {
+    auth: { autoRefreshToken: false, persistSession: false },
+    ...(sinWebSocket ? { realtime: { transport: class {} as never } } : {}),
+  }
 )
