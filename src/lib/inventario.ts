@@ -10,6 +10,11 @@ export const INVENTARIO_CATEGORIAS: InventarioCategoria[] = [
 ]
 export const INVENTARIO_UNIDADES = ["unidad", "pallets", "contenedor", "isotanque", "kg", "ton"]
 
+// Clientes cuyo inventario se maneja por pallet (todo es un mismo producto, p. ej. PINTURA, y lo que
+// los distingue es el N° de pallet, que hace de SKU): su Detalle se busca por número de pallet y no
+// por producto/IMO. Hoy solo Sherwin Williams.
+export const detallePorPallet = (nombreCliente: string | null | undefined) => /sherwin/i.test(nombreCliente ?? "")
+
 // Tipos de envase del Kardex (Detalle de /inventario) — mismo catálogo que el
 // CHECK de movimientos.tipo_envase (migration_kardex_inventario.sql).
 export const TIPOS_ENVASE = [

@@ -18,7 +18,7 @@ import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { invalidarCache } from "@/lib/cache-consultas"
 import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
-import { resolveEffectiveClienteId, sembrarClienteEfectivo, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE, ENVASES_CONTENEDOR } from "@/lib/inventario"
+import { resolveEffectiveClienteId, sembrarClienteEfectivo, detallePorPallet, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE, ENVASES_CONTENEDOR } from "@/lib/inventario"
 import { ItemFormDialog } from "@/components/inventario/item-form-dialog"
 import { cn } from "@/lib/utils"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
@@ -335,6 +335,8 @@ function InventarioContent() {
   const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
   const [vista,        setVista]        = useState<"resumen" | "kardex">("resumen")
   const [kardexProducto, setKardexProducto] = useState<string | null>(null)
+  // Detalle por N° de pallet (solo clientes de detallePorPallet, ej. Sherwin Williams)
+  const [kardexPallet, setKardexPallet] = useState("")
   const [kardexImoFiltro, setKardexImoFiltro] = useState<string | null>(null)
   const [kardexLoteFiltro, setKardexLoteFiltro] = useState<string | null>(null)
   const [kardexMovs,   setKardexMovs]   = useState<Record<string, (Movimiento & { reports: { numero: number } | null })[]>>({})
@@ -426,6 +428,7 @@ function InventarioContent() {
     setSidebarCollapsed(true)
     setVista("resumen")
     setKardexProducto(null)
+    setKardexPallet("")
     setKardexImoFiltro(null)
     setKardexLoteFiltro(null)
     setKardexEditing(false)
@@ -509,6 +512,13 @@ function InventarioContent() {
     return grupos
   }, [selected, kardexMovs, clienteItems])
 
+  // N° de pallet existentes del cliente (SKU de cada producto) — alimentan el buscador del Detalle por pallet.
+  const kardexPallets = useMemo(() => {
+    const set = new Set<string>()
+    for (const g of kardexGroups) for (const r of g.rows) { const p = (r.codigo ?? r.numero_pallet ?? "").trim(); if (p) set.add(p) }
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }, [kardexGroups])
+
   const kardexProductos = useMemo(() => {
     return kardexGroups.map(g => ({ carga: g.carga })).sort((a, b) => a.carga.localeCompare(b.carga))
   }, [kardexGroups])
@@ -534,7 +544,12 @@ function InventarioContent() {
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   }, [kardexGroups, kardexProducto])
 
-  const kardexGroupsFiltered = kardexProducto
+  // Clientes por pallet: no hay selector de producto — se ven todos los movimientos y se busca por N° de pallet.
+  const modoPallet = !!selected && detallePorPallet(selected.nombre)
+
+  const kardexGroupsFiltered = modoPallet
+    ? kardexGroups
+    : kardexProducto
     ? kardexGroups.filter(g => g.carga === kardexProducto)
     : kardexImoFiltro
     ? kardexGroups.filter(g => g.rows.some(r => r.imo === kardexImoFiltro))
@@ -558,6 +573,26 @@ function InventarioContent() {
         return { ...group, rows }
       })
     : kardexGroupsFiltered
+
+  // Pallet elegido en el buscador (coincide con SKU o Nr. Pallet, sin importar mayúsculas ni espacios).
+  // Con búsqueda, el saldo corrido se recalcula solo con los movimientos de esos pallets.
+  const kardexGroupsVista = useMemo(() => {
+    const q = kardexPallet.trim().toLowerCase()
+    if (!modoPallet) return kardexGroupsFilteredPorLote
+    if (!q) return [] // hasta escribir un N° de pallet no se muestra ninguno
+    return kardexGroupsFilteredPorLote.map(group => {
+      let stockPos = 0
+      let stockUnd = 0
+      const rows = group.rows
+        .filter(r => (r.codigo ?? "").trim().toLowerCase() === q || (r.numero_pallet ?? "").trim().toLowerCase() === q)
+        .map(m => {
+          if (m.tipo === "ingreso") { stockPos += m.posiciones ?? 0; stockUnd += m.unidades ?? 0 }
+          else                      { stockPos -= m.posiciones ?? 0; stockUnd -= m.unidades ?? 0 }
+          return { ...m, stockPos, stockUnd }
+        })
+      return { ...group, rows }
+    }).filter(g => g.rows.length > 0) // cada pallet es un producto: solo los que coinciden
+  }, [modoPallet, kardexPallet, kardexGroupsFilteredPorLote])
 
   // Edición inline de un valor del Kardex — el trigger de BD ya recalcula
   // stock_actual del ítem cuando cambian tipo/unidades, no hay que tocarlo acá.
@@ -1182,6 +1217,19 @@ function InventarioContent() {
 
                 {vista === "kardex" && kardexProductos.length > 0 && (
                   <div className="px-6 py-2.5 border-b bg-muted/5 flex items-center gap-2 flex-shrink-0">
+                    {modoPallet && (
+                      <>
+                        <Label className="text-[11px] text-muted-foreground font-medium">N° Pallet</Label>
+                        <SearchableSelect
+                          value={kardexPallet}
+                          onChange={v => { setKardexPallet(v); setKardexEditing(false); setKardexDirty(false) }}
+                          options={kardexPallets.map(p => ({ value: p, label: p }))}
+                          placeholder="Selecciona o busca un pallet…"
+                          className="flex-1 max-w-sm"
+                        />
+                      </>
+                    )}
+                    <div className={cn("contents", modoPallet && "hidden")}>
                     <Label className="text-[11px] text-muted-foreground font-medium">Producto</Label>
                     <SearchableSelect
                       value={kardexProducto ?? ""}
@@ -1222,7 +1270,8 @@ function InventarioContent() {
                         </select>
                       </>
                     )}
-                    {(kardexProducto || kardexImoFiltro) && !soloLectura && (
+                    </div>
+                    {(modoPallet ? !!kardexPallet.trim() : (kardexProducto || kardexImoFiltro)) && !soloLectura && (
                       <Button
                         type="button"
                         size="sm"
@@ -1264,11 +1313,18 @@ function InventarioContent() {
                         <Package className="h-10 w-10 opacity-20" />
                         <p className="text-sm font-medium">Sin movimientos registrados</p>
                       </div>
-                    ) : !kardexProducto && !kardexImoFiltro ? (
+                    ) : (modoPallet ? !kardexPallet.trim() : (!kardexProducto && !kardexImoFiltro)) ? (
                       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                         <Package className="h-10 w-10 opacity-20" />
-                        <p className="text-sm font-medium">Selecciona un producto o un IMO para ver el Detalle</p>
-                        <p className="text-xs">{kardexProductos.length} productos con movimientos</p>
+                        <p className="text-sm font-medium">
+                          {modoPallet ? "Selecciona un pallet para ver el Detalle" : "Selecciona un producto o un IMO para ver el Detalle"}
+                        </p>
+                        <p className="text-xs">{modoPallet ? kardexPallets.length + " pallets en el sistema" : kardexProductos.length + " productos con movimientos"}</p>
+                      </div>
+                    ) : modoPallet && kardexPallet.trim() && kardexGroupsVista.every(g => g.rows.length === 0) ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+                        <Package className="h-10 w-10 opacity-20" />
+                        <p className="text-sm font-medium">Ningún pallet coincide con «{kardexPallet.trim()}»</p>
                       </div>
                     ) : kardexGroupsFiltered.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
@@ -1277,7 +1333,7 @@ function InventarioContent() {
                       </div>
                     ) : (
                       <div className="h-full overflow-y-auto overflow-x-auto p-4 space-y-5 kardex-scroll">
-                        {kardexGroupsFilteredPorLote.map(group => (
+                        {kardexGroupsVista.map(group => (
                           <div key={group.key} className="rounded-lg border border-border/40 overflow-hidden">
                             <div className="px-3 py-2 bg-muted/40 border-b border-border/30 flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-bold">{group.carga}</span>
