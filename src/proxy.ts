@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { type UserRole, canAccess, DEFAULT_ROUTE } from '@/types/auth'
+import { getUserConReintento } from '@/lib/auth-reintento'
 
 const IS_DEV_PLACEHOLDER =
   !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -48,15 +49,10 @@ export async function proxy(request: NextRequest) {
   // Refresh Token). Sin este try/catch, la excepción no capturada tumbaba toda
   // la edge function en Netlify en vez de simplemente tratar al usuario como
   // no autenticado.
-  let user: { id: string } | null = null
-  try {
-    const { data, error: userError } = await supabase.auth.getUser()
-    if (userError) console.error("[proxy] error verificando sesión:", userError.message)
-    user = data.user
-  } catch (err) {
-    console.error("[proxy] excepción verificando sesión:", err instanceof Error ? err.message : err)
-    user = null
-  }
+  // Si el fallo es solo de red (no una sesión inválida), se reintenta y, si persiste, se deja
+  // pasar la solicitud en vez de mandar al login: el layout del dashboard vuelve a verificar.
+  const { user, errorDeRed } = await getUserConReintento(supabase, "proxy")
+  if (!user && errorDeRed && pathname !== '/' && !pathname.startsWith('/login')) return supabaseResponse
 
   // Ruta raíz → redirigir según estado de sesión
   if (pathname === '/') {

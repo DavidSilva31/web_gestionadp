@@ -154,10 +154,7 @@ export function CopiaSeguridadCard() {
         <h2 className="text-sm font-bold text-foreground">Copia de seguridad</h2>
       </div>
       <p className="text-sm text-muted-foreground">
-        Descarga un archivo ZIP con toda la información del sistema: todas las tablas de la base de datos
-        (clientes, reports, inventario, movimientos, cotizaciones, HES, tarifas, auditoría, etc.), los usuarios
-        y los archivos adjuntos (firmas y evidencias). Solo los super administradores pueden hacerla,
-        y cada copia queda registrada en la auditoría.
+        Descarga un ZIP con toda la información del sistema: base de datos, usuarios y archivos adjuntos.
       </p>
 
       {corriendo && (
@@ -243,9 +240,7 @@ function RespaldoSharePointCard() {
         <h2 className="text-sm font-bold text-foreground">Respaldo automático a SharePoint</h2>
       </div>
       <p className="text-sm text-muted-foreground">
-        Cada domingo de madrugada el sistema genera la copia completa y la sube a SharePoint, reemplazando
-        el ZIP de la semana anterior (queda un único archivo, <span className="font-mono">respaldo_adp_semanal.zip</span>).
-        Funciona solo en el sistema publicado.
+        Respaldo automático semanal que se sube a SharePoint y reemplaza la versión anterior.
       </p>
       {estado && !estado.configurado && (
         <p className="text-xs text-amber-700">Falta configurar BACKUP_CRON_SECRET en el servidor.</p>

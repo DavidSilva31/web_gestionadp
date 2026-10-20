@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { createServerSupabaseClient } from "@/lib/supabase-server"
+import { getUserConReintento } from "@/lib/auth-reintento"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { Topbar } from "@/components/layout/topbar"
@@ -14,8 +15,11 @@ export default async function DashboardLayout({
   children: React.ReactNode
 }) {
   const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { user, errorDeRed } = await getUserConReintento(supabase, "dashboard/layout")
 
+  // Sin conexión con Supabase no se puede saber si la sesión sigue vigente: se avisa
+  // en el login en vez de dejarlo como si la sesión hubiera expirado.
+  if (!user && errorDeRed) redirect("/login?error=verificacion_fallida")
   if (!user) redirect("/login")
 
   const { data: profile, error: profileError } = await supabase
