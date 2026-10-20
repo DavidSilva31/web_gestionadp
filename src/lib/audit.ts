@@ -33,6 +33,8 @@ export type AuditAccion =
   | "admin.crear_usuario"
   | "admin.eliminar_usuario"
   | "admin.actualizar_usuario"
+  | "sistema.respaldo"
+  | "sistema.respaldo_sharepoint"
   | "hes.generar"
   | "hes.enviar"
 
@@ -77,6 +79,8 @@ const ACCION_LABEL: Record<AuditAccion, string> = {
   "admin.crear_usuario":         "Usuario creado",
   "admin.eliminar_usuario":      "Usuario eliminado",
   "admin.actualizar_usuario":    "Usuario actualizado",
+  "sistema.respaldo":            "Copia de seguridad",
+  "sistema.respaldo_sharepoint": "Respaldo a SharePoint",
   "hes.generar":                 "HES generado",
   "hes.enviar":                  "HES enviado por correo",
 }
@@ -112,6 +116,8 @@ export const ACCION_STYLE: Record<string, { icon: LucideIcon; pill: string }> = 
   "perfil.actualizar":          { icon: UserCog,       pill: "bg-indigo-100  text-indigo-700  dark:bg-indigo-900/30 dark:text-indigo-400"  },
   "admin.crear_usuario":        { icon: UserPlus,      pill: "bg-teal-100    text-teal-700    dark:bg-teal-900/30  dark:text-teal-400"    },
   "admin.eliminar_usuario":     { icon: UserMinus,     pill: "bg-rose-100    text-rose-700    dark:bg-rose-900/30  dark:text-rose-400"    },
+  "sistema.respaldo_sharepoint": { icon: Boxes,        pill: "bg-slate-100   text-slate-700   dark:bg-slate-900/30  dark:text-slate-400"   },
+  "sistema.respaldo":           { icon: Boxes,         pill: "bg-slate-100   text-slate-700   dark:bg-slate-900/30  dark:text-slate-400"   },
   "admin.actualizar_usuario":   { icon: UserCog,       pill: "bg-indigo-100  text-indigo-700  dark:bg-indigo-900/30 dark:text-indigo-400"  },
   "hes.generar":                { icon: FileSpreadsheet, pill: "bg-teal-100    text-teal-700    dark:bg-teal-900/30  dark:text-teal-400"    },
   "hes.enviar":                 { icon: Mail,          pill: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },

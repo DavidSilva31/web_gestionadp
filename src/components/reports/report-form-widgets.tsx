@@ -486,6 +486,9 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
   const [items,  setItems]  = useState<InventarioItemOption[]>([])
   const [skuPorItem, setSkuPorItem] = useState<Record<string, string>>({})
   const [envasePorItem, setEnvasePorItem] = useState<Record<string, string>>({})
+  // Clase IMO y NU de respaldo (último movimiento del ítem) para productos cuya ficha no los trae.
+  const [imoPorItem, setImoPorItem] = useState<Record<string, string>>({})
+  const [unPorItem,  setUnPorItem]  = useState<Record<string, string>>({})
   const [open,   setOpen]   = useState(false)
   const [query,  setQuery]  = useState(value)
   const [highlighted, setHighlighted] = useState(0)
@@ -500,6 +503,8 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
     setItems([])
     setSkuPorItem({})
     setEnvasePorItem({})
+    setImoPorItem({})
+    setUnPorItem({})
     if (!clienteId) return
     const supabase = createClient()
     resolveEffectiveClienteId(supabase, clienteId).then(effectiveId => {
@@ -513,7 +518,7 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
 
       consultaCacheada(`productos:skus:${effectiveId}`, () => supabase
         .from("movimientos")
-        .select("inventario_item_id, codigo, tipo_envase, fecha")
+        .select("inventario_item_id, codigo, tipo_envase, imo, un, fecha")
         .eq("cliente_id", effectiveId)
         .not("inventario_item_id", "is", null)
         .order("fecha", { ascending: false }))
@@ -521,12 +526,18 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
           if (!data) return
           const skus: Record<string, string> = {}
           const envases: Record<string, string> = {}
-          for (const m of data as { inventario_item_id: string; codigo: string | null; tipo_envase: string | null }[]) {
+          const imos: Record<string, string> = {}
+          const uns: Record<string, string> = {}
+          for (const m of data as { inventario_item_id: string; codigo: string | null; tipo_envase: string | null; imo: string | null; un: string | null }[]) {
             if (m.codigo && !skus[m.inventario_item_id]) skus[m.inventario_item_id] = m.codigo
             if (m.tipo_envase && !envases[m.inventario_item_id]) envases[m.inventario_item_id] = m.tipo_envase
+            if (m.imo?.trim() && !imos[m.inventario_item_id]) imos[m.inventario_item_id] = m.imo.trim()
+            if (m.un?.trim() && !uns[m.inventario_item_id]) uns[m.inventario_item_id] = m.un.trim()
           }
           setSkuPorItem(skus)
           setEnvasePorItem(envases)
+          setImoPorItem(imos)
+          setUnPorItem(uns)
         })
     })
   }, [clienteId])
@@ -560,10 +571,17 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
 
   useEffect(() => { setHighlighted(0) }, [query, open])
 
+  // Clase IMO y NU del producto: los de su ficha; si faltan, los del último movimiento que los tuvo.
+  const conImoNu = (it: InventarioItemOption): InventarioItemOption => ({
+    ...it,
+    clase_imo: it.clase_imo?.trim() || imoPorItem[it.id] || null,
+    nu: it.nu?.trim() || unPorItem[it.id] || null,
+  })
+
   function select(item: InventarioItemOption) {
     setQuery(item.descripcion)
     onChange(item.descripcion)
-    onSelect(item)
+    onSelect(conImoNu(item))
     setOpen(false)
   }
 
@@ -615,9 +633,9 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
                 <span className="font-medium text-foreground">{p.nombre}{p.envase ? ` (${p.envase})` : ""}</span>
                 {p.sku && <span className="text-muted-foreground font-mono"> {p.sku}</span>}
               </span>
-              {item.clase_imo && (
+              {conImoNu(item).clase_imo && (
                 <span className="text-[10px] font-mono text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded flex-shrink-0">
-                  Cl. {item.clase_imo}{item.nu ? ` · UN ${item.nu}` : ""}
+                  Cl. {conImoNu(item).clase_imo}{conImoNu(item).nu ? ` · UN ${conImoNu(item).nu}` : ""}
                 </span>
               )}
             </button>
@@ -677,7 +695,10 @@ export function tarifaCubreClase(tarifaClase: string | null, itemClase: string |
 // Movimientos (no ocultos) de un producto. Los comparten el selector de lote y el de peso
 // neto: antes cada uno hacía sus propias 2 consultas (4 por cada producto del report); ahora
 // se piden una vez y se reutilizan. Caché corta (30 s): al guardar un report se invalida.
-type MovProducto = { id: string; lote: string | null; tipo: string; posiciones: number | null; peso_envase: number | null }
+type MovProducto = {
+  id: string; lote: string | null; tipo: string; posiciones: number | null; peso_envase: number | null
+  fecha: string; fecha_elaboracion: string | null; fecha_vencimiento: string | null
+}
 function useMovimientosProducto(inventarioItemId: string, carga: string): MovProducto[] {
   const [movs, setMovs] = useState<MovProducto[]>([])
   useEffect(() => {
@@ -685,7 +706,7 @@ function useMovimientosProducto(inventarioItemId: string, carga: string): MovPro
     if (!inventarioItemId && !cargaTrim) { setMovs([]); return }
     let vivo = true
     const supabase = createClient()
-    const cols = "id, lote, tipo, posiciones, peso_envase"
+    const cols = "id, lote, tipo, posiciones, peso_envase, fecha, fecha_elaboracion, fecha_vencimiento"
     // Dos consultas separadas (no .or()) para no tener que escapar `carga`, que suele
     // traer paréntesis (ej. "HIPOCLORITO (IBC)") — rompería el filtro de PostgREST si
     // fuera texto crudo dentro de un .or(...).
@@ -707,11 +728,14 @@ function useMovimientosProducto(inventarioItemId: string, carga: string): MovPro
   return movs
 }
 
-function LoteField({ inventarioItemId, carga, value, onChange, disabled }: {
+function LoteField({ inventarioItemId, carga, value, onChange, onLoteConocido, disabled }: {
   inventarioItemId: string
   carga: string
   value: string
   onChange: (v: string) => void
+  // Se llama al elegir un lote que ya existe (de la lista o escrito completo), con las fechas
+  // de elaboración y vencimiento que ese lote tiene registradas (las más recientes).
+  onLoteConocido?: (fechas: { elab: string | null; venc: string | null }) => void
   disabled?: boolean
 }) {
   const [open,  setOpen]  = useState(false)
@@ -733,11 +757,24 @@ function LoteField({ inventarioItemId, carga, value, onChange, disabled }: {
 
   const filtered = value ? lotes.filter(l => l.toLowerCase().includes(value.toLowerCase())) : lotes
 
+  // Fechas registradas del lote: las del movimiento más reciente que las tenga.
+  function avisarLoteConocido(lote: string) {
+    const delLote = movs.filter(m => m.lote === lote).sort((a, b) => b.fecha.localeCompare(a.fecha))
+    const elab = delLote.find(m => m.fecha_elaboracion)?.fecha_elaboracion ?? null
+    const venc = delLote.find(m => m.fecha_vencimiento)?.fecha_vencimiento ?? null
+    if (elab || venc) onLoteConocido?.({ elab, venc })
+  }
+
   return (
     <div ref={ref} className="relative">
       <Input
         value={value}
-        onChange={e => { onChange(e.target.value); setOpen(true) }}
+        onChange={e => {
+          const v = e.target.value
+          onChange(v)
+          if (lotes.includes(v.trim())) avisarLoteConocido(v.trim())
+          setOpen(true)
+        }}
         onFocus={() => !disabled && lotes.length > 0 && setOpen(true)}
         placeholder="N° de lote"
         className="h-8 text-xs"
@@ -751,7 +788,7 @@ function LoteField({ inventarioItemId, carga, value, onChange, disabled }: {
               key={l}
               type="button"
               onMouseDown={e => e.preventDefault()}
-              onClick={() => { onChange(l); setOpen(false) }}
+              onClick={() => { onChange(l); avisarLoteConocido(l); setOpen(false) }}
               className="w-full px-3 py-1.5 text-xs text-left font-mono hover:bg-muted transition-colors"
             >
               {l}
@@ -768,8 +805,8 @@ function LoteField({ inventarioItemId, carga, value, onChange, disabled }: {
 // ej. 800 kg y 770 kg), así que al ingresar o despachar el operador elige de cuál.
 // Muestra, por cada peso, las posiciones que quedan (ingresos - despachos de ese
 // peso). Texto libre igual: un ingreso nuevo puede traer un peso que aún no existe.
-// El campo solo se muestra cuando el producto + lote ya tienen algún peso registrado
-// (o el report ya trae uno guardado): si no, no hay nada que elegir y no aparece.
+// El campo se muestra siempre: si el producto + lote ya tienen pesos registrados se ofrecen
+// para elegir; si no (ej. un ingreso de un lote nuevo), se escribe el peso a mano.
 function PesoNetoField({ inventarioItemId, carga, lote, value, onChange, disabled }: {
   inventarioItemId: string
   carga: string
@@ -801,8 +838,6 @@ function PesoNetoField({ inventarioItemId, carga, lote, value, onChange, disable
     return () => document.removeEventListener("mousedown", onClickOutside)
   }, [])
 
-  if (opciones.length === 0 && !value) return null
-
   return (
     <Field label="Peso neto">
     <div ref={ref} className="relative">
@@ -811,7 +846,7 @@ function PesoNetoField({ inventarioItemId, carga, lote, value, onChange, disable
         value={value}
         onChange={e => { onChange(e.target.value); setOpen(true) }}
         onFocus={() => !disabled && opciones.length > 0 && setOpen(true)}
-        placeholder={loteTrim ? "kg" : "Elige el lote"}
+        placeholder="kg"
         className="h-8 text-xs"
         autoComplete="off"
         disabled={disabled}
@@ -923,6 +958,10 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
                 carga={item.sec3_producto}
                 value={item.sec3_lote}
                 onChange={v => onChange(index, { sec3_lote: v, sec3_peso_neto: "" })}
+                onLoteConocido={f => onChange(index, {
+                  ...(f.elab ? { sec3_fecha_elaboracion: f.elab } : {}),
+                  ...(f.venc ? { sec3_fecha_vencimiento: f.venc } : {}),
+                })}
                 disabled={readOnly}
               />
             </Field>

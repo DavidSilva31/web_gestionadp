@@ -6,6 +6,7 @@ import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import { createClient } from "@/lib/supabase"
 import { cn }       from "@/lib/utils"
+import { formatearSigla } from "@/lib/sigla"
 import type { ReportFormData, TipoContenedor } from "./report-form-types"
 
 // ── Setter type ────────────────────────────────────────────────────────────────
@@ -170,7 +171,7 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
             {opciones.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         ) : (
-          <Input value={valor} onChange={str(key)}
+          <Input value={valor} onChange={e => set(key, formatearSigla(e.target.value))}
             placeholder={esUnidad ? "Ej: BLKU257599-0" : "Sigla del contenedor"} className="h-8 text-xs" disabled={readOnly} />
         )}
       </Field>

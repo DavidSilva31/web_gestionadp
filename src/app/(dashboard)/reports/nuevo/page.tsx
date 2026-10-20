@@ -16,6 +16,7 @@ import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, handleEnterFocusNext, type FormSetter } from "@/components/reports/report-form-sections"
 import { ClienteCombobox, ServiciosSection, EmpresaTransporteCombobox, ConductorComboboxes, formatRut, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
+import { siglaIncompleta, MSG_SIGLA } from "@/lib/sigla"
 
 interface FormData extends ReportFormData {
   cliente_id: string
@@ -225,8 +226,12 @@ export default function NuevoReportPage() {
   }
 
   async function handleSave() {
-    if (!form.cliente || !form.patente || !form.conductor || !form.rut_conductor || !form.sec3_numero_guia) {
-      setError("Cliente, patente, conductor, RUT conductor y N° Guía son obligatorios.")
+    if (!form.cliente || !form.patente || !form.conductor || !form.rut_conductor) {
+      setError("Cliente, patente, conductor y RUT conductor son obligatorios.")
+      return
+    }
+    if (siglaIncompleta(form.sec1_sigla) || siglaIncompleta(form.sec1_sigla_2)) {
+      setError(MSG_SIGLA)
       return
     }
     // Con la Sección 1 llena, el Ingreso/Despacho sale de Antecedentes: sin él
@@ -441,7 +446,7 @@ export default function NuevoReportPage() {
                   onChangeConductor={v => set("conductor", v)}
                   onChangeRutConductor={v => set("rut_conductor", v)}
                 />
-                <Field label="N° Guía" required>
+                <Field label="N° Guía">
                   <Input value={form.sec3_numero_guia} onChange={e => setUpper("sec3_numero_guia", e.target.value)} placeholder="Número de guía" className="h-8 text-xs" />
                 </Field>
                 <Field label="Solicitado por">

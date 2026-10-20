@@ -33,6 +33,7 @@ import { ClienteCombobox, FirmaCanvas, ServiciosSection, EmpresaTransporteCombob
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
+import { siglaIncompleta, MSG_SIGLA } from "@/lib/sigla"
 
 interface FormData extends ReportFormData {
   cliente_id: string
@@ -594,8 +595,12 @@ export default function ReportDetailPage() {
   async function handleSave(newEstado: ReportEstado) {
     if (!form) return
     if (savingRef.current) return
-    if (!form.cliente || !form.patente || !form.conductor || !form.rut_conductor || !form.sec3_numero_guia) {
-      setError("Cliente, patente, conductor, RUT conductor y N° Guía son obligatorios.")
+    if (!form.cliente || !form.patente || !form.conductor || !form.rut_conductor) {
+      setError("Cliente, patente, conductor y RUT conductor son obligatorios.")
+      return
+    }
+    if (siglaIncompleta(form.sec1_sigla) || siglaIncompleta(form.sec1_sigla_2)) {
+      setError(MSG_SIGLA)
       return
     }
     if (newEstado === "pendiente_despacho" && estado !== "pendiente_despacho" && reporteVacio()) {
@@ -1027,10 +1032,17 @@ export default function ReportDetailPage() {
           )}
 
           {estado === "pendiente_operaciones" && (
-            <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => reporteVacio() ? setError(MSG_REPORTE_VACIO) : setConfirmEnviarDespacho(true)}>
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              Enviar a despacho
-            </Button>
+            <>
+              {/* Guarda las ediciones sin mover el report de estado (sigue en Operaciones). */}
+              <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" disabled={saving} onClick={() => handleSave("pendiente_operaciones")}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                Guardar cambios
+              </Button>
+              <Button size="sm" className="gap-1.5 h-8 text-xs bg-primary hover:bg-primary/85 text-primary-foreground" disabled={saving || !form.nombre_operador.trim()} onClick={() => reporteVacio() ? setError(MSG_REPORTE_VACIO) : setConfirmEnviarDespacho(true)}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                Enviar a despacho
+              </Button>
+            </>
           )}
 
           {estado === "en_proceso" && (
@@ -1132,7 +1144,7 @@ export default function ReportDetailPage() {
                   onChangeRutConductor={v => set("rut_conductor", v)}
                   readOnly={leftReadOnly}
                 />
-                <Field label="N° Guía" required>
+                <Field label="N° Guía">
                   <Input value={form.sec3_numero_guia} onChange={e => set("sec3_numero_guia", e.target.value.toUpperCase())} placeholder="Número de guía" className="h-8 text-xs" disabled={leftReadOnly} />
                 </Field>
                 <Field label="Solicitado por">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Plus, Search, FileText, Clock, CheckCircle2, Filter, Loader2, RefreshCw, Download, Sheet, Truck, X, Eye, Paperclip, Ban, CalendarDays } from "lucide-react"
@@ -322,6 +322,9 @@ export default function ReportsPage() {
     // archiveResults ya viene filtrado por la búsqueda desde la BD (fuera
     // de los últimos 6 meses) — solo falta aplicarle la pestaña activa.
     const combined = search.trim().length >= 2 ? [...reports, ...archiveResults] : reports
+    // Los abiertos arriba y los finalizados (despachado/anulado) abajo; dentro de cada
+    // grupo se mantiene el orden por número descendente. Array.sort es estable.
+    const cerrado = (e: string) => e === "despachado" || e === "anulado"
     return combined.filter(r => {
       // "Todos" no incluye anulados — quedan aparte en su propia pestaña.
       if (activeTab === "todos") { if (r.estado === "anulado") return false }
@@ -335,8 +338,10 @@ export default function ReportsPage() {
                String(r.numero).includes(q)
       }
       return true
-    })
+    }).sort((a, b) => Number(cerrado(a.estado)) - Number(cerrado(b.estado)) || b.numero - a.numero)
   }, [reports, archiveResults, activeTab, search, soloHoy, todayStr])
+
+  const esCerrado = (e: string) => e === "despachado" || e === "anulado"
 
   const counts = useMemo(() => ({
     todos:                 reports.filter(r => r.estado !== "anulado").length,
@@ -568,8 +573,15 @@ export default function ReportsPage() {
                 </thead>
                 <tbody>
                   {filtered.map((r, i) => (
+                    <Fragment key={r.id}>
+                    {i > 0 && esCerrado(r.estado) && !esCerrado(filtered[i - 1].estado) && (
+                      <tr className="bg-muted/40 border-b">
+                        <td colSpan={8} className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Finalizados
+                        </td>
+                      </tr>
+                    )}
                     <tr
-                      key={r.id}
                       onClick={() => router.push(`/reports/${r.id}`)}
                       className={cn("border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer", i % 2 !== 0 && "bg-muted/10")}
                     >
@@ -660,6 +672,7 @@ export default function ReportsPage() {
                         </div>
                       </td>
                     </tr>
+                    </Fragment>
                   ))}
                   {filtered.length === 0 && (
                     <tr>

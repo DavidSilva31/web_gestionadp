@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   User, Users, Save, Loader2, Plus, Eye, EyeOff,
   ShieldCheck, Shield, Package, CheckCircle2, XCircle,
-  KeyRound, UserCog, LayoutGrid, AlertTriangle, Trash2, Mail, Bell,
+  KeyRound, UserCog, LayoutGrid, AlertTriangle, Trash2, Mail, Bell, DatabaseBackup,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,11 +19,12 @@ import { ACCENT_COLORS, ACCENT_COLOR_KEYS } from "@/lib/accent-colors"
 import { ROLE_LABELS, DEFAULT_ROUTE } from "@/types/auth"
 import { cn } from "@/lib/utils"
 import { MiFirmaCard } from "@/components/configuracion/mi-firma-card"
+import { CopiaSeguridadCard } from "@/components/configuracion/copia-seguridad-card"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import type { UserRole } from "@/types/auth"
 import { MODULE_OPTIONS, ROLE_MODULE_DEFAULTS } from "@/lib/modulos"
 
-type Tab = "perfil" | "usuarios"
+type Tab = "perfil" | "usuarios" | "respaldo"
 
 interface ProfileRow {
   id:          string
@@ -465,6 +466,7 @@ export default function ConfiguracionPage() {
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "perfil",   label: "Mi perfil", icon: <User className="h-4 w-4" /> },
     ...(isSuperAdmin ? [{ key: "usuarios" as Tab, label: "Usuarios", icon: <Users className="h-4 w-4" /> }] : []),
+    ...(isSuperAdmin ? [{ key: "respaldo" as Tab, label: "Respaldo", icon: <DatabaseBackup className="h-4 w-4" /> }] : []),
   ]
 
   return (
@@ -697,6 +699,9 @@ export default function ConfiguracionPage() {
               </div>
             </>
           )}
+
+          {/* ─── Tab Respaldo ─── */}
+          {tab === "respaldo" && isSuperAdmin && <CopiaSeguridadCard />}
 
           {/* ─── Tab Usuarios ─── */}
           {tab === "usuarios" && isSuperAdmin && (

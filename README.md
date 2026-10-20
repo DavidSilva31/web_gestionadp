@@ -38,6 +38,8 @@ SHAREPOINT_CLIENT_ID=...
 SHAREPOINT_CLIENT_SECRET=...                         # Valor del secreto del app registration — solo servidor, nunca al cliente
 SHAREPOINT_SITE_ID=...                               # ID Graph del sitio (host,siteCollectionId,webId)
 SHAREPOINT_BASE_PATH=HES Y COTIZACIONES/COTIZACIONES/COTIZACIONES   # Carpeta base; dentro se crea una carpeta por año
+SHAREPOINT_BACKUP_PATH=RESPALDOS ADP                      # (opcional) Carpeta del sitio donde se guarda el respaldo semanal
+BACKUP_CRON_SECRET=...                               # Clave entre la función programada y la función de respaldo (solo Netlify)
 ```
 
 > **Importante:** `SUPABASE_SERVICE_ROLE_KEY` nunca se expone al cliente. Solo se usa en rutas API de servidor (`/api/admin/*`).
