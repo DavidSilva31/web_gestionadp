@@ -24,6 +24,8 @@ import { cn } from "@/lib/utils"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import { useAuth } from "@/contexts/auth-context"
 import { logAudit } from "@/lib/audit"
+import { downloadReportPDF } from "@/lib/download-report-pdf"
+import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import type {
   Cliente,
   InventarioItem,
@@ -32,6 +34,7 @@ import type {
   InventarioArea,
   InstalacionAlmacenamiento,
   Movimiento,
+  Report,
 } from "@/types/database"
 
 const CATEGORIAS = INVENTARIO_CATEGORIAS
@@ -337,6 +340,21 @@ function InventarioContent() {
   const [kardexProducto, setKardexProducto] = useState<string | null>(null)
   // Detalle por N° de pallet (solo clientes de detallePorPallet, ej. Sherwin Williams)
   const [kardexPallet, setKardexPallet] = useState("")
+  // Report abierto en el visor desde la columna "Report" del Detalle (sin salir de Inventario)
+  const [previewReport,  setPreviewReport]  = useState<Report | null>(null)
+  const [abriendoReport, setAbriendoReport] = useState<string | null>(null)
+
+  async function abrirReport(reportId: string) {
+    if (abriendoReport) return
+    setAbriendoReport(reportId)
+    try {
+      const { data, error } = await createClient().from("reports").select("*").eq("id", reportId).single()
+      if (error || !data) { console.error("[inventario] error cargando el report:", error); setKardexError("No se pudo abrir el report."); return }
+      setPreviewReport(data as Report)
+    } finally {
+      setAbriendoReport(null)
+    }
+  }
   const [kardexImoFiltro, setKardexImoFiltro] = useState<string | null>(null)
   const [kardexLoteFiltro, setKardexLoteFiltro] = useState<string | null>(null)
   const [kardexMovs,   setKardexMovs]   = useState<Record<string, (Movimiento & { reports: { numero: number } | null })[]>>({})
@@ -1439,7 +1457,19 @@ function InventarioContent() {
                                           <KardexCell kind="select" value={m.tipo_envase} options={KARDEX_ENVASES} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "tipo_envase", v as Movimiento["tipo_envase"])} />
                                         </td>
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
-                                          <KardexCell kind="text" value={m.reports?.numero ?? null} disabled={!kardexEditing} onSave={v => updateKardexReport(m.id, v)} />
+                                          {m.report_id && m.reports?.numero != null && !kardexEditing ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => abrirReport(m.report_id!)}
+                                              title={`Ver el report #${m.reports.numero}`}
+                                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium tabular-nums text-primary hover:underline underline-offset-2"
+                                            >
+                                              {abriendoReport === m.report_id && <Loader2 className="h-3 w-3 animate-spin" />}
+                                              {m.reports.numero}
+                                            </button>
+                                          ) : (
+                                            <KardexCell kind="text" value={m.reports?.numero ?? null} disabled={!kardexEditing} onSave={v => updateKardexReport(m.id, v)} />
+                                          )}
                                         </td>
                                         <td className="p-0 text-right whitespace-nowrap tabular-nums">
                                           {m.tipo === "ingreso"
@@ -1969,6 +1999,14 @@ function InventarioContent() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {previewReport && (
+        <ReportPreviewModal
+          report={previewReport}
+          onClose={() => setPreviewReport(null)}
+          onDownload={() => downloadReportPDF(previewReport)}
+        />
+      )}
     </>
   )
 }

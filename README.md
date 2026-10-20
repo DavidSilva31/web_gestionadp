@@ -38,7 +38,7 @@ SHAREPOINT_CLIENT_ID=...
 SHAREPOINT_CLIENT_SECRET=...                         # Valor del secreto del app registration — solo servidor, nunca al cliente
 SHAREPOINT_SITE_ID=...                               # ID Graph del sitio (host,siteCollectionId,webId)
 SHAREPOINT_BASE_PATH=HES Y COTIZACIONES/COTIZACIONES/COTIZACIONES   # Carpeta base; dentro se crea una carpeta por año
-SHAREPOINT_BACKUP_PATH=RESPALDOS ADP                      # (opcional) Carpeta del sitio donde se guarda el respaldo semanal
+SHAREPOINT_BACKUP_PATH=RESPALDOS ADP                      # (opcional) Carpeta del sitio donde se guardan el respaldo semanal y el del inventario
 BACKUP_CRON_SECRET=...                               # Clave entre la función programada y la función de respaldo (solo Netlify)
 ```
 
@@ -97,6 +97,8 @@ Control de ítems almacenados por cliente:
 - **Pool de stock compartido**: un cliente puede apuntar a `stock_compartido_con` otro (mismo inventario físico, facturación separada) — resuelto en cada punto de lectura/escritura vía `resolveEffectiveClienteId()`
 - **Panel de clientes colapsable**: al seleccionar un cliente, la columna izquierda se recoge a un riel angosto de solo avatares (con botón para volver a expandir), liberando espacio en pantalla para la vista de Detalle
 - **Vista "Detalle" (Kardex)**: disponible para todos los clientes — toggle Resumen/Detalle junto al agregado habitual; muestra el historial transaccional real **una sola grilla por producto** (agrupado por `carga`, no por lote/código individual) con saldo corrido (posiciones y unidades). El saldo parte del stock actual del ítem (`stock_actual`/`stock_unidades`), así el último saldo coincide siempre con el stock de Resumen. Los productos sin movimientos aparecen con el encabezado "0 movimientos". Filtro de Producto con buscador tipo combobox (escribir para filtrar, sin el viejo `<select>` nativo); navegación solo con scroll nativo horizontal/vertical (barras más gruesas que el resto de la app, sin arrastre por clic). Columnas: **SKU** (código del producto, constante para cada uno), **Nr. Pallet**, fecha, tipo, IMO, **NU**, lote, CAS, guía, OC, fechas de elaboración/vencimiento, envase, report de origen, posiciones/unidades de ingreso y despacho, stock corrido y bodega — todas editables inline
+- **Report clicable en el Detalle**: el número de la columna "Report" abre el report en un visor (el mismo PDF de Reports, con botón Descargar) encima de Inventario, sin salir de la pantalla; en modo "Editar" vuelve a ser la celda editable
+- **Detalle por N° de pallet** (`detallePorPallet()` en `src/lib/inventario.ts`, hoy solo **Sherwin Williams**): como todo es PINTURA y lo único que distingue cada línea es el pallet, el Detalle reemplaza los filtros de producto/IMO por un selector con los pallets del sistema y no muestra ninguno hasta elegir uno. Cada pallet es un producto distinto: nombre `PINTURA (859) (CAJA)`, SKU = N° de pallet (`inventario_items.codigo`), 1 posición y las unidades del pallet en un movimiento de ingreso con `carga` propia (`PINTURA (859)`), así cada uno tiene su saldo. Así se reciben en un report: `{producto} ({envase}) {sku}`
 - **Filtro por lote** en la vista Detalle: el saldo corrido y la grilla se pueden acotar a un lote específico; el stock mostrado se calcula sobre ese lote
 - Los movimientos marcados como **ocultos** (`movimientos.oculto = true`) siguen en la base y mantienen su efecto de stock y su vínculo con el report, pero no aparecen en el Kardex ni en las sugerencias de lote
 - **Stock Pos / Stock Und editables** en la vista Detalle (con el modo "Editar" activado): al cambiar un saldo se inserta un movimiento de ajuste por la diferencia (1 segundo después del movimiento editado), sin tocar los movimientos existentes. Es la forma de corregir un stock sin pasar por SQL
@@ -172,7 +174,13 @@ Informes de recepción de carga:
 - **Despachar más de lo que hay**: el stock nunca queda negativo — un despacho sobre un producto sin ingreso previo se "topa" en 0 y el Kardex muestra solo el despacho. Si la carga entró antes del sistema, hay que registrar su ingreso
 - **Estado "En proceso"**: un 20ft/40ft **sin** Almacenaje Full/Vacío requiere que Operaciones complete el consolidado/desconsolidado, que es lento. Al despachar el camión el report queda "En proceso - Consolidado/Desconsolidado" (el chofer se va y el PDF ya sale con el sello), y Operaciones lo cierra con "Finalizar" desde el detalle; recién ahí pasa a "Finalizado" y se generan movimientos y stock. Isotanque y los contenedores con Full/Vacío se cierran al despachar el camión. Hay una pestaña "En proceso" en la lista
 - **Un solo "Tipo de movimiento" y una sola hora**: el Ingreso/Despacho de Antecedentes manda también en la Sección 1, y las horas de inicio/término de la Sección 3 mandan para todo el report (la Sección 2 ya no las pide)
-- **Peso neto en Bodegaje**: un mismo lote puede tener 2 o más pesos netos distintos (uno por fila de ingreso). Al elegir producto y lote, el formulario muestra el campo "Peso neto" con los pesos que ese lote ya tiene y las posiciones que quedan de cada uno, para elegir de cuál ingresar o despachar. Solo aparece donde hay pesos registrados
+- **Peso neto en Bodegaje**: un mismo lote puede tener 2 o más pesos netos distintos (uno por fila de ingreso). Al elegir producto y lote, el formulario muestra el campo "Peso neto" con los pesos que ese lote ya tiene y las posiciones que quedan de cada uno, para elegir de cuál ingresar o despachar. El campo se muestra siempre (si el lote es nuevo, el peso se escribe a mano)
+- **Sigla de contenedor / código de isotanque** (`src/lib/sigla.ts`): se arma sola como `XXXXXX-X` mientras se escribe (el guion aparece desde el 2.º carácter y se corre con cada carácter nuevo); no se guarda con un solo carácter. Los reports anteriores sin guion no se tocan
+- **N° Guía opcional**: ya no es obligatorio para guardar un report
+- **Guardar sin cambiar de estado**: en "Pendiente operaciones" hay un botón **Guardar cambios** además de "Enviar a despacho"; antes la única forma de guardar era avanzar el estado
+- **Lista de reports**: los abiertos arriba y los finalizados (despachado, anulado) abajo, separados por una fila "Finalizados"; dentro de cada grupo, por número descendente
+- **IMO, NU y fechas de lote automáticos**: al elegir un producto en Bodegaje, la Clase IMO y el NU salen de la ficha y, si ahí faltan, del último movimiento; al elegir un lote conocido se completan sus fechas de elaboración y vencimiento
+- **Imágenes de referencia (Sección 3)**: debajo de Observaciones se pueden adjuntar imágenes JPG/PNG opcionales (máx. 10 MB) como referencia; se suben al guardar al bucket `reports-firmados` y sus paths quedan en `reports.sec3_imagenes_referencia`. Solo en la pantalla de edición, y no salen en el PDF
 - **Teclado en el formulario**: Enter salta al siguiente campo y, en las listas desplegables (cliente, empresa, conductor/RUT, producto), las flechas mueven la selección y Enter elige la opción
 - **Resync de Bodegaje en reports despachados**: cuando un super_admin o Javier Navarro edita los productos, cantidades o lotes de un report ya despachado, el stock y los movimientos generados se recalculan automáticamente (vía `rebuild_bodegaje_movimientos()`)
 - Exportar listado filtrado a **Excel** (incluye una hoja "Bodegaje - Detalle" con una fila por report × producto)
@@ -266,6 +274,12 @@ Registro paginado (50/página) de todas las acciones sobre reports, inventario y
 - Editar permisos de módulos por usuario (incluye Inventario, Instalaciones, Movimientos, Clientes, Servicios, Analítica, HES, Reports, Despacho, Transporte, Transporte Incomex y Auditoría)
 - Eliminar usuario (con protección anti-autoborrado)
 
+**Tab Respaldo** *(solo `super_admin`, exigido también en el servidor):*
+- **Copia de seguridad manual**: descarga un ZIP con todas las tablas de la base (un JSON por tabla; la lista sale del esquema, así que las tablas nuevas entran solas), los usuarios de Auth (sin contraseñas) y los archivos del bucket `reports-firmados`, más un `LEEME.txt`. Se arma en el navegador (`fflate`) a partir de rutas paginadas `/api/admin/backup/*`, porque una sola respuesta chocaría con los límites de Netlify. Cada copia queda en Auditoría
+- **Respaldo semanal automático a SharePoint**: una función programada de Netlify (`respaldo-semanal`, domingos 05:00 UTC) dispara la función en segundo plano `respaldo-background`, que arma el mismo ZIP en el servidor y lo sube con Microsoft Graph (sesión de carga en trozos) como `respaldo_adp_semanal.zip`, **reemplazando** el de la semana anterior. La tarjeta muestra el estado "en curso" (persistente aunque se salga de la pantalla, vía Auditoría), el último resultado y un botón "Respaldar ahora"
+- **Respaldo diario del inventario a SharePoint**: `respaldo-inventario-diario` (todos los días 06:00 UTC) → `respaldo-inventario-background` genera `inventario_adp_diario.xlsx` (hojas *Stock actual*, *Isotanques y contenedores* en bodega y *Movimientos*) y reemplaza el del día anterior en la misma carpeta (`src/lib/backup-inventario.ts`). También tiene botón "Respaldar inventario ahora"
+- Ambas funciones se protegen con el secreto `BACKUP_CRON_SECRET` (la ruta `/.netlify/` se excluye del proxy de sesión). Cada ejecución, buena o con error, queda en Auditoría
+
 ### Asistente virtual (chatbot)
 
 Botón "Asistente ADP" en la barra superior (entre el buscador y el interruptor de tema; con etiqueta solo en pantallas anchas), disponible en todo el dashboard (`src/components/chatbot/chatbot-widget.tsx`). Un clic abre o cierra el panel de chat, que se despliega bajo la barra, a la derecha. Respaldado por Gemini vía `/api/chatbot`:
@@ -308,6 +322,12 @@ Todas las rutas verifican sesión (`getUser()`) y rol antes de ejecutar operacio
 | `/api/chatbot` | POST | autenticado | Asistente virtual (Gemini) — solo lectura vía function calling, sin acciones que modifiquen datos |
 | `/api/cotizaciones/[id]/pdf` | GET | `super_admin` | PDF de una cotización generado en el servidor, con `Content-Disposition` para que la descarga lleve el nombre correcto |
 | `/api/cotizaciones/sharepoint` | POST | `super_admin` | Sube el PDF de una cotización a SharePoint (carpeta del año) vía Microsoft Graph |
+| `/api/admin/backup/manifiesto` | GET | `super_admin` | Lista de tablas, archivos del bucket y usuarios de Auth para la copia manual |
+| `/api/admin/backup/tabla` | GET | `super_admin` | Hasta 1000 filas de una tabla (ordenadas por clave primaria) |
+| `/api/admin/backup/archivos` | POST | `super_admin` | URLs firmadas de un lote de archivos del bucket |
+| `/api/admin/backup/registro` | POST | `super_admin` | Deja constancia de la copia manual en Auditoría |
+| `/api/admin/backup/sharepoint` | GET / POST | `super_admin` | Estado del respaldo semanal / lanzarlo ahora |
+| `/api/admin/backup/inventario` | GET / POST | `super_admin` | Estado del respaldo diario del inventario / lanzarlo ahora |
 
 ---
 
@@ -406,7 +426,12 @@ src/
     ├── report-bodegaje.ts             # cargarBodegajeItems() — productos de la Sección 3
     ├── firma-hash.ts                  # Huella SHA-256 del contenido firmable de un report
     ├── cotizacion-pdf-build.ts        # Arma los datos del PDF de cotización (formulario y ruta del servidor); recalcula totales
-    ├── sharepoint.ts                  # Microsoft Graph: token, carpetas por año y subida de archivos a SharePoint
+    ├── sharepoint.ts                  # Microsoft Graph: token, carpetas por año y subida de archivos a SharePoint (incluye sesión de carga en trozos para archivos grandes)
+    ├── backup-core.ts                 # Genera el ZIP del respaldo (tablas, archivos, usuarios) y registra en Auditoría; sin dependencias de Next
+    ├── backup-inventario.ts           # Genera el Excel diario del inventario
+    ├── backup-servidor.ts             # Verifica super_admin en las rutas /api/admin/backup/*
+    ├── auth-reintento.ts              # getUser() con reintentos ante fallos de red (proxy y layout del dashboard)
+    ├── sigla.ts                       # Formato XXXXXX-X de siglas de contenedor / isotanque
     ├── chatbot-knowledge.ts           # Base de conocimiento (system prompt) del asistente
     ├── chatbot-tools.ts               # Function calling de solo lectura para el asistente
     └── excel.ts                       # Helper genérico exportToExcel()
@@ -448,6 +473,7 @@ src/
 | `migration_fix_bodegaje_carga_item_vinculado.sql` | `rebuild_bodegaje_movimientos()` usa la descripción real del ítem vinculado como `carga` (sin recortarle el envase) |
 | `migration_bodegaje_contenedor_transporte_y_sku.sql` | Producto en contenedor 20ft/40ft: Transporte = sigla y el contenedor se registra como producto CONTENEDORES |
 | `migration_reports_sec1_segundo_contenedor.sql` | Columnas `sec1_sigla_2` / `sec1_interchange_2` (hasta 2 contenedores de 20ft) y un movimiento por contenedor; trigger `zz_` que concatena las siglas en Transporte Incomex |
+| `migration_reports_sec3_imagenes_referencia.sql` | Columna `reports.sec3_imagenes_referencia` (imágenes de referencia de la Sección 3) |
 | `migration_fix_report80_duplicados.sql`, `migration_fix_stock_residual_report80.sql`, `migration_fix_report103_solo_contenedor.sql` | Correcciones puntuales de datos de reports específicos (doble guardado, stock residual, report registrado con secciones de más). Sirven de ejemplo de cómo corregir un report despachado sin romper el stock |
 
 > **Nota de despliegue:** Para aplicar cambios de schema a una BD existente (no desde cero), ejecutar solo los bloques delta en el SQL Editor de Supabase — no correr `schema.sql` completo ya que fallará en tipos y tablas que ya existen.
@@ -497,6 +523,8 @@ El proyecto está configurado para desplegarse en Netlify usando `@netlify/plugi
 4. El deploy se dispara automáticamente con cada push a `main`
 
 El archivo `netlify.toml` en la raíz del proyecto define la configuración de build y el plugin.
+
+**Funciones de Netlify** (`netlify/functions/`, corren en Node 20): `respaldo-semanal` y `respaldo-inventario-diario` (programadas, solo disparan) y `respaldo-background` / `respaldo-inventario-background` (hasta 15 min; hacen el trabajo y suben a SharePoint). Necesitan las variables `SHAREPOINT_*`, `SHAREPOINT_BACKUP_PATH` (opcional) y `BACKUP_CRON_SECRET`, y un redespliegue tras crear o cambiar una variable. `supabase-admin.ts` crea el cliente con un `transport` de relleno cuando no hay `WebSocket` nativo (Node 20), y los imports de esas funciones son relativos porque se empaquetan con esbuild.
 
 ---
 
