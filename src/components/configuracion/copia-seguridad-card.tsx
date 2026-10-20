@@ -201,7 +201,11 @@ export function CopiaSeguridadCard() {
   )
 }
 
-type EstadoSP = { configurado: boolean; ultimo: { fecha: string; ok: boolean; descripcion: string | null; por: string | null } | null }
+type EstadoSP = {
+  configurado: boolean
+  enCurso: { desde: string; por: string | null } | null
+  ultimo: { fecha: string; ok: boolean; descripcion: string | null; por: string | null } | null
+}
 
 // Respaldo semanal automático a SharePoint (lo ejecuta una función programada de Netlify):
 // muestra el resultado de la última ejecución y permite lanzarlo a mano.
@@ -213,11 +217,20 @@ function RespaldoSharePointCard() {
   const cargar = () => pedirJson<EstadoSP>("/api/admin/backup/sharepoint").then(setEstado).catch(() => {})
   useEffect(() => { cargar() }, [])
 
+  // Mientras hay un respaldo corriendo (incluso si el usuario salió y volvió a esta pantalla)
+  // se consulta el estado cada 5 s; al terminar aparece el resultado solo.
+  const enCurso = !!estado?.enCurso
+  useEffect(() => {
+    if (!enCurso) return
+    const t = setInterval(cargar, 5000)
+    return () => clearInterval(t)
+  }, [enCurso])
+
   async function ahora() {
     setEnviando(true); setMsg(null)
     try {
       await pedirJson("/api/admin/backup/sharepoint", { method: "POST" })
-      setMsg({ ok: true, text: "Respaldo iniciado. Tarda unos minutos; el resultado queda en Auditoría y aquí." })
+      await cargar() // ya figura "en curso"
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : "No se pudo iniciar el respaldo." })
     } finally { setEnviando(false) }
@@ -237,6 +250,15 @@ function RespaldoSharePointCard() {
       {estado && !estado.configurado && (
         <p className="text-xs text-amber-700">Falta configurar BACKUP_CRON_SECRET en el servidor.</p>
       )}
+      {estado?.enCurso && (
+        <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          <Loader2 className="h-4 w-4 mt-0.5 shrink-0 animate-spin" />
+          <span>
+            <span className="font-medium">Respaldo en curso</span> desde las {new Date(estado.enCurso.desde).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}
+            {estado.enCurso.por ? ` (${estado.enCurso.por})` : ""}. Tarda unos 2 a 5 minutos; puedes salir de esta pantalla.
+          </span>
+        </div>
+      )}
       {estado?.ultimo ? (
         <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${estado.ultimo.ok
           ? "border-green-200 bg-green-50 text-green-800" : "border-red-200 bg-red-50 text-red-800"}`}>
@@ -247,9 +269,9 @@ function RespaldoSharePointCard() {
         </div>
       ) : estado && <p className="text-xs text-muted-foreground">Aún no hay respaldos automáticos registrados.</p>}
       {msg && <p className={`text-sm ${msg.ok ? "text-green-700" : "text-red-600"}`}>{msg.text}</p>}
-      <Button variant="outline" onClick={ahora} disabled={enviando || estado?.configurado === false} className="gap-2">
-        {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
-        Respaldar ahora en SharePoint
+      <Button variant="outline" onClick={ahora} disabled={enviando || enCurso || estado?.configurado === false} className="gap-2">
+        {enviando || enCurso ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+        {enCurso ? "Respaldo en curso…" : "Respaldar ahora en SharePoint"}
       </Button>
       <Button variant="ghost" size="sm" onClick={cargar}>Actualizar estado</Button>
     </div>

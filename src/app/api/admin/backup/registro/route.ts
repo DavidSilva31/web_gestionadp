@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     tabla: "sistema",
     registro_id: "respaldo",
     accion: "sistema.respaldo",
-    descripcion: `Copia de seguridad descargada: ${b.tablas ?? 0} tablas, ${b.filas ?? 0} registros, ${b.archivos ?? 0} archivos (${mb} MB)${b.omitidos ? `, ${b.omitidos} archivos omitidos` : ""}`,
+    descripcion: `Copia de seguridad descargada · ${mb} MB${b.omitidos ? ` · ${b.omitidos} archivos omitidos` : ""}`,
     datos_nuevo: b as Record<string, unknown>,
     usuario_id: admin.id,
     usuario_nombre: admin.nombre,

@@ -130,6 +130,21 @@ export async function generarRespaldoZip(): Promise<{ zip: Uint8Array; resumen: 
   }
 }
 
+// Marca en la auditoría que un respaldo a SharePoint está corriendo: la pantalla de Configuración
+// lo muestra como "en curso" hasta que aparezca el registro final. Nunca lanza.
+export async function auditarInicioRespaldoSharePoint(quien?: { id: string; nombre: string }) {
+  const { error } = await supabaseAdmin.from("audit_logs").insert({
+    tabla: "sistema",
+    registro_id: "respaldo_sharepoint",
+    accion: "sistema.respaldo_sharepoint",
+    descripcion: "Respaldo a SharePoint iniciado",
+    datos_nuevo: { estado: "en_curso" },
+    usuario_id: quien?.id ?? null,
+    usuario_nombre: quien?.nombre ?? "Respaldo automático",
+  })
+  if (error) console.error("[respaldo] no se pudo auditar el inicio:", error)
+}
+
 // Registro del respaldo automático en la auditoría (éxito o error). Nunca lanza.
 export async function auditarRespaldoSharePoint(ok: boolean, descripcion: string, datos: Record<string, unknown>, quien?: { id: string; nombre: string }) {
   const { error } = await supabaseAdmin.from("audit_logs").insert({
