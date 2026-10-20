@@ -31,10 +31,16 @@ export async function POST(req: NextRequest) {
       headers: { "x-respaldo-secret": secreto, "Content-Type": "application/json" },
       body: JSON.stringify({ usuarioId: admin.id, usuarioNombre: admin.nombre }),
     })
-    if (res.status >= 400) throw new Error(`HTTP ${res.status}`)
+    if (res.status >= 400) {
+      console.error("[backup/sharepoint] la función respondió", res.status, base)
+      const causa = res.status === 404 ? "la función de respaldo no está desplegada en Netlify"
+        : res.status === 401 ? "BACKUP_CRON_SECRET no coincide (¿se redesplegó tras crear la variable?)"
+        : "error de la función"
+      return NextResponse.json({ error: `No se pudo iniciar el respaldo: ${causa} (HTTP ${res.status}).` }, { status: 502 })
+    }
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[backup/sharepoint] no se pudo disparar:", err)
-    return NextResponse.json({ error: "No se pudo iniciar el respaldo (¿estás en producción?)." }, { status: 502 })
+    return NextResponse.json({ error: `No se pudo iniciar el respaldo: ${err instanceof Error ? err.message : "error de red"}` }, { status: 502 })
   }
 }
