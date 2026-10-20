@@ -65,6 +65,7 @@ export interface Report {
   sec2_sigla_numero: string | null
   sec2_observaciones: string | null
   sec2_evidencia_archivos: string[]
+  sec3_imagenes_referencia: string[]
 
   // Sección 3 — campos únicos por sección (compartidos entre todos los
   // productos de Bodegaje, ver ReportBodegajeItem más abajo).

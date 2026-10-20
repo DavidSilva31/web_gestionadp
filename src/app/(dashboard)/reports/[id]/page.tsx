@@ -137,6 +137,13 @@ export default function ReportDetailPage() {
   const [sec2DragOver,           setSec2DragOver]           = useState(false)
   const [previewFile,            setPreviewFile]            = useState<File | null>(null)
   const sec2EvidenciaFileRef = useRef<HTMLInputElement>(null)
+
+  // Imágenes de referencia de la Sección 3 (opcionales): se suben al guardar, paths en
+  // reports.sec3_imagenes_referencia (bucket "reports-firmados").
+  const [existingSec3ImgPaths, setExistingSec3ImgPaths] = useState<string[]>([])
+  const [sec3ImgFiles,         setSec3ImgFiles]         = useState<File[]>([])
+  const [sec3DragOver,         setSec3DragOver]         = useState(false)
+  const sec3ImgFileRef = useRef<HTMLInputElement>(null)
   // Guard síncrono contra doble submit — "disabled={saving}" no alcanza a
   // bloquear un segundo click disparado antes de que React re-renderice con
   // el nuevo estado (causó el report #80 con report_bodegaje_items y
@@ -224,6 +231,20 @@ export default function ReportDetailPage() {
     e.preventDefault()
     setSec2DragOver(false)
     if (e.dataTransfer.files?.length) addSec2EvidenciaFiles(e.dataTransfer.files)
+  }
+  function addSec3ImgFiles(list: FileList | File[]) {
+    // Solo imágenes (el input ya filtra, pero arrastrar y soltar no).
+    const imgs = Array.from(list).filter(f => f.type.startsWith("image/"))
+    if (imgs.length < Array.from(list).length) setError("Solo se pueden adjuntar imágenes (JPG o PNG) como referencia.")
+    setSec3ImgFiles(prev => [...prev, ...imgs])
+  }
+  function removeSec3ImgFile(index: number) {
+    setSec3ImgFiles(prev => prev.filter((_, i) => i !== index))
+  }
+  function onSec3ImgDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setSec3DragOver(false)
+    if (e.dataTransfer.files?.length) addSec3ImgFiles(e.dataTransfer.files)
   }
   function addAdjuntoFiles(list: FileList | File[]) {
     setAdjuntoFiles(prev => [...prev, ...Array.from(list)])
@@ -356,6 +377,7 @@ export default function ReportDetailPage() {
       setServiciosManual((data.servicios_manual as string[] | null) ?? [])
       if (data.documento_firmado_url) setDocPath(data.documento_firmado_url as string)
       setExistingEvidenciaPaths((data.sec2_evidencia_archivos as string[] | null) ?? [])
+      setExistingSec3ImgPaths((data.sec3_imagenes_referencia as string[] | null) ?? [])
       setExistingHdsPaths((data.hds_archivos as string[] | null) ?? [])
       setExistingGuiaDespachoPaths((data.guia_despacho_archivos as string[] | null) ?? [])
       setArchivosAdjuntos((data.archivos_pendiente_despacho as string[] | null) ?? [])
@@ -756,6 +778,40 @@ export default function ReportDetailPage() {
       }
       if (evidenciaFailed) {
         setError("No se pudo subir la evidencia fotográfica. Vuelve a intentarlo antes de guardar.")
+        return
+      }
+    }
+
+    // Imágenes de referencia de la Sección 3 (opcionales): se suman a las que ya tenía el report.
+    let imgFailed = sec3ImgFiles.some(f => validateUploadFile(f))
+    if (sec3ImgFiles.length > 0) {
+      const uploadedPaths: string[] = []
+      for (let i = 0; i < sec3ImgFiles.length && !imgFailed; i++) {
+        const file = sec3ImgFiles[i]
+        const ext  = sanitizeExt(file.name, "jpg")
+        const path = `sec3-referencia-${numero}-${id}-${existingSec3ImgPaths.length + i}.${ext}`
+        const { error: uploadErr } = await supabase.storage
+          .from("reports-firmados")
+          .upload(path, file, { upsert: true })
+        if (uploadErr) {
+          console.error("[reports/id] error subiendo imagen de referencia:", uploadErr)
+          imgFailed = true
+        } else {
+          uploadedPaths.push(path)
+        }
+      }
+      if (uploadedPaths.length > 0) {
+        const { error: imgUpdateErr } = await supabase
+          .from("reports")
+          .update({ sec3_imagenes_referencia: [...existingSec3ImgPaths, ...uploadedPaths] })
+          .eq("id", id)
+        if (imgUpdateErr) {
+          console.error("[reports/id] error guardando referencia de las imágenes:", imgUpdateErr)
+          imgFailed = true
+        }
+      }
+      if (imgFailed) {
+        setError("No se pudieron subir las imágenes de referencia (JPG o PNG, máx. 10 MB). Vuelve a intentarlo antes de guardar.")
         return
       }
     }
@@ -1445,6 +1501,69 @@ export default function ReportDetailPage() {
                     readOnly={rightReadOnly}
                   />
                 }
+                imagenesNode={(existingSec3ImgPaths.length > 0 || !rightReadOnly) ? (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-medium text-muted-foreground">Imágenes de referencia (opcional)</label>
+
+                    {existingSec3ImgPaths.length > 0 && (
+                      <div className="flex flex-col gap-1.5">
+                        {existingSec3ImgPaths.map((path, i) => (
+                          <EvidenciaExistenteLink key={path} path={path} index={i} label="Imagen de referencia" />
+                        ))}
+                      </div>
+                    )}
+
+                    {!rightReadOnly && (
+                      <>
+                        <input
+                          ref={sec3ImgFileRef}
+                          type="file"
+                          multiple
+                          accept="image/jpeg,image/png"
+                          className="hidden"
+                          onChange={e => { if (e.target.files) addSec3ImgFiles(e.target.files); e.target.value = "" }}
+                        />
+                        <div
+                          onClick={() => sec3ImgFileRef.current?.click()}
+                          onDragOver={e => { e.preventDefault(); setSec3DragOver(true) }}
+                          onDragLeave={e => { e.preventDefault(); setSec3DragOver(false) }}
+                          onDrop={onSec3ImgDrop}
+                          className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 py-3 text-center cursor-pointer transition-colors ${
+                            sec3DragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/40"
+                          }`}
+                        >
+                          <Camera className="h-4 w-4 text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">
+                            Toma una foto o <span className="text-primary underline underline-offset-2">adjunta una imagen</span>
+                          </p>
+                        </div>
+                        {sec3ImgFiles.length > 0 && (
+                          <div className="flex flex-col gap-1.5">
+                            {sec3ImgFiles.map((file, i) => (
+                              <div key={i} className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg px-2.5 py-1.5">
+                                <FileText className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewFile(file)}
+                                  className="text-xs text-emerald-700 dark:text-emerald-400 truncate flex-1 text-left hover:underline underline-offset-2"
+                                >
+                                  {file.name}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeSec3ImgFile(i)}
+                                  className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : undefined}
               />
               {/* Nombre operador de carga: un solo input, más abajo junto a
                   la Firma — acá no hace falta otro (quedaba duplicado). */}

@@ -397,7 +397,7 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc, hideActivati
 
 // ── Sec3Content ────────────────────────────────────────────────────────────────
 
-export function Sec3Content({ form, set, readOnly, toUpperCase: uc, itemsNode, operadorNode, serviciosNode, hideActivation }: {
+export function Sec3Content({ form, set, readOnly, toUpperCase: uc, itemsNode, operadorNode, serviciosNode, imagenesNode, hideActivation }: {
   form: ReportFormData
   set: FormSetter
   readOnly?: boolean
@@ -408,6 +408,8 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, itemsNode, o
   itemsNode: React.ReactNode
   operadorNode?: React.ReactNode
   serviciosNode?: React.ReactNode
+  // Imágenes de referencia (opcionales), debajo de Observaciones.
+  imagenesNode?: React.ReactNode
   hideActivation?: boolean
 }) {
   const str = (key: keyof ReportFormData) =>
@@ -457,6 +459,8 @@ export function Sec3Content({ form, set, readOnly, toUpperCase: uc, itemsNode, o
             placeholder="Observaciones adicionales..." rows={2} disabled={readOnly}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50" />
         </Field>
+
+        {imagenesNode}
 
         {operadorNode && (
           <div className="border-t pt-2">

@@ -194,6 +194,7 @@ export function CopiaSeguridadCard() {
       </Dialog>
     </div>
     <RespaldoSharePointCard />
+    <RespaldoInventarioCard />
     </div>
   )
 }
@@ -269,6 +270,76 @@ function RespaldoSharePointCard() {
         {enCurso ? "Respaldo en curso…" : "Respaldar ahora en SharePoint"}
       </Button>
       <Button variant="ghost" size="sm" onClick={cargar}>Actualizar estado</Button>
+    </div>
+  )
+}
+
+type EstadoInv = { ultimo: { fecha: string; ok: boolean; descripcion: string | null; por: string | null } | null }
+
+// Respaldo diario solo del inventario (Excel con stock, isotanques/contenedores en bodega y
+// movimientos) en SharePoint; lo ejecuta una función programada de Netlify.
+function RespaldoInventarioCard() {
+  const [estado, setEstado] = useState<EstadoInv | null>(null)
+  const [desde, setDesde] = useState<number | null>(null) // momento en que se lanzó a mano; null = nada en espera
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const cargar = () => pedirJson<EstadoInv>("/api/admin/backup/inventario").then(setEstado).catch(() => {})
+  useEffect(() => { cargar() }, [])
+
+  // Tras lanzarlo a mano, se consulta cada 4 s hasta que aparezca un resultado posterior (máx. 2 min).
+  const esperando = desde !== null
+  useEffect(() => {
+    if (desde === null) return
+    const t = setInterval(() => {
+      cargar()
+      if (Date.now() - desde > 120_000) setDesde(null)
+    }, 4000)
+    return () => clearInterval(t)
+  }, [desde])
+  useEffect(() => {
+    if (desde !== null && estado?.ultimo && new Date(estado.ultimo.fecha).getTime() > desde) setDesde(null)
+  }, [estado, desde])
+
+  async function ahora() {
+    setMsg(null)
+    try {
+      await pedirJson("/api/admin/backup/inventario", { method: "POST" })
+      setDesde(Date.now())
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "No se pudo iniciar el respaldo del inventario.")
+      cargar()
+    }
+  }
+
+  return (
+    <div className="rounded-xl border bg-card shadow-sm p-6 space-y-4">
+      <div className="flex items-center gap-2 pb-3 border-b">
+        <CloudUpload className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-bold text-foreground">Respaldo diario del inventario</h2>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Excel del inventario (stock, isotanques y movimientos) que se sube cada día a SharePoint y reemplaza el anterior.
+      </p>
+      {esperando && (
+        <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          <Loader2 className="h-4 w-4 mt-0.5 shrink-0 animate-spin" />
+          <span><span className="font-medium">Respaldando inventario…</span> tarda unos segundos.</span>
+        </div>
+      )}
+      {estado?.ultimo ? (
+        <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${estado.ultimo.ok
+          ? "border-green-200 bg-green-50 text-green-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+          {estado.ultimo.ok ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />}
+          <span>
+            <span className="font-medium">{new Date(estado.ultimo.fecha).toLocaleString("es-CL")}</span> — {estado.ultimo.descripcion}
+          </span>
+        </div>
+      ) : estado && <p className="text-xs text-muted-foreground">Aún no hay respaldos del inventario registrados.</p>}
+      {msg && <p className="text-sm text-red-600">{msg}</p>}
+      <Button variant="outline" onClick={ahora} disabled={esperando} className="gap-2">
+        {esperando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+        {esperando ? "Respaldando…" : "Respaldar inventario ahora"}
+      </Button>
     </div>
   )
 }

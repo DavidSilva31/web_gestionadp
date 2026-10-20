@@ -158,3 +158,17 @@ export async function auditarRespaldoSharePoint(ok: boolean, descripcion: string
   })
   if (error) console.error("[respaldo] no se pudo auditar:", error)
 }
+
+// Registro del respaldo diario del inventario en la auditoría (éxito o error). Nunca lanza.
+export async function auditarRespaldoInventario(ok: boolean, descripcion: string, datos: Record<string, unknown>, quien?: { id: string; nombre: string }) {
+  const { error } = await supabaseAdmin.from("audit_logs").insert({
+    tabla: "sistema",
+    registro_id: "respaldo_inventario",
+    accion: "sistema.respaldo_inventario",
+    descripcion,
+    datos_nuevo: { ok, ...datos },
+    usuario_id: quien?.id ?? null,
+    usuario_nombre: quien?.nombre ?? "Respaldo automático",
+  })
+  if (error) console.error("[respaldo] no se pudo auditar el inventario:", error)
+}
