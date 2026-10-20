@@ -20,6 +20,10 @@ export async function proxy(request: NextRequest) {
   // Las rutas /api nunca pasan por auth ni redirecciones
   if (pathname.startsWith('/api/')) return NextResponse.next({ request })
 
+  // Funciones de Netlify (respaldo semanal): no tienen sesión de usuario, se protegen
+  // ellas mismas con el secreto BACKUP_CRON_SECRET. Sin esto el proxy las mandaba a /login.
+  if (pathname.startsWith('/.netlify/')) return NextResponse.next({ request })
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
