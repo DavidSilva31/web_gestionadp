@@ -215,6 +215,7 @@ Hoja de Estadía — cálculo de almacenaje para facturación mensual:
 - **Valor UF histórico** obtenido automáticamente desde `mindicador.cl/api/uf` — usa el endpoint anual para meses pasados con AbortController de 8s para evitar cuelgues
 - **Múltiples tarifas por cliente**: un cliente puede tener varias tarifas activas simultáneas (ej. clase IMO 8 y clase IMO 3). Selector inline en el header cuando existen más de una. `cotizacion_numero` se auto-genera con formato `COT-YYYY-NNN` mediante secuencia PostgreSQL + trigger si se deja vacío
 - **Cálculo automático**: stock inicial + movimientos diarios del período → pallet-días → monto en UF
+- **Pallets = posiciones**: el HES cuenta los pallets de cada movimiento con `movimientos.posiciones`; solo si un movimiento no trae posiciones (stock inicial agregado y movimientos manuales antiguos) usa `unidades`. Antes sumaba siempre `unidades`, mezclando pallets con cantidad de envases (22 pallets de xantato eran 748 unidades)
 - **Día de corte de facturación por cliente** (`clientes.dia_corte_facturacion`): con corte 1 el período es el mes calendario; con otro día es un ciclo rodante (ej. corte 26 → "Septiembre" va del 26 de agosto al 25 de septiembre, como PROQUIMIN y ENAP)
 - **Facturación mínima una vez por cliente** en modo unificado (varias tarifas/clases activas): se aplica el máximo de los mínimos configurados sobre el total sumado, en vez de un mínimo independiente por clase
 - Tabla día a día con ingresos, despachos, stock al cierre y tarifa
@@ -250,6 +251,14 @@ Módulo de cotizaciones, migrado desde el portal anterior ("Gestión de OC y Cot
 - **Histórico migrado**: se importaron las **1.543 cotizaciones del portal anterior**, conservando su id (`cotizaciones.id_portal`) y sus líneas. Sus clientes (515, depurados de duplicados) viven en la tabla separada `clientes_cotizacion` para no llenar el módulo de Clientes con empresas que no son del sistema; `cotizaciones.numero` ya no es único porque el portal tenía números repetidos
 - **Catálogos** (tablas `items_cotizacion`, `items_cotizacion_categorias`, `observaciones_cotizacion`, `observacion_tipos`): migrados completos desde el portal. Las observaciones se leen desde el formulario; el catálogo de ítems no se usa en las líneas (son texto libre)
 - Numeración automática continuando desde el portal (`cotizacion_numero_seq`)
+
+### Tarifado Transporte (`/tarifado-transporte`)
+
+Misma mecánica que Cotizaciones, pero para tarifas escalonadas de transporte según el tramo del valor del diésel (hoja AJUSTADA de `docs/TARIFADO ESCALONADO.xlsx`). Solo `super_admin`.
+
+- **Catálogo** (`tarifado_catalogo`): trayecto, capacidad, UF de referencia pre-alza y 7 valores UF/viaje, uno por tramo de `TRAMOS_DIESEL` (1001-1100 … 1601-1700 CLP). Se carga desde la migración `migration_tarifado_transporte.sql`.
+- **Formulario**: igual que el de cotizaciones (emisor, fecha, cliente de `clientes_cotizacion`, atención, ciudad, dirección) más "Tarifas rigen a contar del". Cada tarifa del catálogo tiene una casilla para elegir cuáles se envían al cliente; los valores se pueden ajustar por tarifado (se guardan copiados en `tarifado_lineas`, el catálogo no cambia) y hay "Tarifa manual". Las observaciones son las 6 de la hoja AJUSTADA (`tarifado_obs_catalogo`, migración `migration_tarifado_observaciones_propias.sql`), marcadas por defecto; más un campo de observaciones extras.
+- **PDF**: mismo diseño que el de cotizaciones, en horizontal (`src/components/tarifado-transporte/tarifado-pdf.tsx`), se genera en el navegador. N° con formato `{N°}_{año}` (`tarifado_numero_seq`, parte en 84). Sin SharePoint por ahora.
 
 ---
 
