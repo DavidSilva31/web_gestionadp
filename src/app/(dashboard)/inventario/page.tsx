@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
+import { fetchTodas } from "@/lib/fetch-todas"
 import { invalidarCache } from "@/lib/cache-consultas"
 import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
 import { resolveEffectiveClienteId, sembrarClienteEfectivo, detallePorPallet, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE, ENVASES_CONTENEDOR } from "@/lib/inventario"
@@ -380,7 +381,7 @@ function InventarioContent() {
     const supabase = createClient()
     const [{ data: cData, error: e1 }, { data: iData, error: e2 }] = await Promise.all([
       supabase.from("clientes").select("id, nombre, stock_compartido_con, usa_vista_kardex").eq("activo", true).order("nombre"),
-      supabase.from("inventario_items").select("*").eq("activo", true).order("numero"),
+      fetchTodas<InventarioItem>((d, h) => supabase.from("inventario_items").select("*").eq("activo", true).order("numero").range(d, h)),
     ])
     if (e1 ?? e2) { setFetchError((e1 ?? e2)!.message); setLoading(false); return }
     const clientes = (cData ?? []) as Cliente[]

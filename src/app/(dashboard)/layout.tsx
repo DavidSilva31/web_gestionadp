@@ -7,6 +7,7 @@ import { Topbar } from "@/components/layout/topbar"
 import { NavigationLoadingOverlay } from "@/components/layout/navigation-loading-overlay"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuthProvider } from "@/contexts/auth-context"
+import type { Profile } from "@/types/auth"
 import { NavigationPendingProvider } from "@/contexts/navigation-pending-context"
 
 export default async function DashboardLayout({
@@ -24,7 +25,7 @@ export default async function DashboardLayout({
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("activo")
+    .select("*")
     .eq("id", user.id)
     .single()
 
@@ -37,7 +38,7 @@ export default async function DashboardLayout({
   if (!profile?.activo) redirect("/login?error=cuenta_desactivada")
 
   return (
-    <AuthProvider>
+    <AuthProvider initialProfile={profile as Profile}>
       <TooltipProvider>
         <NavigationPendingProvider>
           <SidebarProvider className="h-screen overflow-hidden" style={{ "--sidebar-width-icon": "4.5rem" } as React.CSSProperties}>

@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
+import { fetchTodas } from "@/lib/fetch-todas"
 import { exportToExcel } from "@/lib/excel"
 import { syncPesoTon, resolveEffectiveClienteId } from "@/lib/inventario"
 import { cn } from "@/lib/utils"
@@ -117,12 +118,14 @@ export default function MovimientosPage() {
     setLoading(true)
     setFetchError(null)
     const supabase = createClient()
-    const { data, error: err } = await supabase
+    const { data, error: err } = await fetchTodas<Movimiento>((d, h) => supabase
       .from("movimientos")
       .select("*")
       .gte("fecha", `${yearFilter}-01-01`)
       .lt("fecha",  `${yearFilter + 1}-01-01`)
       .order("fecha", { ascending: false })
+      .order("numero", { ascending: false })
+      .range(d, h))
     if (err) { setFetchError(err.message); setLoading(false); return }
     if (data) setMovimientos(data as Movimiento[])
     setLoading(false)

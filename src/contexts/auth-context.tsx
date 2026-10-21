@@ -23,11 +23,13 @@ const AuthContext = createContext<AuthContextValue>({
   refreshProfile: async () => {},
 })
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+// initialProfile: el layout del servidor ya leyó el perfil para validar la cuenta; se reutiliza
+// para no repetir en el navegador getUser() + la consulta del perfil en cada carga de la app.
+export function AuthProvider({ children, initialProfile = null }: { children: React.ReactNode; initialProfile?: Profile | null }) {
   const router  = useRouter()
   const [user,    setUser]    = useState<User | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState<Profile | null>(initialProfile)
+  const [loading, setLoading] = useState(!initialProfile)
 
   const fetchProfile = useCallback(async (userId: string) => {
     const supabase = createClient()
@@ -55,17 +57,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createClient()
 
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user)
-      if (user) fetchProfile(user.id).finally(() => setLoading(false))
-      else setLoading(false)
-    })
+    if (initialProfile) document.documentElement.setAttribute('data-accent', initialProfile.accent_color || 'celeste')
 
+    // INITIAL_SESSION entrega la sesión desde las cookies, sin viaje a la red (antes: getUser()).
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user ?? null
       setUser(u)
-      if (u) fetchProfile(u.id)
-      else {
+      if (u) {
+        // Con el perfil ya cargado por el servidor no hace falta pedirlo de nuevo al iniciar.
+        if (event === "INITIAL_SESSION" && initialProfile?.id === u.id) setLoading(false)
+        else fetchProfile(u.id).finally(() => setLoading(false))
+      } else {
         setProfile(null)
         setLoading(false)
         if (event === "SIGNED_OUT") {
@@ -91,7 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe()
       window.removeEventListener("pageshow", handlePageShow)
     }
-  }, [fetchProfile, router])
+  }, [fetchProfile, router, initialProfile])
 
   const signOut = useCallback(async () => {
     const supabase = createClient()
