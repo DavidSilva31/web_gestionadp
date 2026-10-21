@@ -21,7 +21,7 @@ export function construirTarifadoPDFData(p: {
   atencion: string | null
   ciudad: string | null
   direccion: string | null
-  lineas: { trayecto: string; capacidad: string; ufPreAlza: number | null; valoresUF: number[] }[]
+  lineas: { trayecto: string; capacidad: string; ufPreAlza: number | null; valoresUF: number[]; resaltados: number[] }[]
   observaciones: string[]
 }): TarifadoPDFData {
   const emisor = (EMISORES as readonly string[]).includes(p.emisor) ? (p.emisor as Emisor) : "Altos del Puerto"

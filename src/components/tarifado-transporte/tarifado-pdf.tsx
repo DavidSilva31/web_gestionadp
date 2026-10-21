@@ -19,16 +19,16 @@ export type TarifadoPDFData = {
   emisor:   { nombre: string; direccion: string; telefono: string; email: string; web: string }
   cliente:  { razonSocial: string; rut: string | null; ciudad: string | null; direccion: string | null }
   atencion: string | null
-  lineas:   { trayecto: string; capacidad: string; ufPreAlza: number | null; valoresUF: number[] }[]
+  lineas:   { trayecto: string; capacidad: string; ufPreAlza: number | null; valoresUF: number[]; resaltados: number[] }[]
   observaciones: string[]
   firma:    { nombre: string; cargo: string; telefono: string; email: string; imagenUri?: string }
 }
 
-const fmtUF = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtUF = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
 const ANCHO_CAP = 44
 const ANCHO_PRE = 62
-const ANCHO_TRAMO = 50
+const ANCHO_TRAMO = 58
 
 const s = StyleSheet.create({
   page:        { padding: 0, fontFamily: "Helvetica", fontSize: 8.5, color: INK, backgroundColor: "#ffffff" },
@@ -60,6 +60,9 @@ const s = StyleSheet.create({
   colCap:      { width: ANCHO_CAP, textAlign: "center" },
   colPre:      { width: ANCHO_PRE, textAlign: "center" },
   colTramo:    { width: ANCHO_TRAMO, textAlign: "right" },
+  // Casilla resaltada: fondo amarillo tipo marcador, con margen para no juntarse con las vecinas.
+  resaltada:   { backgroundColor: "#fde047", borderRadius: 2, paddingVertical: 2, paddingHorizontal: 4, marginVertical: -2 },
+  resaltadaTxt: { fontFamily: "Helvetica-Bold" },
   vigencia:    { marginTop: 10, fontSize: 8, fontFamily: "Helvetica-Bold", color: NAVY },
   firmaBox:    { width: 220, paddingTop: 6, marginTop: 16 },
   firmaImg:    { width: 170, height: 115, objectFit: "contain", marginLeft: 10 },
@@ -136,8 +139,7 @@ export function TarifadoPDF({ data }: { data: TarifadoPDFData }) {
             </View>
             {TRAMOS_DIESEL.map(t => (
               <View key={t} style={s.colTramo}>
-                <Text style={[s.thTxt, { textAlign: "right" }]}>{t}</Text>
-                <Text style={[s.thSub, { textAlign: "right" }]}>(CLP)</Text>
+                <Text style={[s.thTxt, { textAlign: "right" }]}>{t} <Text style={s.thSub}>CLP</Text></Text>
                 <Text style={[s.thSub, { textAlign: "right" }]}>UF/VIAJE</Text>
               </View>
             ))}
@@ -147,9 +149,16 @@ export function TarifadoPDF({ data }: { data: TarifadoPDFData }) {
               <Text style={[s.tdTxt, s.colTray]}>{l.trayecto}</Text>
               <Text style={[s.tdTxt, s.colCap]}>{l.capacidad}</Text>
               <Text style={[s.tdTxt, s.colPre]}>{l.ufPreAlza != null ? fmtUF(l.ufPreAlza) : ""}</Text>
-              {TRAMOS_DIESEL.map((t, j) => (
-                <Text key={t} style={[s.tdTxt, s.colTramo]}>{l.valoresUF[j] != null ? fmtUF(l.valoresUF[j]) : ""}</Text>
-              ))}
+              {TRAMOS_DIESEL.map((t, j) => {
+                const resaltada = l.resaltados.includes(j)
+                return (
+                  <View key={t} style={[s.colTramo, { alignItems: "flex-end" }]}>
+                    <View style={resaltada ? s.resaltada : {}}>
+                      <Text style={[s.tdTxt, resaltada ? s.resaltadaTxt : {}]}>{l.valoresUF[j] != null ? fmtUF(l.valoresUF[j]) : ""}</Text>
+                    </View>
+                  </View>
+                )
+              })}
             </View>
           ))}
 

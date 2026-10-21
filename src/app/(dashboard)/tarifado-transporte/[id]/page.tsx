@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Plus, Trash2, Save, Download, ArrowLeft, Loader2 } from "lucide-react"
+import { Highlighter, Plus, Trash2, Save, Download, ArrowLeft, ArrowUp, ArrowDown, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,8 +16,8 @@ import { TRAMOS_DIESEL, construirTarifadoPDFData, numeroTarifado } from "@/lib/t
 import type { TarifadoPDFData } from "@/components/tarifado-transporte/tarifado-pdf"
 
 type Cliente = { id: string; nombre: string; rut: string | null }
-type Obs = { id: string; texto: string }
-type TarifaRow = { trayecto: string; capacidad: string; uf_pre_alza: number | null; valores_uf: number[] }
+type Obs = { id: string; texto: string; orden: number }
+type TarifaRow = { trayecto: string; capacidad: string; uf_pre_alza: number | null; valores_uf: number[]; resaltados?: number[] }
 
 // Una fila del catálogo (o una tarifa manual) con su casilla de "incluir en el tarifado".
 type Linea = {
@@ -27,6 +27,7 @@ type Linea = {
   capacidad: string
   preAlza: string
   valores: string[]
+  resaltados: number[]   // índices de los tramos resaltados en el PDF
 }
 
 const nuevaLinea = (incluir: boolean, t?: Partial<TarifaRow>): Linea => ({
@@ -34,10 +35,13 @@ const nuevaLinea = (incluir: boolean, t?: Partial<TarifaRow>): Linea => ({
   incluir,
   trayecto: t?.trayecto ?? "",
   capacidad: t?.capacidad ?? "",
-  preAlza: t?.uf_pre_alza != null ? String(t.uf_pre_alza) : "",
-  valores: TRAMOS_DIESEL.map((_, i) => (t?.valores_uf?.[i] != null ? String(t.valores_uf[i]) : "")),
+  preAlza: t?.uf_pre_alza != null ? uf1(Number(t.uf_pre_alza)) : "",
+  valores: TRAMOS_DIESEL.map((_, i) => (t?.valores_uf?.[i] != null ? uf1(Number(t.valores_uf[i])) : "")),
+  resaltados: t?.resaltados ?? [],
 })
 
+// Los valores UF se manejan con un decimal.
+const uf1 = (n: number) => n.toFixed(1)
 const clave = (t: { trayecto: string; capacidad: string }) => `${t.trayecto.trim()}|${t.capacidad.trim()}`
 const num = (v: string) => (v.trim() === "" || isNaN(Number(v)) ? null : Number(v))
 
@@ -68,6 +72,7 @@ export default function TarifadoFormPage() {
   const [lineas, setLineas] = useState<Linea[]>([])
   const [obsSel, setObsSel] = useState<Set<string>>(new Set())
   const [obsExtra, setObsExtra] = useState("")
+  const [modoResaltar, setModoResaltar] = useState(false)
   const [editandoObsId, setEditandoObsId] = useState<string | null>(null)
   const [editandoTexto, setEditandoTexto] = useState("")
   const [agregandoObs, setAgregandoObs] = useState(false)
@@ -79,7 +84,7 @@ export default function TarifadoFormPage() {
       const [cl, cat, ob] = await Promise.all([
         supabase.from("clientes_cotizacion").select("id, nombre, rut").order("nombre"),
         supabase.from("tarifado_catalogo").select("trayecto, capacidad, uf_pre_alza, valores_uf").eq("activo", true).order("orden"),
-        supabase.from("tarifado_obs_catalogo").select("id, texto").eq("activo", true).order("orden"),
+        supabase.from("tarifado_obs_catalogo").select("id, texto, orden").eq("activo", true).order("orden"),
       ])
       const clientes = (cl.data ?? []) as Cliente[]
       const catalogo = ((cat.data ?? []) as TarifaRow[]).map(t => ({ ...t, valores_uf: (t.valores_uf ?? []).map(Number) }))
@@ -94,7 +99,7 @@ export default function TarifadoFormPage() {
         const { data: t, error: e } = await supabase.from("tarifados").select("*").eq("id", params.id).single()
         if (e || !t) { setError(e?.message ?? "Tarifado no encontrado"); setCargando(false); return }
         const [li, ov] = await Promise.all([
-          supabase.from("tarifado_lineas").select("trayecto, capacidad, uf_pre_alza, valores_uf").eq("tarifado_id", params.id).order("orden"),
+          supabase.from("tarifado_lineas").select("trayecto, capacidad, uf_pre_alza, valores_uf, resaltados").eq("tarifado_id", params.id).order("orden"),
           supabase.from("tarifado_observaciones").select("observacion_id").eq("tarifado_id", params.id),
         ])
         const guardadas = ((li.data ?? []) as TarifaRow[]).map(l => ({ ...l, valores_uf: (l.valores_uf ?? []).map(Number) }))
@@ -154,13 +159,34 @@ export default function TarifadoFormPage() {
     const texto = nuevaObs.trim()
     if (!texto) { setError("Escribe el texto de la observación."); return }
     const { data, error: e } = await createClient().from("tarifado_obs_catalogo")
-      .insert({ texto, orden: catObs.length }).select("id, texto").single()
+      .insert({ texto, orden: catObs.length }).select("id, texto, orden").single()
     if (e || !data) { setError(e?.message ?? "No se pudo crear la observación"); return }
     setCatObs(prev => [...prev, data as Obs])
     setObsSel(prev => new Set(prev).add(data.id))
     setAgregandoObs(false)
     setNuevaObs("")
     setError(null)
+  }
+
+  // Mover una observación cambia el orden del catálogo (vale para todos los tarifados).
+  async function moverObs(i: number, dir: -1 | 1) {
+    const j = i + dir
+    if (j < 0 || j >= catObs.length) return
+    const nuevas = [...catObs]
+    ;[nuevas[i], nuevas[j]] = [nuevas[j], nuevas[i]]
+    const reordenadas = nuevas.map((o, k) => ({ ...o, orden: k }))
+    const supabase = createClient()
+    const cambios = reordenadas.filter(o => o.orden !== catObs.find(x => x.id === o.id)?.orden)
+    const resultados = await Promise.all(cambios.map(o => supabase.from("tarifado_obs_catalogo").update({ orden: o.orden }).eq("id", o.id)))
+    const fallo = resultados.find(r => r.error)
+    if (fallo?.error) { setError(fallo.error.message); return }
+    setCatObs(reordenadas)
+    setError(null)
+  }
+
+  function toggleResaltado(key: string, j: number) {
+    setLineas(ls => ls.map(l => l.key !== key ? l
+      : { ...l, resaltados: l.resaltados.includes(j) ? l.resaltados.filter(x => x !== j) : [...l.resaltados, j] }))
   }
 
   function toggleObs(id: string, on: boolean) {
@@ -203,7 +229,7 @@ export default function TarifadoFormPage() {
     const { error: eLin } = await supabase.from("tarifado_lineas").insert(
       incluidas.map((l, i) => ({
         tarifado_id: id, trayecto: l.trayecto.trim(), capacidad: l.capacidad.trim(), uf_pre_alza: num(l.preAlza),
-        valores_uf: l.valores.map(v => num(v) ?? 0), orden: i,
+        valores_uf: l.valores.map(v => num(v) ?? 0), resaltados: l.resaltados, orden: i,
       }))
     )
     if (eLin) { setError(eLin.message); setGuardando(false); return null }
@@ -240,6 +266,7 @@ export default function TarifadoFormPage() {
         capacidad: l.capacidad.trim(),
         ufPreAlza: num(l.preAlza),
         valoresUF: l.valores.map(v => num(v) ?? 0),
+        resaltados: l.resaltados,
       })),
       observaciones: [...catObs.filter(o => obsSel.has(o.id)).map(o => o.texto), ...(obsExtra.trim() ? [obsExtra.trim()] : [])],
     }))
@@ -319,6 +346,9 @@ export default function TarifadoFormPage() {
                 <Checkbox checked={todasMarcadas} onCheckedChange={v => setLineas(ls => ls.map(l => ({ ...l, incluir: v === true })))} />
                 Todas
               </label>
+              <Button size="sm" variant={modoResaltar ? "default" : "outline"} onClick={() => setModoResaltar(m => !m)} className="gap-1.5" aria-pressed={modoResaltar}>
+                <Highlighter className="h-3.5 w-3.5" /> {modoResaltar ? "Listo" : "Resaltar"}
+              </Button>
               <Button size="sm" variant="outline" onClick={() => setLineas(ls => [...ls, nuevaLinea(true)])} className="gap-1.5">
                 <Plus className="h-3.5 w-3.5" /> Tarifa manual
               </Button>
@@ -336,7 +366,7 @@ export default function TarifadoFormPage() {
                   </th>
                   {TRAMOS_DIESEL.map(t => (
                     <th key={t} className="px-3 py-2.5 text-right text-xs font-semibold tabular-nums min-w-28 leading-tight border-b border-r border-white/15 last:border-r-0">
-                      {t}<span className="block text-[10px] font-normal text-white/70">CLP · UF/viaje</span>
+                      {t} <span className="text-[10px] font-normal text-white/70">CLP</span><span className="block text-[10px] font-normal text-white/70">UF/viaje</span>
                     </th>
                   ))}
                   <th className="w-11 border-b border-white/15"></th>
@@ -362,13 +392,20 @@ export default function TarifadoFormPage() {
                         <input value={l.capacidad} onChange={e => actualizarLinea(l.key, { capacidad: e.target.value })} className={campo} aria-label="Capacidad" />
                       </td>
                       <td className={celda}>
-                        <input type="number" step="0.01" value={l.preAlza} onChange={e => actualizarLinea(l.key, { preAlza: e.target.value })} className={`${campoNum} text-muted-foreground`} aria-label="Pre-alza" />
+                        <input type="number" step="0.1" value={l.preAlza} onChange={e => actualizarLinea(l.key, { preAlza: e.target.value })} className={`${campoNum} text-muted-foreground`} aria-label="Pre-alza" />
                       </td>
-                      {l.valores.map((v, j) => (
-                        <td key={j} className={celda}>
-                          <input type="number" step="0.01" value={v} onChange={e => actualizarValor(l.key, j, e.target.value)} className={campoNum} aria-label={`Tramo ${TRAMOS_DIESEL[j]}`} />
-                        </td>
-                      ))}
+                      {l.valores.map((v, j) => {
+                        const resaltada = l.resaltados.includes(j)
+                        return (
+                          <td key={j} className={`${celda} ${resaltada ? "!bg-yellow-200 dark:!bg-yellow-500/30" : ""}`}>
+                            <input type="number" step="0.1" value={v} onChange={e => actualizarValor(l.key, j, e.target.value)}
+                              readOnly={modoResaltar}
+                              onClick={modoResaltar ? () => toggleResaltado(l.key, j) : undefined}
+                              className={`${campoNum} ${resaltada ? "font-bold" : ""} ${modoResaltar ? "cursor-pointer" : ""}`}
+                              aria-label={`Tramo ${TRAMOS_DIESEL[j]}`} aria-pressed={modoResaltar ? resaltada : undefined} />
+                          </td>
+                        )
+                      })}
                       <td className={`${celda} !border-r-0 text-center`}>
                         <button type="button" onClick={() => setLineas(ls => ls.filter(x => x.key !== l.key))}
                           className="text-muted-foreground opacity-40 group-hover:opacity-100 focus-visible:opacity-100 hover:text-destructive transition-opacity" aria-label="Quitar tarifa">
@@ -381,12 +418,13 @@ export default function TarifadoFormPage() {
               </tbody>
             </table>
           </div>
+          {modoResaltar && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Modo resaltar: haz clic en las casillas que quieres destacar en el PDF (otro clic las quita). Pulsa "Listo" para volver a editar.</p>}
           <p className="text-xs text-muted-foreground">Valores en UF por viaje. Los cambios aquí aplican solo a este tarifado, no al catálogo.</p>
         </section>
 
         <section className="space-y-3">
           <h3 className="text-sm font-semibold">Observaciones</h3>
-          {catObs.map(o => (
+          {catObs.map((o, idx) => (
             <div key={o.id} className="flex items-start gap-2 text-sm">
               <Checkbox checked={obsSel.has(o.id)} onCheckedChange={v => toggleObs(o.id, v === true)} className="mt-1 h-3.5 w-3.5" />
               {editandoObsId === o.id ? (
@@ -396,6 +434,12 @@ export default function TarifadoFormPage() {
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => guardarEdicionObs(o.id)} className="h-7 text-xs">Guardar</Button>
                     <Button size="sm" variant="outline" onClick={() => setEditandoObsId(null)} className="h-7 text-xs">Cancelar</Button>
+                    <Button size="sm" variant="outline" onClick={() => moverObs(idx, -1)} disabled={idx === 0} className="h-7 gap-1 text-xs" aria-label="Subir observación">
+                      <ArrowUp className="h-3.5 w-3.5" /> Subir
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => moverObs(idx, 1)} disabled={idx === catObs.length - 1} className="h-7 gap-1 text-xs" aria-label="Bajar observación">
+                      <ArrowDown className="h-3.5 w-3.5" /> Bajar
+                    </Button>
                   </div>
                 </div>
               ) : (
