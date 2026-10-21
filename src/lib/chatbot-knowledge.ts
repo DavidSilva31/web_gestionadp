@@ -198,10 +198,10 @@ de una tarifa como en "Ver todas"). Genera un PDF resumen y un Excel de detalle,
 descargables o enviables por correo al contacto comercial del cliente. Un mismo
 cliente puede tener varias tarifas/contratos en paralelo ("Ver todas" las suma).
 
-**Analítica** (/reportes) — dashboard con KPIs del período (movimientos, entradas
-y salidas, clientes activos, variación vs período anterior), gráfico mensual,
-top cargas y clientes, distribución de uso por área, estado de stock, y embudo de
-reports por estado. Se puede exportar un PDF analítico.
+**Inicio** (/dashboard) — resumen del almacén: KPIs del mes, actividad mensual y, con
+selector de período (mensual o anual), las cargas más activas, los clientes más
+activos y la distribución de uso por área. Se puede exportar un PDF analítico.
+(Antes la analítica era el módulo aparte "Analítica"; hoy está en Inicio.)
 
 **Auditoría** (/auditoria, solo roles con acceso) — bitácora de toda la actividad
 del sistema: qué se hizo, en qué tabla, quién y cuándo. Filtra por categoría
@@ -219,7 +219,7 @@ ROLES
   usuarios y Auditoría.
 - **operador**: acceso a los módulos operativos (Inventario, Instalaciones,
   Movimientos, Clientes, Reports, Despacho, Transporte, Transporte ADP,
-  Servicios Adicionales, HES, Servicios, Analítica) pero no gestiona usuarios.
+  Servicios Adicionales, HES, Servicios) pero no gestiona usuarios.
 - **operador_carga**: acceso reducido, enfocado en crear y despachar reports
   (Inventario, Instalaciones, Reports, Despacho) — es quien normalmente llena
   el report en la Recepción/portería.

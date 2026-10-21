@@ -9,7 +9,6 @@ import {
   Package,
   ArrowLeftRight,
   Users,
-  BarChart3,
   Settings,
   LogOut,
   ChevronRight,
@@ -25,6 +24,7 @@ import {
   ListPlus,
   Receipt,
   ReceiptText,
+  Laptop,
 } from "lucide-react"
 import {
   Sidebar,
@@ -55,7 +55,6 @@ const ALL_NAV_ITEMS = [
   { href: "/clientes",         label: "Clientes",    icon: Users,           group: "clientes"   },
   { href: "/servicios",        label: "Servicios",   icon: Wrench,          group: "clientes"   },
   { href: "/hes",              label: "HES",         icon: FileSpreadsheet, group: "clientes"   },
-  { href: "/reportes",         label: "Analítica",   icon: BarChart3,       group: "analitica"  },
   { href: "/reports",          label: "Reports",     icon: ClipboardList,   group: "reports"    },
   { href: "/reports/despacho", label: "Despacho",    icon: Truck,           group: "reports"    },
   { href: "/transporte",       label: "Transporte",  icon: Route,           group: "reports"    },
@@ -63,6 +62,7 @@ const ALL_NAV_ITEMS = [
   { href: "/servicios-adicionales", label: "Servicios Adicionales", icon: ListPlus, group: "reports" },
   { href: "/cotizaciones",     label: "Cotizaciones", icon: Receipt,        group: "admin"      },
   { href: "/tarifado-transporte", label: "Tarifado Transporte", icon: ReceiptText, group: "admin" },
+  { href: "/equipos",         label: "Equipos",     icon: Laptop,          group: "admin"      },
   { href: "/auditoria",        label: "Auditoría",   icon: ShieldAlert,     group: "admin"      },
 ]
 
@@ -128,7 +128,6 @@ export function AppSidebar() {
   const inicioItems     = navItems.filter(i => i.group === "inicio")
   const inventarioItems = navItems.filter(i => i.group === "inventario")
   const clientesItems   = navItems.filter(i => i.group === "clientes")
-  const analiticaItems  = navItems.filter(i => i.group === "analitica")
   const reportsItems    = navItems.filter(i => i.group === "reports")
   const adminItems      = navItems.filter(i => i.group === "admin")
 
@@ -206,16 +205,6 @@ export function AppSidebar() {
                 {clientesItems.map(item => <NavItem key={item.href} item={item} allItems={navItems} />)}
               </SidebarMenu>
             </SidebarGroup>
-          </>
-        )}
-
-        {/* Analítica — suelta, sin label, cierra la sección principal */}
-        {analiticaItems.length > 0 && (
-          <>
-            <SidebarSeparator className="my-0.5 group-data-[collapsible=icon]:my-2" />
-            <SidebarMenu className="group-data-[collapsible=icon]:gap-1.5">
-              {analiticaItems.map(item => <NavItem key={item.href} item={item} allItems={navItems} />)}
-            </SidebarMenu>
           </>
         )}
 

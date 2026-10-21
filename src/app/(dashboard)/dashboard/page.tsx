@@ -1,33 +1,27 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
-import Link from "next/link"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Package, ArrowDownCircle, ArrowUpCircle, Users,
-  AlertTriangle, ArrowRight, Loader2,
-  Info,
+  AlertTriangle, FileDown, RefreshCw,
 } from "lucide-react"
 import {
   BarChart, Bar, XAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from "recharts"
 import { createClient } from "@/lib/supabase"
+import { fetchTodas } from "@/lib/fetch-todas"
 import { useAuth } from "@/contexts/auth-context"
 import { cn } from "@/lib/utils"
+import { useAnalitica, MESES, type Periodo } from "@/hooks/use-analitica"
+import { CargasActivasCard, ClientesActivosCard, DistribucionAreaCard } from "@/components/dashboard/analitica-cards"
+import { downloadAnaliticaPDF } from "@/lib/download-analitica-pdf"
+import { AnaliticaPreviewModal } from "@/components/analitica/analitica-preview-modal"
+import type { AnaliticaPDFData } from "@/components/analitica/analitica-pdf"
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
-const AREAS = ["Bodega IMO", "Zona Isotanques", "Zona RESPEL", "Bodega General"] as const
-const AREA_DETAIL: Record<string, string> = {
-  "Bodega IMO":      "Sustancias peligrosas",
-  "Zona Isotanques": "Isotanques y contenedores",
-  "Zona RESPEL":     "Residuos peligrosos",
-  "Bodega General":  "Carga general y alimentos",
-}
-
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function getGreeting() {
   const h = new Date().getHours()
@@ -40,20 +34,6 @@ function getDayStr() {
   return new Date()
     .toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
     .replace(/^\w/, c => c.toUpperCase())
-}
-
-function movCodigo(n: number) {
-  return `MOV-${String(n).padStart(3, "0")}`
-}
-
-function formatRelativa(iso: string) {
-  const d   = new Date(iso)
-  const now = new Date()
-  const diffH = Math.floor((now.getTime() - d.getTime()) / 3_600_000)
-  const t = d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })
-  if (diffH < 24) return `Hoy ${t}`
-  if (diffH < 48) return `Ayer ${t}`
-  return d.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit" })
 }
 
 function pctChange(curr: number, prev: number): string | null {
@@ -89,12 +69,7 @@ function buildChartData(movs: { tipo: string; fecha: string }[], months = 6) {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-interface StockRow {
-  id: string; cliente_id: string; area: string | null; stock_actual: number; stock_minimo: number
-  descripcion: string; clientes: { nombre: string } | null; peso_ton: number | null
-}
-interface MovRow   { numero: number; tipo: string; cliente_nombre: string | null; carga: string; unidades: number | null; fecha: string; estado: string }
-interface Alerta   { nivel: "critical" | "warning" | "info"; titulo: string; detalle: string; meta: string; href?: string }
+interface MovRow { tipo: string; fecha: string }
 interface ChartPoint { mes: string; ingresos: number; despachos: number }
 
 // ── Chart tooltip ──────────────────────────────────────────────────────────────
@@ -154,6 +129,14 @@ export default function DashboardPage() {
   const { profile } = useAuth()
   const nombre = profile?.nombre?.split(" ")[0] ?? "Admin"
 
+  const now = new Date()
+  const [periodo,  setPeriodo]  = useState<Periodo>("mensual")
+  const [selMonth, setSelMonth] = useState(now.getMonth())
+  const [selYear,  setSelYear]  = useState(now.getFullYear())
+  const [showPdfPreview, setShowPdfPreview] = useState(false)
+  const an = useAnalitica(periodo, selMonth, selYear)
+  const periodoLabel = periodo === "mensual" ? `${MESES[selMonth]} ${selYear}` : `Año ${selYear}`
+
   const [loading,    setLoading]    = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [stock,      setStock]      = useState(0)
@@ -163,14 +146,7 @@ export default function DashboardPage() {
   const [entChg,     setEntChg]     = useState<string | null>(null)
   const [salChg,     setSalChg]     = useState<string | null>(null)
   const [clientNew,  setClientNew]  = useState(0)
-  const [recentMovs, setRecentMovs] = useState<MovRow[]>([])
-  const [visibleMovsCount, setVisibleMovsCount] = useState(5)
-  const movsContainerRef = useRef<HTMLDivElement>(null)
-  const movsHeaderRef    = useRef<HTMLTableRowElement>(null)
-  const movsRowRef       = useRef<HTMLTableRowElement>(null)
   const [allMovs,    setAllMovs]    = useState<MovRow[]>([])
-  const [alertas,    setAlertas]    = useState<Alerta[]>([])
-  const [ocupacion,  setOcupacion]  = useState<{ zona: string; detalle: string; ton: number; items: number; sinPeso: number; pct: number }[]>([])
   const [chartData,  setChartData]  = useState<ChartPoint[]>([])
   const [chartMonths, setChartMonths] = useState(6)
 
@@ -191,8 +167,8 @@ export default function DashboardPage() {
       { count: clientTotal,  error: e3 },
       { count: clientNewCount, error: e4 },
     ] = await Promise.all([
-      supabase.from("inventario_items").select("id, cliente_id, area, stock_actual, stock_minimo, descripcion, clientes(nombre), peso_ton").eq("activo", true),
-      supabase.from("movimientos").select("numero, tipo, cliente_nombre, carga, unidades, fecha, estado").gte("fecha", twelveMonthsAgo).order("fecha", { ascending: false }),
+      supabase.from("inventario_items").select("stock_actual").eq("activo", true),
+      fetchTodas<MovRow>((d, h) => supabase.from("movimientos").select("tipo, fecha").gte("fecha", twelveMonthsAgo).order("fecha", { ascending: false }).order("numero").range(d, h)),
       supabase.from("clientes").select("*", { count: "exact", head: true }).eq("activo", true),
       supabase.from("clientes").select("*", { count: "exact", head: true }).gte("created_at", curr),
     ])
@@ -200,69 +176,16 @@ export default function DashboardPage() {
     const queryError = e1 ?? e2 ?? e3 ?? e4
     if (queryError) { setFetchError(queryError.message); setLoading(false); return }
 
-    const items = (itemsRaw ?? []) as unknown as StockRow[]
+    const items = (itemsRaw ?? []) as { stock_actual: number }[]
     const movs  = (movsRaw  ?? []) as MovRow[]
 
     const totalStock = items.reduce((s, i) => s + i.stock_actual, 0)
-    const areaStocks = AREAS.map(area => {
-      const areaItems = items.filter(i => i.area === area)
-      return {
-        zona:    area,
-        detalle: AREA_DETAIL[area],
-        ton:     areaItems.reduce((s, i) => s + (i.peso_ton ?? 0), 0),
-        items:   areaItems.length,
-        sinPeso: areaItems.filter(i => i.peso_ton == null).length,
-        pct:     0,
-      }
-    })
-    const maxAreaTon = Math.max(...areaStocks.map(a => a.ton), 1)
-    areaStocks.forEach(a => { a.pct = Math.round((a.ton / maxAreaTon) * 100) })
-
     const currMovs = movs.filter(m => m.fecha >= curr)
     const prevMovs = movs.filter(m => m.fecha >= prev && m.fecha < curr)
     const cEnt = currMovs.filter(m => m.tipo === "ingreso").length
     const cSal = currMovs.filter(m => m.tipo === "despacho").length
     const pEnt = prevMovs.filter(m => m.tipo === "ingreso").length
     const pSal = prevMovs.filter(m => m.tipo === "despacho").length
-
-    const al: Alerta[] = []
-    const MAX_POR_CATEGORIA = 4
-
-    const sinStock = items.filter(i => i.stock_actual <= 0 && i.stock_minimo > 0)
-    sinStock.slice(0, MAX_POR_CATEGORIA).forEach(i => al.push({
-      nivel: "critical", titulo: "Sin stock", detalle: i.descripcion,
-      meta: `${i.clientes?.nombre ?? "Sin cliente"} · mínimo ${i.stock_minimo}`,
-      href: `/inventario?cliente=${i.cliente_id}`,
-    }))
-    if (sinStock.length > MAX_POR_CATEGORIA) {
-      const resto = sinStock.length - MAX_POR_CATEGORIA
-      al.push({ nivel: "critical", titulo: "Sin stock", detalle: `+${resto} ítem${resto > 1 ? "s" : ""} más`, meta: "Revisa el inventario", href: "/inventario" })
-    }
-
-    const stockBajo = items.filter(i => i.stock_actual > 0 && i.stock_minimo > 0 && i.stock_actual <= i.stock_minimo)
-    stockBajo.slice(0, MAX_POR_CATEGORIA).forEach(i => al.push({
-      nivel: "warning", titulo: "Stock bajo", detalle: i.descripcion,
-      meta: `${i.clientes?.nombre ?? "Sin cliente"} · ${i.stock_actual}/${i.stock_minimo} unidades`,
-      href: `/inventario?cliente=${i.cliente_id}`,
-    }))
-    if (stockBajo.length > MAX_POR_CATEGORIA) {
-      const resto = stockBajo.length - MAX_POR_CATEGORIA
-      al.push({ nivel: "warning", titulo: "Stock bajo", detalle: `+${resto} ítem${resto > 1 ? "s" : ""} más`, meta: "Revisa el inventario", href: "/inventario" })
-    }
-
-    const enProceso = movs.filter(m => m.estado === "en_proceso")
-    enProceso.slice(0, MAX_POR_CATEGORIA).forEach(m => al.push({
-      nivel: "info", titulo: m.tipo === "ingreso" ? "Ingreso en proceso" : "Despacho en proceso", detalle: m.carga,
-      meta: `${m.cliente_nombre ?? "Sin cliente"} · ${formatRelativa(m.fecha)}`,
-      href: "/movimientos",
-    }))
-    if (enProceso.length > MAX_POR_CATEGORIA) {
-      const resto = enProceso.length - MAX_POR_CATEGORIA
-      al.push({ nivel: "info", titulo: "En proceso", detalle: `+${resto} movimiento${resto > 1 ? "s" : ""} más`, meta: "Revisa movimientos", href: "/movimientos" })
-    }
-
-    if (al.length === 0)
-      al.push({ nivel: "info", titulo: "Sin alertas activas", detalle: "Todo está en orden", meta: "" })
 
     setStock(totalStock)
     setEntradas(cEnt)
@@ -271,45 +194,24 @@ export default function DashboardPage() {
     setEntChg(pctChange(cEnt, pEnt))
     setSalChg(pctChange(cSal, pSal))
     setClientNew(clientNewCount ?? 0)
-    setRecentMovs(movs.slice(0, 12))
     setAllMovs(movs)
-    setAlertas(al)
-    setOcupacion(areaStocks)
     setLoading(false)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
   useEffect(() => { setChartData(buildChartData(allMovs, chartMonths)) }, [chartMonths, allMovs])
 
-  // Filas de "Movimientos recientes": debajo de 1280px la página hace scroll
-  // (el contenedor ya no tiene una altura fija que calzar), así que ahí se
-  // muestra un número fijo prudente. Desde 1280px el layout sí queda fijo a
-  // una pantalla, así que se calculan cuántas filas caben sin scroll.
-  useEffect(() => {
-    function recompute() {
-      if (window.innerWidth < 1280) {
-        setVisibleMovsCount(Math.min(5, recentMovs.length || 5))
-        return
-      }
-      const container = movsContainerRef.current
-      const rowEl      = movsRowRef.current
-      if (!container || !rowEl) return
-      const headerH = movsHeaderRef.current?.offsetHeight ?? 0
-      const rowH    = rowEl.offsetHeight || 44
-      const fit     = Math.max(1, Math.floor((container.clientHeight - headerH) / rowH))
-      setVisibleMovsCount(Math.min(fit, recentMovs.length || fit))
-    }
-    recompute()
-    const ro = new ResizeObserver(recompute)
-    if (movsContainerRef.current) ro.observe(movsContainerRef.current)
-    window.addEventListener("resize", recompute)
-    return () => { ro.disconnect(); window.removeEventListener("resize", recompute) }
-  }, [recentMovs])
 
-  const alertCount = alertas.filter(a => a.nivel !== "info").length
+  const pdfData: AnaliticaPDFData = {
+    year: selYear, periodo, periodoLabel, kpis: an.kpis, mensual: an.mensual, topItems: an.topItems, topClientes: an.topClientes,
+    areaData: an.areaData, stockStatus: an.stockStatus, reportsFunnel: an.reportsFunnel,
+  }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
+      {showPdfPreview && (
+        <AnaliticaPreviewModal data={pdfData} onClose={() => setShowPdfPreview(false)} onDownload={() => downloadAnaliticaPDF(pdfData)} />
+      )}
       <div className="p-3 sm:p-4 flex flex-col gap-3 xl:flex-1 xl:min-h-0 xl:grid xl:grid-rows-[auto_auto_auto_1fr]">
 
         {/* ── Header ── */}
@@ -320,14 +222,6 @@ export default function DashboardPage() {
             </h1>
             <p className="section-label truncate">· {getDayStr()} · Camino La Pólvora 106, Valparaíso</p>
           </div>
-          {/* Solo ocupa espacio cuando hay algo que avisar — el estado "todo
-              bien" no aporta información que valga la pena mostrar siempre. */}
-          {alertCount > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border badge-warning border-[var(--color-status-warning-bg)] flex-shrink-0">
-              <AlertTriangle className="h-3 w-3" />
-              {`${alertCount} alerta${alertCount > 1 ? "s" : ""} activa${alertCount > 1 ? "s" : ""}`}
-            </div>
-          )}
         </div>
 
         {/* ── Error ── */}
@@ -469,206 +363,55 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* ── Contenido principal — Movimientos + Alertas en lg (Ocupación oculta), 3 paneles 5/4/3 desde xl ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-rows-1 gap-3 xl:min-h-0">
-
-          {/* Movimientos recientes — 8/12 en lg, 5/12 desde xl */}
-          <Card className="lg:col-span-8 xl:col-span-5 lg:row-start-1 xl:row-start-1 border-border bg-card flex flex-col xl:min-h-[220px]">
-            <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-sm font-medium">Movimientos recientes</CardTitle>
-                  <CardDescription className="text-xs mt-0.5">Últimos ingresos y despachos</CardDescription>
-                </div>
-                <Link
-                  href="/movimientos"
-                  className="inline-flex items-center gap-1 h-6 px-2 text-xs text-primary hover:text-primary/80 font-medium rounded-md hover:bg-muted/50 transition-colors"
-                >
-                  Ver todos <ArrowRight className="h-3 w-3" />
-                </Link>
+        {/* ── Analítica del período — Cargas, Clientes y Distribución por área ── */}
+        <div className="flex flex-col gap-3 xl:min-h-0">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h2 className="text-sm font-medium">Analítica del almacén</h2>
+              <p className="text-[11px] text-muted-foreground">Resumen estadístico — {periodoLabel}</p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
+                {(["mensual", "anual"] as const).map(p => (
+                  <button key={p} onClick={() => setPeriodo(p)}
+                    className={cn(
+                      "px-3 py-1 rounded-md text-xs font-semibold transition-all capitalize",
+                      periodo === p ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}>
+                    {p}
+                  </button>
+                ))}
               </div>
-            </CardHeader>
-            <CardContent ref={movsContainerRef} className="p-0 xl:flex-1 xl:min-h-0 xl:overflow-hidden">
-              {loading ? (
-                <div className="flex items-center justify-center h-full">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                </div>
-              ) : recentMovs.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-xs text-muted-foreground">Sin movimientos registrados</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader className="sticky top-0 bg-muted/30 z-10">
-                    <TableRow ref={movsHeaderRef} className="hover:bg-transparent border-border">
-                      <TableHead className="section-label pl-4 py-2">Movimiento</TableHead>
-                      <TableHead className="section-label py-2">Cliente</TableHead>
-                      <TableHead className="section-label text-right py-2">Cant.</TableHead>
-                      <TableHead className="section-label text-right pr-4 py-2">Estado</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {recentMovs.slice(0, visibleMovsCount).map((m, i) => (
-                      <TableRow key={m.numero} ref={i === 0 ? movsRowRef : undefined} className="hover:bg-muted/20 border-border/60 cursor-pointer">
-                        <TableCell className="pl-4 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <div className={cn(
-                              "h-6 w-6 rounded-md flex items-center justify-center flex-shrink-0",
-                              m.tipo === "ingreso"
-                                ? "bg-[var(--color-status-success-bg)]"
-                                : "bg-[var(--color-status-warning-bg)]"
-                            )}>
-                              {m.tipo === "ingreso"
-                                ? <ArrowDownCircle className="h-3 w-3 text-[var(--color-status-success-text)]" />
-                                : <ArrowUpCircle   className="h-3 w-3 text-[var(--color-status-warning-text)]" />
-                              }
-                            </div>
-                            <div>
-                              <p className="text-xs font-medium capitalize">{m.tipo}</p>
-                              <p className="text-[10px] text-muted-foreground font-mono">{movCodigo(m.numero)}</p>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-2.5">
-                          <p className="text-xs font-medium truncate max-w-[120px]">{m.cliente_nombre ?? "—"}</p>
-                          <p className="text-[10px] text-muted-foreground">{formatRelativa(m.fecha)}</p>
-                        </TableCell>
-                        <TableCell className="text-xs font-medium text-right py-2.5 tabular-nums">
-                          {m.unidades ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-right pr-4 py-2.5">
-                          <Badge className={cn(
-                            "text-[10px] px-1.5 py-0 rounded-md border-0 font-medium",
-                            m.estado === "completado" ? "badge-success" : "badge-warning"
-                          )}>
-                            {m.estado === "completado" ? "Completado" : "En proceso"}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              {periodo === "mensual" && (
+                <select value={selMonth} onChange={e => setSelMonth(Number(e.target.value))}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring">
+                  {MESES.map((m, i) => <option key={m} value={i}>{m}</option>)}
+                </select>
               )}
-            </CardContent>
-          </Card>
-
-          {/* Ocupación por área — oculto en lg (no cabe bien a 1024-1279px), 4/12 desde xl */}
-          <Card className="lg:hidden xl:flex xl:col-span-4 xl:row-start-1 border-border bg-card flex-col xl:min-h-[220px]">
-            <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border flex-row items-center justify-between gap-2">
-              <div>
-                <CardTitle className="text-sm font-medium">Ocupación por área</CardTitle>
-                <CardDescription className="text-xs">Toneladas por zona (según peso registrado)</CardDescription>
-              </div>
-              <Link href="/instalaciones" className="text-[11px] text-primary hover:underline flex-shrink-0">
-                Ver instalaciones
-              </Link>
-            </CardHeader>
-            <CardContent className="px-4 py-3 flex-1 min-h-0 flex flex-col overflow-hidden">
-              {loading
-                ? <div className="flex flex-col justify-between flex-1 gap-3">
-                    {Array(4).fill(0).map((_, i) => (
-                      <div key={i} className="space-y-1.5">
-                        <div className="h-3.5 w-28 animate-pulse rounded bg-muted/40" />
-                        <div className="h-2 w-full animate-pulse rounded-full bg-muted/40" />
-                      </div>
-                    ))}
-                  </div>
-                : <div className="flex flex-col flex-1 min-h-0 justify-between">
-                    <div className="flex flex-col justify-between flex-1 gap-2">
-                      {ocupacion.map((z) => {
-                        const barColor = z.pct >= 70
-                          ? "bg-[var(--color-status-danger-text)]/70"
-                          : z.pct >= 40
-                          ? "bg-[var(--color-adp-celeste)]"
-                          : "bg-[var(--color-adp-blue)]"
-                        const valColor = z.pct >= 70
-                          ? "text-[var(--color-status-danger-text)]"
-                          : z.pct >= 40
-                          ? "text-[var(--color-adp-blue-mid)]"
-                          : "text-foreground"
-                        return (
-                          <div key={z.zona} className="flex flex-col gap-1.5">
-                            <div className="flex justify-between items-baseline gap-2">
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium truncate">{z.zona}</p>
-                                <p className="text-[10px] text-muted-foreground">
-                                  {z.items > 0 ? `${z.items} ítem${z.items > 1 ? "s" : ""}` : z.detalle}
-                                  {z.sinPeso > 0 && ` · ${z.sinPeso} sin peso`}
-                                </p>
-                              </div>
-                              <span className={cn("text-xs font-semibold tabular-nums flex-shrink-0", valColor)}>
-                                {z.ton > 0 ? `${z.ton.toFixed(1)} ton` : "—"}
-                              </span>
-                            </div>
-                            <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden">
-                              <div
-                                className={cn("h-full rounded-full transition-all duration-500", barColor)}
-                                style={{ width: `${Math.max(z.pct, z.ton > 0 ? 4 : 0)}%` }}
-                              />
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    <div className="pt-3 mt-3 border-t border-border flex justify-between items-center flex-shrink-0">
-                      <span className="text-[11px] text-muted-foreground">Total con peso registrado</span>
-                      <span className="text-sm font-semibold text-foreground tabular-nums">
-                        {ocupacion.reduce((s, z) => s + z.ton, 0).toFixed(1)} ton
-                      </span>
-                    </div>
-                  </div>
-              }
-            </CardContent>
-          </Card>
-
-          {/* Alertas — 4/12 en lg, junto a Movimientos (Ocupación oculta); 3/12 desde xl */}
-          <Card className="lg:col-span-4 xl:col-span-3 lg:row-start-1 xl:row-start-1 border-border bg-card flex flex-col xl:min-h-[220px]">
-            <CardHeader className="py-3 px-4 flex-shrink-0 border-b border-border">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium">Alertas</CardTitle>
-                {alertCount > 0 && (
-                  <span className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-white">
-                    {alertCount}
-                  </span>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="p-3 flex flex-col gap-2 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
-              {loading
-                ? <div className="h-24 animate-pulse rounded-md bg-muted/40" />
-                : alertas.map((a, i) => {
-                    const cls = cn(
-                      "flex items-start gap-2 px-2.5 py-2 rounded-lg text-[11px] border-l-[3px] leading-snug",
-                      a.nivel === "critical"
-                        ? "bg-[var(--color-status-danger-bg)] text-[var(--color-status-danger-text)] border-[var(--color-status-danger-text)]"
-                        : a.nivel === "warning"
-                        ? "bg-[var(--color-status-warning-bg)] text-[var(--color-status-warning-text)] border-[var(--color-status-warning-text)]"
-                        : "bg-muted/50 text-muted-foreground border-muted-foreground/30",
-                      a.href && "cursor-pointer transition-opacity hover:opacity-80 active:opacity-60"
-                    )
-                    const inner = (
-                      <>
-                        {a.nivel === "critical" || a.nivel === "warning"
-                          ? <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                          : <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                        }
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold truncate">{a.titulo}</p>
-                          <p className="truncate opacity-90">{a.detalle}</p>
-                          {a.meta && <p className="text-[10px] opacity-70 truncate mt-0.5">{a.meta}</p>}
-                        </div>
-                        {a.href && <ArrowRight className="h-3 w-3 mt-0.5 flex-shrink-0 opacity-50" />}
-                      </>
-                    )
-                    return a.href
-                      ? <Link key={i} href={a.href} className={cls}>{inner}</Link>
-                      : <div key={i} className={cls}>{inner}</div>
-                  })
-              }
-            </CardContent>
-          </Card>
-
+              <select value={selYear} onChange={e => setSelYear(Number(e.target.value))}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring">
+                {Array.from({ length: now.getFullYear() - 2023 }, (_, i) => 2024 + i).map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+              <Button variant="ghost" size="sm" onClick={an.refetch} disabled={an.loading} className="h-8 w-8 p-0 text-muted-foreground" aria-label="Actualizar analítica">
+                <RefreshCw className={cn("h-3 w-3", an.loading && "animate-spin")} />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setShowPdfPreview(true)} disabled={an.loading} className="h-8 gap-1.5 text-xs border-border/60">
+                <FileDown className="h-3 w-3" /> Exportar PDF
+              </Button>
+            </div>
+          </div>
+          {an.fetchError && (
+            <div className="px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+              Error al cargar la analítica: {an.fetchError}
+            </div>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 xl:flex-1 xl:min-h-0">
+          <CargasActivasCard loading={an.loading} topItems={an.topItems} periodoLabel={periodoLabel} />
+          <ClientesActivosCard loading={an.loading} topClientes={an.topClientes} periodoLabel={periodoLabel} />
+          <DistribucionAreaCard loading={an.loading} areaData={an.areaData} periodoLabel={periodoLabel} />
+          </div>
         </div>
       </div>
     </div>

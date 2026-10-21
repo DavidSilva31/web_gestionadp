@@ -12,7 +12,6 @@ export const MODULE_OPTIONS = [
   { href: "/movimientos",         label: "Movimientos",        group: "Módulos principales"     },
   { href: "/clientes",            label: "Clientes",           group: "Módulos principales"     },
   { href: "/servicios",           label: "Servicios",          group: "Módulos principales"     },
-  { href: "/reportes",            label: "Analítica",          group: "Módulos principales"     },
   { href: "/hes",                 label: "HES",                group: "Módulos principales"     },
   { href: "/reports",             label: "Reports",            group: "Servicio almacenamiento" },
   { href: "/reports/despacho",    label: "Despacho",           group: "Servicio almacenamiento" },
@@ -22,8 +21,8 @@ export const MODULE_OPTIONS = [
 ]
 
 export const ROLE_MODULE_DEFAULTS: Record<UserRole, string[]> = {
-  super_admin:    ["/dashboard", "/inventario", "/instalaciones", "/movimientos", "/clientes", "/servicios", "/reportes", "/hes", "/reports", "/reports/despacho", "/transporte", "/transporte-incomex", "/auditoria"],
-  operador:       ["/dashboard", "/inventario", "/instalaciones", "/movimientos", "/clientes", "/servicios", "/reportes", "/hes", "/reports", "/reports/despacho", "/transporte", "/transporte-incomex"],
+  super_admin:    ["/dashboard", "/inventario", "/instalaciones", "/movimientos", "/clientes", "/servicios", "/hes", "/reports", "/reports/despacho", "/transporte", "/transporte-incomex", "/auditoria"],
+  operador:       ["/dashboard", "/inventario", "/instalaciones", "/movimientos", "/clientes", "/servicios", "/hes", "/reports", "/reports/despacho", "/transporte", "/transporte-incomex"],
   operador_carga: ["/inventario", "/instalaciones", "/reports", "/reports/despacho"],
 }
 

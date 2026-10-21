@@ -73,17 +73,6 @@ El proxy (`src/proxy.ts`) protege todas las rutas autenticadas y restringe `/aud
 
 ## Módulos
 
-### Dashboard (`/dashboard`)
-
-Vista general del estado operativo en tiempo real:
-
-- **4 KPI cards**: stock total en bodega, ingresos del mes, despachos del mes y clientes activos — con variación porcentual respecto al mes anterior
-- **Gráfico de barras** de actividad mensual (últimos 6, 9 o 12 meses)
-- **Movimientos recientes**: últimos 5 registros con tipo, cliente, cantidad y estado
-- **Ocupación por área**: barras de progreso relativo por zona (Bodega IMO, Zona Isotanques, Zona RESPEL, Bodega General)
-- **Panel de alertas**: ítems sin stock (crítico), bajo stock mínimo (advertencia) y movimientos en proceso (info)
-- Banner de error con botón "Reintentar" si la carga de datos falla
-
 ### Inventario (`/inventario`)
 
 Control de ítems almacenados por cliente:
@@ -224,15 +213,14 @@ Hoja de Estadía — cálculo de almacenaje para facturación mensual:
 - **Envío por correo** del HES generado (Resend, template de marca ADP) al contacto comercial del cliente, con folio y adjuntos
 - Corrección de rango de fechas: usa `.lt(nextMonth.toISOString())` para incluir todos los movimientos del último día del mes
 
-### Analítica (`/reportes`)
+### Inicio y analítica (`/dashboard`)
 
-Estadísticas y analítica operacional:
+Desde que se fusionó el módulo Analítica (`/reportes`, eliminado), el Inicio reúne el resumen y las estadísticas:
 
-- KPIs del mes actual vs. mes anterior (movimientos, entradas, salidas, clientes activos)
-- Gráfico de barras mensual para el año en curso
-- Top 5 cargas por volumen de movimientos (con desglose entrada/salida)
-- Top 5 clientes por actividad
-- **Exportar PDF** vía `window.print()` con estilos de impresión que ocultan sidebar, topbar y botones
+- KPIs del mes (unidades en bodega, ingresos, despachos, clientes activos) y gráfico de actividad mensual (6, 9 o 12 meses).
+- Analítica del período, con selector mensual/anual, mes y año: **Cargas más activas**, **Clientes más activos** y **Distribución por área** (entradas/salidas). Los datos salen de `useAnalitica` (`src/hooks/use-analitica.ts`) y las tarjetas de `src/components/dashboard/analitica-cards.tsx`.
+- **Exportar PDF** analítico del período (`src/components/analitica/`, `src/lib/download-analitica-pdf.ts`).
+- Las tarjetas "Movimientos recientes", "Ocupación por área" y "Alertas" del Inicio se retiraron.
 
 ### Cotizaciones (`/cotizaciones`)
 
@@ -257,8 +245,16 @@ Módulo de cotizaciones, migrado desde el portal anterior ("Gestión de OC y Cot
 Misma mecánica que Cotizaciones, pero para tarifas escalonadas de transporte según el tramo del valor del diésel (hoja AJUSTADA de `docs/TARIFADO ESCALONADO.xlsx`). Solo `super_admin`.
 
 - **Catálogo** (`tarifado_catalogo`): trayecto, capacidad, UF de referencia pre-alza y 7 valores UF/viaje, uno por tramo de `TRAMOS_DIESEL` (1001-1100 … 1601-1700 CLP). Se carga desde la migración `migration_tarifado_transporte.sql`.
-- **Formulario**: igual que el de cotizaciones (emisor, fecha, cliente de `clientes_cotizacion`, atención, ciudad, dirección) más "Tarifas rigen a contar del". Cada tarifa del catálogo tiene una casilla para elegir cuáles se envían al cliente; los valores se pueden ajustar por tarifado (se guardan copiados en `tarifado_lineas`, el catálogo no cambia) y hay "Tarifa manual". Las observaciones son las 6 de la hoja AJUSTADA (`tarifado_obs_catalogo`, migración `migration_tarifado_observaciones_propias.sql`), marcadas por defecto; más un campo de observaciones extras.
+- **Formulario**: igual que el de cotizaciones (emisor, fecha, cliente de `clientes_cotizacion`, atención, ciudad, dirección) más "Tarifas rigen a contar del". Cada tarifa del catálogo tiene una casilla para elegir cuáles se envían al cliente; los valores se pueden ajustar por tarifado (se guardan copiados en `tarifado_lineas`, el catálogo no cambia) y hay "Tarifa manual". El botón **Resaltar** activa un modo en que cada clic sobre una casilla de tramo la marca (o desmarca) en amarillo; los resaltados se guardan en `tarifado_lineas.resaltados` (migración `migration_tarifado_resaltados.sql`) y salen como marcador en el PDF para que el cliente ubique su tarifa. Las observaciones son las 6 de la hoja AJUSTADA (`tarifado_obs_catalogo`, migración `migration_tarifado_observaciones_propias.sql`), marcadas por defecto; más un campo de observaciones extras.
 - **PDF**: mismo diseño que el de cotizaciones, en horizontal (`src/components/tarifado-transporte/tarifado-pdf.tsx`), se genera en el navegador. N° con formato `{N°}_{año}` (`tarifado_numero_seq`, parte en 84). Sin SharePoint por ahora.
+
+### Equipos (`/equipos`)
+
+Registro de notebooks/PCs y tablets entregados al personal. Solo `super_admin`, grupo Administración.
+
+- **Equipo** (`equipos`): tipo, marca, modelo, N° de serie (único si se informa), observaciones y estado (Disponible, Asignado, En reparación, Dado de baja). El estado pasa solo a Asignado/Disponible al entregar/devolver.
+- **Encargado** (`equipo_asignaciones`): cada entrega guarda nombre, RUT, cargo, fecha de entrega, devolución y el **acta de responsabilidad firmada** (PDF/JPG/PNG, 10 MB, bucket privado `equipos-actas`, solo `super_admin`). Un equipo tiene como máximo una entrega vigente; las anteriores quedan como historial. El acta se puede cargar al entregar o después, y reemplazar.
+- Migración: `migration_equipos.sql`.
 
 ---
 
@@ -280,7 +276,7 @@ Registro paginado (50/página) de todas las acciones sobre reports, inventario y
 - **Primer login forzado**: `must_change_password = true` bloquea la navegación en `/configuracion` (tab Perfil) hasta que el usuario define su propia contraseña — mínimo 8 caracteres, sin requisitos de complejidad
 - Activar / desactivar usuario
 - Cambiar rol con lista blanca de roles válidos
-- Editar permisos de módulos por usuario (incluye Inventario, Instalaciones, Movimientos, Clientes, Servicios, Analítica, HES, Reports, Despacho, Transporte, Transporte Incomex y Auditoría)
+- Editar permisos de módulos por usuario (incluye Inventario, Instalaciones, Movimientos, Clientes, Servicios, HES, Reports, Despacho, Transporte, Transporte Incomex y Auditoría)
 - Eliminar usuario (con protección anti-autoborrado)
 
 **Tab Respaldo** *(solo `super_admin`, exigido también en el servidor):*
@@ -388,7 +384,6 @@ src/
 │       ├── movimientos/               # Ingresos y despachos
 │       ├── clientes/                  # Directorio de clientes
 │       ├── servicios/                 # Servicios por cliente
-│       ├── reportes/                  # Estadísticas y analítica
 │       ├── reports/
 │       │   ├── page.tsx               # Lista de reports
 │       │   ├── nuevo/                 # Crear report
@@ -519,6 +514,16 @@ Función RPC:
 | Función | Parámetros | Descripción |
 |---|---|---|
 | `update_stock` | `item_id uuid, delta int` | Actualización atómica de `stock_actual`; usada en movimientos y reports para garantizar consistencia |
+
+---
+
+## Rendimiento
+
+- **Sesión sin viaje a Auth**: `proxy.ts` y el layout del dashboard verifican la sesión con `getClaims()` (firma del JWT validada en local con la clave pública ES256 del proyecto, `src/lib/auth-reintento.ts`); si no hay claims válidos confirman con `getUser()`. Costo: una sesión revocada en otro equipo vale hasta que venza el token (≤1 h); un perfil desactivado se detecta al instante. Las rutas `/api` que escriben datos siguen usando `getUser()`.
+- **Perfil sin repetir**: el layout ya lee el perfil para validar la cuenta y se lo pasa al `AuthProvider` (`initialProfile`), que ya no pide `getUser()` ni el perfil al cargar.
+- **Listas completas**: PostgREST corta en silencio a 1.000 filas; las consultas sin paginación de movimientos, inventario y analítica usan `fetchTodas` (`src/lib/fetch-todas.ts`), que pide páginas hasta agotar.
+- **RLS**: `migration_rls_initplan.sql` envuelve `current_user_role()` y `auth.uid()` en `(select ...)` para evaluarlos una vez por consulta y no por fila.
+- Catálogos en caché de memoria con `consultaCacheada` (`src/lib/cache-consultas.ts`) y consultas independientes en paralelo con `Promise.all`.
 
 ---
 
