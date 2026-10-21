@@ -839,7 +839,7 @@ function PesoNetoField({ inventarioItemId, carga, lote, value, onChange, disable
   }, [])
 
   return (
-    <Field label="Peso neto">
+    <Field label="Peso neto (KG)">
     <div ref={ref} className="relative">
       <Input
         type="number" min={0} step="any"
@@ -965,14 +965,6 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
                 disabled={readOnly}
               />
             </Field>
-            <PesoNetoField
-              inventarioItemId={item.sec3_inventario_item_id}
-              carga={item.sec3_producto}
-              lote={item.sec3_lote}
-              value={item.sec3_peso_neto}
-              onChange={v => onChange(index, { sec3_peso_neto: v })}
-              disabled={readOnly}
-            />
             <Field label="CAS">
               <Input value={item.sec3_cas} onChange={e => onChange(index, { sec3_cas: e.target.value })}
                 className="h-8 text-xs font-mono" disabled={readOnly} />
@@ -989,6 +981,14 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
               <Input type="date" value={item.sec3_fecha_vencimiento}
                 onChange={e => onChange(index, { sec3_fecha_vencimiento: e.target.value })} className="h-8 text-xs" disabled={readOnly} />
             </Field>
+            <PesoNetoField
+              inventarioItemId={item.sec3_inventario_item_id}
+              carga={item.sec3_producto}
+              lote={item.sec3_lote}
+              value={item.sec3_peso_neto}
+              onChange={v => onChange(index, { sec3_peso_neto: v })}
+              disabled={readOnly}
+            />
           </div>
         </div>
       ))}

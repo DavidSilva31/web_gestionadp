@@ -5,7 +5,7 @@
 import type { TarifaCliente, ServicioCliente } from "@/types/database"
 
 export interface MovRaw {
-  id: string; numero: number; tipo: string; unidades: number | null
+  id: string; numero: number; tipo: string; posiciones?: number | null; unidades: number | null
   operador: string | null; fecha: string; report_id: string | null
   reports: { numero: number; sec3_numero_guia: string | null } | null
 }
@@ -44,6 +44,12 @@ export interface BillingResult {
   finalUF:  number
   hasMin:   boolean
 }
+
+// Los pallets que factura el HES son las posiciones del movimiento. Los movimientos
+// antiguos (stock inicial agregado, manuales) no traen `posiciones` y guardaban los
+// pallets en `unidades`, así que se usa eso como respaldo. Contar `unidades` a secas
+// mezclaba pallets con cantidad de envases (22 pallets = 748 unidades de 25 kg).
+const pallets = (m: MovRaw) => m.posiciones ?? m.unidades ?? 0
 
 function pad(n: number) { return String(n).padStart(2, "0") }
 
@@ -88,7 +94,7 @@ export function computeHES(movs: MovRaw[], periodStart: string, periodEnd: strin
   let stock = 0
   for (const m of movs) {
     if (m.fecha < periodStart) {
-      stock += m.tipo === "ingreso" ? (m.unidades ?? 0) : -(m.unidades ?? 0)
+      stock += m.tipo === "ingreso" ? pallets(m) : -pallets(m)
     }
   }
 
@@ -113,8 +119,8 @@ export function computeHES(movs: MovRaw[], periodStart: string, periodEnd: strin
     const ins  = dayMovs.filter(m => m.tipo === "ingreso")
     const outs = dayMovs.filter(m => m.tipo === "despacho")
 
-    const palletsIn  = ins.reduce((s, m)  => s + (m.unidades ?? 0), 0)
-    const palletsOut = outs.reduce((s, m) => s + (m.unidades ?? 0), 0)
+    const palletsIn  = ins.reduce((s, m)  => s + pallets(m), 0)
+    const palletsOut = outs.reduce((s, m) => s + pallets(m), 0)
 
     stock += palletsIn - palletsOut
     palletDays += Math.max(stock, 0)
