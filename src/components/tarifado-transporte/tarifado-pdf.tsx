@@ -47,8 +47,11 @@ const s = StyleSheet.create({
   filaDato:    { flexDirection: "row", marginBottom: 3 },
   datoLbl:     { width: 90, fontSize: 8, color: GRIS_TXT },
   datoVal:     { flex: 1, fontSize: 8.5, fontFamily: "Helvetica-Bold", color: INK },
-  superHead:   { flexDirection: "row", paddingHorizontal: 8, marginBottom: 2 },
-  superTxt:    { fontSize: 7, letterSpacing: 1, color: CELESTE, fontFamily: "Helvetica-Bold", textAlign: "center" },
+  // Banda celeste sobre los 7 tramos: deja claro que esas columnas son los tramos del valor del diésel.
+  superHead:   { flexDirection: "row", justifyContent: "flex-end" },
+  superBanda:  { backgroundColor: CELESTE, borderTopLeftRadius: 4, borderTopRightRadius: 4, paddingVertical: 5, alignItems: "center" },
+  superTxt:    { fontSize: 8.5, letterSpacing: 0.6, color: "#ffffff", fontFamily: "Helvetica-Bold", textAlign: "center" },
+  superSub:    { fontSize: 7, color: "#e6f3fa", marginTop: 1.5 },
   tablaHead:   { flexDirection: "row", backgroundColor: NAVY, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 4, alignItems: "center" },
   thTxt:       { color: "#ffffff", fontSize: 7, fontFamily: "Helvetica-Bold", letterSpacing: 0.3 },
   thSub:       { color: "#c9d8e6", fontSize: 6, marginTop: 1 },
@@ -121,10 +124,9 @@ export function TarifadoPDF({ data }: { data: TarifadoPDFData }) {
           </View>
 
           <View style={s.superHead}>
-            <View style={{ flex: 1 }} />
-            <View style={{ width: ANCHO_CAP }} />
-            <View style={{ width: ANCHO_TRAMO * TRAMOS_DIESEL.length }}>
-              <Text style={s.superTxt}>TARIFA ESCALONADA SEGÚN TRAMO DE VALORES DIESEL</Text>
+            <View style={[s.superBanda, { width: ANCHO_TRAMO * TRAMOS_DIESEL.length + 8 }]}>
+              <Text style={s.superTxt}>TRAMOS DE VALOR DEL DIÉSEL (CLP)</Text>
+              <Text style={s.superSub}>Tarifa escalonada en UF por viaje, según el valor del diésel</Text>
             </View>
           </View>
           <View style={s.tablaHead} wrap={false}>
