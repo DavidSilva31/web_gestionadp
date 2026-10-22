@@ -27,7 +27,6 @@ export type TarifadoPDFData = {
 const fmtUF = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
 const ANCHO_CAP = 44
-const ANCHO_PRE = 62
 const ANCHO_TRAMO = 58
 
 const s = StyleSheet.create({
@@ -58,7 +57,6 @@ const s = StyleSheet.create({
   tdTxt:       { fontSize: 8, color: INK },
   colTray:     { flex: 1, paddingRight: 8 },
   colCap:      { width: ANCHO_CAP, textAlign: "center" },
-  colPre:      { width: ANCHO_PRE, textAlign: "center" },
   colTramo:    { width: ANCHO_TRAMO, textAlign: "right" },
   // Casilla resaltada: fondo amarillo tipo marcador, con margen para no juntarse con las vecinas.
   resaltada:   { backgroundColor: "#fde047", borderRadius: 2, paddingVertical: 2, paddingHorizontal: 4, marginVertical: -2 },
@@ -124,7 +122,7 @@ export function TarifadoPDF({ data }: { data: TarifadoPDFData }) {
 
           <View style={s.superHead}>
             <View style={{ flex: 1 }} />
-            <View style={{ width: ANCHO_CAP + ANCHO_PRE }} />
+            <View style={{ width: ANCHO_CAP }} />
             <View style={{ width: ANCHO_TRAMO * TRAMOS_DIESEL.length }}>
               <Text style={s.superTxt}>TARIFA ESCALONADA SEGÚN TRAMO DE VALORES DIESEL</Text>
             </View>
@@ -132,11 +130,6 @@ export function TarifadoPDF({ data }: { data: TarifadoPDFData }) {
           <View style={s.tablaHead} wrap={false}>
             <Text style={[s.thTxt, s.colTray]}>TRAYECTO</Text>
             <Text style={[s.thTxt, s.colCap]}>CAPACIDAD</Text>
-            <View style={s.colPre}>
-              <Text style={[s.thTxt, { textAlign: "center" }]}>REF. PRE-ALZA</Text>
-              <Text style={[s.thSub, { textAlign: "center" }]}>(antes de 26/03/26)</Text>
-              <Text style={[s.thSub, { textAlign: "center" }]}>UF/VIAJE</Text>
-            </View>
             {TRAMOS_DIESEL.map(t => (
               <View key={t} style={s.colTramo}>
                 <Text style={[s.thTxt, { textAlign: "right" }]}>{t} <Text style={s.thSub}>CLP</Text></Text>
@@ -148,7 +141,6 @@ export function TarifadoPDF({ data }: { data: TarifadoPDFData }) {
             <View key={i} style={[s.fila, i % 2 === 1 ? s.filaAlt : {}]} wrap={false}>
               <Text style={[s.tdTxt, s.colTray]}>{l.trayecto}</Text>
               <Text style={[s.tdTxt, s.colCap]}>{l.capacidad}</Text>
-              <Text style={[s.tdTxt, s.colPre]}>{l.ufPreAlza != null ? fmtUF(l.ufPreAlza) : ""}</Text>
               {TRAMOS_DIESEL.map((t, j) => {
                 const resaltada = l.resaltados.includes(j)
                 return (

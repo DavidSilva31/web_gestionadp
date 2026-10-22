@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
+import { invalidarCache } from "@/lib/cache-consultas"
 import { ClienteCombobox } from "@/components/reports/report-form-widgets"
 import { TarifadoPreviewModal } from "@/components/tarifado-transporte/tarifado-preview-modal"
 import { EMISORES, type Emisor } from "@/lib/cotizacion-pdf-build"
@@ -86,6 +87,8 @@ export default function TarifadoFormPage() {
         supabase.from("tarifado_catalogo").select("trayecto, capacidad, uf_pre_alza, valores_uf").eq("activo", true).order("orden"),
         supabase.from("tarifado_obs_catalogo").select("id, texto, orden").eq("activo", true).order("orden"),
       ])
+      const falloCarga = cl.error ?? cat.error ?? ob.error
+      if (falloCarga) setError(`No se pudieron cargar los datos del tarifado: ${falloCarga.message}`)
       const clientes = (cl.data ?? []) as Cliente[]
       const catalogo = ((cat.data ?? []) as TarifaRow[]).map(t => ({ ...t, valores_uf: (t.valores_uf ?? []).map(Number) }))
       setCatClientes(clientes)
@@ -199,14 +202,30 @@ export default function TarifadoFormPage() {
 
   async function guardar(): Promise<string | null> {
     setError(null)
-    if (!clienteId) { setError("Selecciona un cliente."); return null }
+    if (!clienteId && !clienteTexto.trim()) { setError("Selecciona o escribe un cliente."); return null }
     if (incluidas.length === 0) { setError("Selecciona al menos una tarifa."); return null }
 
     setGuardando(true)
     const supabase = createClient()
+    // Cliente escrito a mano (no está en la lista): se reutiliza uno con el mismo nombre o se crea.
+    let clienteGuardadoId = clienteId
+    if (!clienteGuardadoId) {
+      const nombre = clienteTexto.trim().toUpperCase()
+      const existente = catClientes.find(c => c.nombre.trim().toUpperCase() === nombre)
+      if (existente) clienteGuardadoId = existente.id
+      else {
+        const { data: nuevo, error: eCli } = await supabase.from("clientes_cotizacion")
+          .insert({ nombre, rut: rut.trim() || null, ciudad: ciudad || null, direccion: direccion || null }).select("id, nombre, rut").single()
+        if (eCli || !nuevo) { setError(`No se pudo crear el cliente: ${eCli?.message ?? "error desconocido"}`); setGuardando(false); return null }
+        clienteGuardadoId = nuevo.id
+        setCatClientes(prev => [...prev, nuevo as Cliente])
+        invalidarCache("catalogo:clientes_cotizacion")
+      }
+      setClienteId(clienteGuardadoId)
+    }
     const { data: { user } } = await supabase.auth.getUser()
     const cabecera = {
-      emisor, fecha, vigencia_desde: vigenciaDesde || null, cliente_id: clienteId, atencion: atencion || null,
+      emisor, fecha, vigencia_desde: vigenciaDesde || null, cliente_id: clienteGuardadoId, atencion: atencion || null,
       ciudad: ciudad || null, direccion: direccion || null, observaciones_extra: obsExtra.trim() || null,
       updated_by: user?.id ?? null,
     }
@@ -249,7 +268,8 @@ export default function TarifadoFormPage() {
   }
 
   function abrirPDF() {
-    if (!cliente) { setError("Selecciona un cliente antes de ver el PDF."); return }
+    const nombreCliente = cliente?.nombre ?? clienteTexto.trim()
+    if (!nombreCliente) { setError("Selecciona o escribe un cliente antes de ver el PDF."); return }
     if (incluidas.length === 0) { setError("Selecciona al menos una tarifa."); return }
     setError(null)
     setPdfDatos(construirTarifadoPDFData({
@@ -257,7 +277,7 @@ export default function TarifadoFormPage() {
       fecha,
       vigenciaDesde: vigenciaDesde || null,
       emisor,
-      cliente: { nombre: cliente.nombre, rut: rut || null },
+      cliente: { nombre: nombreCliente, rut: rut || null },
       atencion: atencion || null,
       ciudad: ciudad || null,
       direccion: direccion || null,
@@ -281,7 +301,7 @@ export default function TarifadoFormPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title={titulo} subtitle={cliente ? cliente.nombre : "Completa los datos y elige las tarifas"}>
+      <PageHeader title={titulo} subtitle={cliente?.nombre || clienteTexto.trim() || "Completa los datos y elige las tarifas"}>
         <Button variant="outline" onClick={() => router.push("/tarifado-transporte")} className="gap-1.5">
           <ArrowLeft className="h-4 w-4" /> Volver
         </Button>
@@ -361,9 +381,6 @@ export default function TarifadoFormPage() {
                   <th className="w-11 sticky left-0 z-30 bg-[#1a3a5c] border-b border-white/15"></th>
                   <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide min-w-[28rem] sticky left-11 z-30 bg-[#1a3a5c] border-b border-r border-white/15">Trayecto</th>
                   <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide min-w-24 border-b border-r border-white/15">Capacidad</th>
-                  <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide min-w-28 leading-tight border-b border-r border-white/15">
-                    Pre-alza<span className="block text-[10px] font-normal normal-case tracking-normal text-white/70">UF/viaje</span>
-                  </th>
                   {TRAMOS_DIESEL.map(t => (
                     <th key={t} className="px-3 py-2.5 text-right text-xs font-semibold tabular-nums min-w-28 leading-tight border-b border-r border-white/15 last:border-r-0">
                       {t} <span className="text-[10px] font-normal text-white/70">CLP</span><span className="block text-[10px] font-normal text-white/70">UF/viaje</span>
@@ -390,9 +407,6 @@ export default function TarifadoFormPage() {
                       </td>
                       <td className={celda}>
                         <input value={l.capacidad} onChange={e => actualizarLinea(l.key, { capacidad: e.target.value })} className={campo} aria-label="Capacidad" />
-                      </td>
-                      <td className={celda}>
-                        <input type="number" step="0.1" value={l.preAlza} onChange={e => actualizarLinea(l.key, { preAlza: e.target.value })} className={`${campoNum} text-muted-foreground`} aria-label="Pre-alza" />
                       </td>
                       {l.valores.map((v, j) => {
                         const resaltada = l.resaltados.includes(j)
