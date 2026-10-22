@@ -9,7 +9,7 @@ export function numeroTarifado(numero: number, fecha: string): string {
 }
 
 export function nombreArchivoTarifado(data: Pick<TarifadoPDFData, "numero" | "emisor" | "cliente">): string {
-  return sanitizarNombreArchivo(`Tarifado_${data.numero} ${data.emisor.nombre} - ${data.cliente.razonSocial}.pdf`)
+  return sanitizarNombreArchivo(`Tarifado_Transp_${data.numero} ${data.emisor.nombre} - ${data.cliente.razonSocial}.pdf`)
 }
 
 export function construirTarifadoPDFData(p: {
