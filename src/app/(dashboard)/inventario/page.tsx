@@ -482,17 +482,23 @@ function InventarioContent() {
     }
   }, [vista, selected, kardexMovs, fetchKardexForCliente])
 
-  // Agrupa por producto (carga) — una sola grilla por producto, sin separar
+  // Agrupa por producto — una sola grilla por producto (por inventario_item_id cuando el movimiento lo trae;
+  // el texto de `carga` puede diferir del nombre actual del producto si este se renombró después del ingreso), sin separar
   // por lote/código, con saldo corrido fila a fila igual que el Kardex en
   // excel del cliente (el saldo nunca se guarda en BD). El lote de cada
   // movimiento sigue viéndose en su propia columna dentro de la tabla.
   const kardexGroups = useMemo(() => {
     const movs = selected ? (kardexMovs[selected.id] ?? []) : []
+    const itemsCliente = selected ? (clienteItems[selected.id] ?? []) : []
+    const itemPorId = new Map(itemsCliente.map(it => [it.id, it]))
     const groups = new Map<string, typeof movs>()
+    const nombreGrupo = new Map<string, string>()
     for (const m of movs) {
-      const key = m.carga
+      const item = m.inventario_item_id ? itemPorId.get(m.inventario_item_id) : undefined
+      const key = item ? `item:${item.id}` : m.carga
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key)!.push(m)
+      nombreGrupo.set(key, item ? item.descripcion : m.carga)
     }
     const stockExacto = new Map<string, { pos: number; und: number }>()
     const stockSistema = new Map<string, { pos: number; und: number }>()
@@ -506,7 +512,8 @@ function InventarioContent() {
     const grupos = [...groups.entries()].map(([key, groupMovs]) => {
       const netPos = groupMovs.reduce((s, m) => s + (m.tipo === "ingreso" ? 1 : -1) * (m.posiciones ?? 0), 0)
       const netUnd = groupMovs.reduce((s, m) => s + (m.tipo === "ingreso" ? 1 : -1) * (m.unidades ?? 0), 0)
-      const cargaKey = groupMovs[0].carga.trim().toUpperCase()
+      const nombre = nombreGrupo.get(key) ?? groupMovs[0].carga
+      const cargaKey = nombre.trim().toUpperCase()
       const sist = stockExacto.get(cargaKey) ?? stockSistema.get(cargaKey.replace(/\s*\([^()]*\)\s*$/, "").trim())
       let stockPos = sist ? sist.pos - netPos : 0
       let stockUnd = sist ? sist.und - netUnd : 0
@@ -515,11 +522,11 @@ function InventarioContent() {
         else                      { stockPos -= m.posiciones ?? 0; stockUnd -= m.unidades ?? 0 }
         return { ...m, stockPos, stockUnd }
       })
-      return { key, carga: groupMovs[0].carga, rows }
+      return { key, carga: nombre, rows }
     })
     const sinSufijo = (s: string) => s.replace(/\s*\([^()]*\)\s*$/, "").trim().toUpperCase()
     const cargasConMovs = new Set<string>()
-    for (const k of groups.keys()) { cargasConMovs.add(k.trim().toUpperCase()); cargasConMovs.add(sinSufijo(k)) }
+    for (const nombre of nombreGrupo.values()) { cargasConMovs.add(nombre.trim().toUpperCase()); cargasConMovs.add(sinSufijo(nombre)) }
     const vistos = new Set<string>()
     for (const it of (selected ? (clienteItems[selected.id] ?? []) : [])) {
       const exacto = it.descripcion.trim()
