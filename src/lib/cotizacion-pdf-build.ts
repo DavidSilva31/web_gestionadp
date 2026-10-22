@@ -5,8 +5,8 @@ export const EMISORES = ["Altos del Puerto", "Incomex", "Mar Azul"] as const
 export type Emisor = (typeof EMISORES)[number]
 
 export const EMISOR_DATOS: Record<Emisor, { direccion: string; telefono: string; email: string; web: string }> = {
-  "Altos del Puerto": { direccion: "Camino La Pólvora 106, Valparaíso, Chile", telefono: "Fono: 77482466", email: "secretaria@altosdelpuerto.cl", web: "www.altosdelpuerto.cl" },
-  "Incomex":          { direccion: "Camino La Pólvora 106, Valparaíso, Chile", telefono: "Fono: 77482466", email: "secretaria@altosdelpuerto.cl", web: "www.altosdelpuerto.cl" },
+  "Altos del Puerto": { direccion: "Camino La Pólvora 106, Valparaíso, Chile", telefono: "Fono: 77482466", email: "operaciones@altosdelpuerto.cl", web: "www.altosdelpuerto.cl" },
+  "Incomex":          { direccion: "Camino La Pólvora 106, Valparaíso, Chile", telefono: "Fono: 77482466", email: "operaciones@altosdelpuerto.cl", web: "www.altosdelpuerto.cl" },
   "Mar Azul":         { direccion: "", telefono: "", email: "", web: "" },
 }
 

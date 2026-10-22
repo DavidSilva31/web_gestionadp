@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Plus, Loader2, Copy, ArrowUp, ArrowDown, ArrowUpDown, Search } from "lucide-react"
+import { Plus, Loader2, Copy, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Search } from "lucide-react"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PageHeader } from "@/components/layout/page-header"
@@ -34,6 +35,21 @@ export default function CotizacionesPage() {
   const [buscando, setBuscando] = useState(false)            // recarga por filtro/orden/página
   const [error, setError] = useState<string | null>(null)
   const [duplicando, setDuplicando] = useState<string | null>(null)
+  const [aEliminar, setAEliminar] = useState<FilaCotizacion | null>(null)
+  const [eliminando, setEliminando] = useState(false)
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
+
+  async function confirmarEliminar() {
+    if (!aEliminar) return
+    setEliminando(true)
+    // Las líneas y observaciones de la cotización se borran en cascada.
+    const { error } = await createClient().from("cotizaciones").delete().eq("id", aEliminar.id)
+    setEliminando(false)
+    if (error) { setErrorEliminar(error.message); return }
+    setFilas(prev => prev.filter(f => f.id !== aEliminar.id))
+    setTotal(t => Math.max(0, t - 1))
+    setAEliminar(null)
+  }
 
   const [texto, setTexto] = useState("")
   const [textoBusqueda, setTextoBusqueda] = useState("")   // texto ya "asentado" (con retardo) que se envía al servidor
@@ -208,7 +224,7 @@ export default function CotizacionesPage() {
                   <Cabecera campo="atencion">Atención</Cabecera>
                   <Cabecera campo="valor_uf" className="text-right">Valor UF</Cabecera>
                   <Cabecera campo="total" className="text-right">Total ($)</Cabecera>
-                  <th className="px-3 py-2 w-28"></th>
+                  <th className="px-3 py-2 w-36"></th>
                 </tr>
               </thead>
               <tbody>
@@ -223,12 +239,16 @@ export default function CotizacionesPage() {
                     <td className="px-3 py-2">{f.atencion ?? "—"}</td>
                     <td className="px-3 py-2 text-right">{fmtCL(f.valor_uf, 2)}</td>
                     <td className="px-3 py-2 text-right font-medium">{fmtCL(f.total)}</td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button type="button" disabled={duplicando !== null}
                         onClick={e => { e.stopPropagation(); duplicar(f.id) }}
-                        className="inline-flex items-center gap-1 text-xs text-[#1a3a5c] hover:underline disabled:opacity-50">
+                        className="mr-3 inline-flex items-center gap-1 text-xs text-[#1a3a5c] hover:underline disabled:opacity-50">
                         {duplicando === f.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
                         Duplicar
+                      </button>
+                      <button type="button" onClick={e => { e.stopPropagation(); setErrorEliminar(null); setAEliminar(f) }}
+                        className="text-muted-foreground hover:text-destructive align-middle" aria-label={`Eliminar cotización ${f.numero}`}>
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </td>
                   </tr>
@@ -251,6 +271,20 @@ export default function CotizacionesPage() {
         )}
         {error && !loading && <p className="text-sm text-destructive">{error}</p>}
       </div>
+      <AlertDialog open={!!aEliminar} onOpenChange={o => { if (!o && !eliminando) { setAEliminar(null); setErrorEliminar(null) } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar cotización</AlertDialogTitle>
+            <AlertDialogDescription>
+              {errorEliminar ?? `¿Eliminar la cotización N° ${aEliminar?.numero ?? ""} de ${aEliminar?.clientes_cotizacion?.nombre ?? "este cliente"}? Se borran también sus líneas y observaciones. No se puede deshacer.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={eliminando}>Cancelar</AlertDialogCancel>
+            {!errorEliminar && <AlertDialogAction disabled={eliminando} onClick={e => { e.preventDefault(); confirmarEliminar() }}>{eliminando ? "Eliminando…" : "Eliminar"}</AlertDialogAction>}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

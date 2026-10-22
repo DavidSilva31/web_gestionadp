@@ -38,6 +38,7 @@ SHAREPOINT_CLIENT_ID=...
 SHAREPOINT_CLIENT_SECRET=...                         # Valor del secreto del app registration — solo servidor, nunca al cliente
 SHAREPOINT_SITE_ID=...                               # ID Graph del sitio (host,siteCollectionId,webId)
 SHAREPOINT_BASE_PATH=HES Y COTIZACIONES/COTIZACIONES/COTIZACIONES   # Carpeta base; dentro se crea una carpeta por año
+SHAREPOINT_TARIFADO_PATH=HES Y COTIZACIONES/COTIZACIONES/TARIFADO TRANSPORTE   # (opcional) Carpeta base de los Tarifado Transporte; dentro se crea una carpeta por año
 SHAREPOINT_BACKUP_PATH=RESPALDOS ADP                      # (opcional) Carpeta del sitio donde se guardan el respaldo semanal y el del inventario
 BACKUP_CRON_SECRET=...                               # Clave entre la función programada y la función de respaldo (solo Netlify)
 ```
@@ -238,7 +239,8 @@ Módulo de cotizaciones, migrado desde el portal anterior ("Gestión de OC y Cot
 - **Subir a SharePoint**: el botón "Subir a SharePoint" del visor sube el PDF a la carpeta del año correspondiente del sitio `PortalADP` (`HES Y COTIZACIONES/COTIZACIONES/COTIZACIONES/<año>`, la carpeta se crea si falta) con el mismo nombre de archivo. Usa Microsoft Graph con una app registration y permiso `Sites.Selected` concedido solo a ese sitio (`src/lib/sharepoint.ts`, ruta `/api/cotizaciones/sharepoint`). Las variables de entorno `SHAREPOINT_*` hay que cargarlas también en Netlify
 - **Histórico migrado**: se importaron las **1.543 cotizaciones del portal anterior**, conservando su id (`cotizaciones.id_portal`) y sus líneas. Sus clientes (515, depurados de duplicados) viven en la tabla separada `clientes_cotizacion` para no llenar el módulo de Clientes con empresas que no son del sistema; `cotizaciones.numero` ya no es único porque el portal tenía números repetidos
 - **Catálogos** (tablas `items_cotizacion`, `items_cotizacion_categorias`, `observaciones_cotizacion`, `observacion_tipos`): migrados completos desde el portal. Las observaciones se leen desde el formulario; el catálogo de ítems no se usa en las líneas (son texto libre)
-- Numeración automática continuando desde el portal (`cotizacion_numero_seq`)
+- Numeración automática continuando desde el portal (`cotizacion_numero_seq`) 
+- **Eliminar**: papelera en el listado y botón "Eliminar" en la ficha, con confirmación; borra la cotización con sus líneas y observaciones (en cascada).
 
 ### Tarifado Transporte (`/tarifado-transporte`)
 
@@ -246,7 +248,7 @@ Misma mecánica que Cotizaciones, pero para tarifas escalonadas de transporte se
 
 - **Catálogo** (`tarifado_catalogo`): trayecto, capacidad, UF de referencia pre-alza (se conserva en la base pero ya no se muestra en la grilla ni en el PDF) y 7 valores UF/viaje, uno por tramo de `TRAMOS_DIESEL` (1001-1100 … 1601-1700 CLP). Se carga desde la migración `migration_tarifado_transporte.sql`.
 - **Formulario**: igual que el de cotizaciones (emisor, fecha, cliente de `clientes_cotizacion`, atención, ciudad, dirección) más "Tarifas rigen a contar del". Cada tarifa del catálogo tiene una casilla para elegir cuáles se envían al cliente; los valores se pueden ajustar por tarifado (se guardan copiados en `tarifado_lineas`, el catálogo no cambia) y hay "Tarifa manual". El botón **Resaltar** activa un modo en que cada clic sobre una casilla de tramo la marca (o desmarca) en amarillo; los resaltados se guardan en `tarifado_lineas.resaltados` (migración `migration_tarifado_resaltados.sql`) y salen como marcador en el PDF para que el cliente ubique su tarifa. Las observaciones son las 6 de la hoja AJUSTADA (`tarifado_obs_catalogo`, migración `migration_tarifado_observaciones_propias.sql`), marcadas por defecto; más un campo de observaciones extras.
-- **PDF**: mismo diseño que el de cotizaciones, en horizontal (`src/components/tarifado-transporte/tarifado-pdf.tsx`), se genera en el navegador. N° con formato `{N°}_{año}` (`tarifado_numero_seq`, parte en 84). Sin SharePoint por ahora.
+- **PDF**: mismo diseño que el de cotizaciones, en horizontal (`src/components/tarifado-transporte/tarifado-pdf.tsx`), "Ver PDF" guarda el tarifado y lo muestra desde el servidor (`/api/tarifado-transporte/[id]/pdf`, con `Content-Disposition`), así el archivo se llama **`Tarifado_{N°} {Emisor} - {Cliente}.pdf`** al guardarlo desde el visor o subirlo a SharePoint (con un `blob:` el navegador inventa un UUID). N° con formato `{N°}_{año}` (`tarifado_numero_seq`, parte en 84). "Subir a SharePoint" en el visor (ruta `/api/tarifado-transporte/sharepoint`, carpeta `SHAREPOINT_TARIFADO_PATH`, por defecto `HES Y COTIZACIONES/COTIZACIONES/TARIFADO TRANSPORTE/<año>`; con el mismo nombre de archivo). **Duplicar** (listado y ficha, `src/lib/tarifado-duplicar.ts`) copia el tarifado guardado con fecha de hoy y N° nuevo, y **Eliminar** lo borra con sus tarifas y observaciones.
 
 ### Equipos (`/equipos`)
 
@@ -327,6 +329,8 @@ Todas las rutas verifican sesión (`getUser()`) y rol antes de ejecutar operacio
 | `/api/chatbot` | POST | autenticado | Asistente virtual (Gemini) — solo lectura vía function calling, sin acciones que modifiquen datos |
 | `/api/cotizaciones/[id]/pdf` | GET | `super_admin` | PDF de una cotización generado en el servidor, con `Content-Disposition` para que la descarga lleve el nombre correcto |
 | `/api/cotizaciones/sharepoint` | POST | `super_admin` | Sube el PDF de una cotización a SharePoint (carpeta del año) vía Microsoft Graph |
+| `/api/tarifado-transporte/[id]/pdf` | GET | `super_admin` | PDF de un tarifado generado en el servidor, con `Content-Disposition` para que lleve el nombre `Tarifado_{N°} {Emisor} - {Cliente}.pdf` |
+| `/api/tarifado-transporte/sharepoint` | POST | `super_admin` | Sube el PDF de un tarifado a SharePoint (carpeta del año) vía Microsoft Graph |
 | `/api/admin/backup/manifiesto` | GET | `super_admin` | Lista de tablas, archivos del bucket y usuarios de Auth para la copia manual |
 | `/api/admin/backup/tabla` | GET | `super_admin` | Hasta 1000 filas de una tabla (ordenadas por clave primaria) |
 | `/api/admin/backup/archivos` | POST | `super_admin` | URLs firmadas de un lote de archivos del bucket |
@@ -471,6 +475,12 @@ src/
 | `migration_cotizaciones.sql` | Módulo de Cotizaciones: tablas, RLS solo `super_admin` y carga de catálogos (ítems, categorías, observaciones) |
 | `migration_clientes_cotizacion.sql` | Tabla `clientes_cotizacion` (clientes propios de Cotizaciones), `cotizaciones.id_portal` para conservar el id del portal anterior, y `cotizaciones.numero` deja de ser único |
 | `migration_cotizaciones_ocultar_totales.sql` | Columna `cotizaciones.ocultar_totales` (no mostrar Neto/IVA/Total en el PDF) |
+| `migration_tarifado_transporte.sql` | Módulo Tarifado Transporte: catálogo de tarifas escalonadas (hoja AJUSTADA), tarifados, tarifas copiadas, RLS `super_admin` |
+| `migration_tarifado_observaciones_propias.sql` | Observaciones propias del tarifado (`tarifado_obs_catalogo`) en vez de las de Cotizaciones |
+| `migration_tarifado_resaltados.sql` | `tarifado_lineas.resaltados`: casillas resaltadas en el PDF |
+| `migration_equipos.sql` | Módulo Equipos: tablas, RLS y bucket privado `equipos-actas` |
+| `migration_rls_initplan.sql` | Envuelve `current_user_role()` / `auth.uid()` en `(select …)` en las políticas RLS (rendimiento) |
+| `migration_fix_sherwin_carga_nombre_producto.sql` | Alinea `movimientos.carga` de Sherwin Williams con el nombre actual de cada producto |
 | `migration_reports_recepcion_editor_total.sql` | La cuenta de Recepción pasa a ser "editor total" en `es_editor_total_reports()` (hay que mantenerlo igual en `reports/[id]/page.tsx`) |
 | `migration_inventario_solo_lectura.sql` | Columna `profiles.inventario_solo_lectura`, trigger que bloquea escrituras directas sobre `inventario_items` para esos usuarios y acceso de Jocelyn a Inventario en solo lectura |
 | `migration_fix_default_pallets_bodegaje.sql` | N° Pallets vacío cuenta como 0 y no como 1 en las funciones de stock de Bodegaje |

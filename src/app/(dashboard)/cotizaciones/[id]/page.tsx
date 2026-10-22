@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Plus, Trash2, Save, Download, ArrowLeft, Loader2, Copy } from "lucide-react"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -44,6 +45,9 @@ export default function CotizacionFormPage() {
   const [pdfDatos, setPdfDatos] = useState<CotizacionPDFData | null>(null)
   const [numero, setNumero] = useState<number | null>(null)
   const [cotId, setCotId] = useState<string | null>(esNueva ? null : params.id)
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false)
+  const [eliminando, setEliminando] = useState(false)
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
 
   const [catClientes, setCatClientes] = useState<Cliente[]>([])
   const [catItems, setCatItems] = useState<ItemCat[]>([])
@@ -272,6 +276,15 @@ export default function CotizacionFormPage() {
     }
   }
 
+  async function eliminar() {
+    if (!cotId) return
+    setEliminando(true)
+    // Las líneas y observaciones de la cotización se borran en cascada.
+    const { error: e } = await createClient().from("cotizaciones").delete().eq("id", cotId)
+    if (e) { setErrorEliminar(e.message); setEliminando(false); return }
+    router.replace("/cotizaciones")
+  }
+
   async function duplicar() {
     setError(null)
     const lineasValidas = lineas.filter(l => l.descripcion.trim() !== "")
@@ -329,6 +342,11 @@ export default function CotizacionFormPage() {
             <Copy className="h-4 w-4" /> Duplicar
           </Button>
         )}
+        {!esNueva && (
+          <Button variant="outline" onClick={() => { setErrorEliminar(null); setConfirmarBorrado(true) }} className="gap-1.5 text-destructive hover:text-destructive">
+            <Trash2 className="h-4 w-4" /> Eliminar
+          </Button>
+        )}
         <Button variant="outline" onClick={abrirPDF} className="gap-1.5">
           <Download className="h-4 w-4" /> Ver PDF
         </Button>
@@ -336,6 +354,21 @@ export default function CotizacionFormPage() {
           {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Guardar
         </Button>
       </PageHeader>
+
+      <AlertDialog open={confirmarBorrado} onOpenChange={o => { if (!o && !eliminando) setConfirmarBorrado(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar cotización</AlertDialogTitle>
+            <AlertDialogDescription>
+              {errorEliminar ?? `¿Eliminar la cotización N° ${numero ?? ""}? Se borran también sus líneas y observaciones. No se puede deshacer.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={eliminando}>Cancelar</AlertDialogCancel>
+            {!errorEliminar && <AlertDialogAction disabled={eliminando} onClick={e => { e.preventDefault(); eliminar() }}>{eliminando ? "Eliminando…" : "Eliminar"}</AlertDialogAction>}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {pdfDatos && (
         <CotizacionPreviewModal data={pdfDatos} cotizacionId={cotId} onClose={() => setPdfDatos(null)} />
