@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Highlighter, Plus, Trash2, Save, Download, ArrowLeft, ArrowUp, ArrowDown, Loader2 } from "lucide-react"
+import { Copy, Highlighter, Plus, Trash2, Save, Download, ArrowLeft, ArrowUp, ArrowDown, Loader2 } from "lucide-react"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { invalidarCache } from "@/lib/cache-consultas"
+import { duplicarTarifado } from "@/lib/tarifado-duplicar"
 import { ClienteCombobox } from "@/components/reports/report-form-widgets"
 import { TarifadoPreviewModal } from "@/components/tarifado-transporte/tarifado-preview-modal"
 import { EMISORES, type Emisor } from "@/lib/cotizacion-pdf-build"
@@ -54,7 +56,8 @@ export default function TarifadoFormPage() {
   const [cargando, setCargando] = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pdfDatos, setPdfDatos] = useState<TarifadoPDFData | null>(null)
+  const [pdfDatos, setPdfDatos] = useState<{ data: TarifadoPDFData; id: string } | null>(null)
+  const numeroNuevoRef = useRef<number | null>(null)   // N° asignado al crear, antes de que `numero` se actualice
   const [numero, setNumero] = useState<number | null>(null)
   const [tarId, setTarId] = useState<string | null>(esNuevo ? null : params.id)
 
@@ -74,6 +77,10 @@ export default function TarifadoFormPage() {
   const [obsSel, setObsSel] = useState<Set<string>>(new Set())
   const [obsExtra, setObsExtra] = useState("")
   const [modoResaltar, setModoResaltar] = useState(false)
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false)
+  const [duplicando, setDuplicando] = useState(false)
+  const [eliminando, setEliminando] = useState(false)
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
   const [editandoObsId, setEditandoObsId] = useState<string | null>(null)
   const [editandoTexto, setEditandoTexto] = useState("")
   const [agregandoObs, setAgregandoObs] = useState(false)
@@ -200,7 +207,7 @@ export default function TarifadoFormPage() {
     })
   }
 
-  async function guardar(): Promise<string | null> {
+  async function guardar(abrirPdfAlTerminar = false): Promise<string | null> {
     setError(null)
     if (!clienteId && !clienteTexto.trim()) { setError("Selecciona o escribe un cliente."); return null }
     if (incluidas.length === 0) { setError("Selecciona al menos una tarifa."); return null }
@@ -241,6 +248,7 @@ export default function TarifadoFormPage() {
       id = data.id
       setTarId(data.id)
       setNumero(data.numero)
+      numeroNuevoRef.current = data.numero
     }
 
     const { error: eDel } = await supabase.from("tarifado_lineas").delete().eq("tarifado_id", id)
@@ -263,17 +271,51 @@ export default function TarifadoFormPage() {
     }
 
     setGuardando(false)
-    if (esNuevo) router.replace(`/tarifado-transporte/${id}`)
+    // Al crear, la página pasa a /<id> y se vuelve a montar: ?pdf=1 hace que reabra el visor del PDF.
+    if (esNuevo) router.replace(`/tarifado-transporte/${id}${abrirPdfAlTerminar ? "?pdf=1" : ""}`)
     return id
   }
 
-  function abrirPDF() {
+  // Duplica la versión guardada (los cambios sin guardar no se copian).
+  async function duplicar() {
+    if (!tarId) return
+    setError(null)
+    setDuplicando(true)
+    try { router.push(`/tarifado-transporte/${await duplicarTarifado(tarId)}`) }
+    catch (e) { setError(e instanceof Error ? e.message : "No se pudo duplicar"); setDuplicando(false) }
+  }
+
+  async function eliminar() {
+    if (!tarId) return
+    setEliminando(true)
+    // Las tarifas y observaciones del tarifado se borran en cascada.
+    const { error: e } = await createClient().from("tarifados").delete().eq("id", tarId)
+    if (e) { setErrorEliminar(e.message); setEliminando(false); return }
+    router.replace("/tarifado-transporte")
+  }
+
+  // Tras crear desde "Ver PDF" (?pdf=1) la página se remonta ya guardada: se abre el visor una vez cargada.
+  const pdfPendiente = useRef(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("pdf") === "1")
+  useEffect(() => {
+    if (cargando || esNuevo || !pdfPendiente.current) return
+    pdfPendiente.current = false
+    window.history.replaceState(null, "", window.location.pathname)
+    abrirPDF()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cargando, esNuevo])
+
+  // Ver PDF guarda primero: el PDF se genera en el servidor desde lo guardado, y así el archivo
+  // lleva el nombre del tarifado (con su N°) al guardarlo o subirlo a SharePoint.
+  async function abrirPDF() {
     const nombreCliente = cliente?.nombre ?? clienteTexto.trim()
     if (!nombreCliente) { setError("Selecciona o escribe un cliente antes de ver el PDF."); return }
     if (incluidas.length === 0) { setError("Selecciona al menos una tarifa."); return }
+    const id = await guardar(true)
+    if (!id) return
+    if (esNuevo) return   // la página se remonta en la ruta del tarifado y abre el PDF sola
     setError(null)
-    setPdfDatos(construirTarifadoPDFData({
-      numero: numero ?? 0,
+    setPdfDatos({ id, data: construirTarifadoPDFData({
+      numero: numeroNuevoRef.current ?? numero ?? 0,
       fecha,
       vigenciaDesde: vigenciaDesde || null,
       emisor,
@@ -289,7 +331,7 @@ export default function TarifadoFormPage() {
         resaltados: l.resaltados,
       })),
       observaciones: [...catObs.filter(o => obsSel.has(o.id)).map(o => o.texto), ...(obsExtra.trim() ? [obsExtra.trim()] : [])],
-    }))
+    }) })
   }
 
   if (cargando) {
@@ -305,15 +347,40 @@ export default function TarifadoFormPage() {
         <Button variant="outline" onClick={() => router.push("/tarifado-transporte")} className="gap-1.5">
           <ArrowLeft className="h-4 w-4" /> Volver
         </Button>
-        <Button variant="outline" onClick={abrirPDF} className="gap-1.5">
+        {tarId && (
+          <Button variant="outline" onClick={duplicar} disabled={duplicando || guardando} className="gap-1.5">
+            {duplicando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />} Duplicar
+          </Button>
+        )}
+        {tarId && (
+          <Button variant="outline" onClick={() => { setErrorEliminar(null); setConfirmarBorrado(true) }} className="gap-1.5 text-destructive hover:text-destructive">
+            <Trash2 className="h-4 w-4" /> Eliminar
+          </Button>
+        )}
+        <Button variant="outline" onClick={abrirPDF} disabled={guardando} className="gap-1.5">
           <Download className="h-4 w-4" /> Ver PDF
         </Button>
-        <Button onClick={guardar} disabled={guardando} className="gap-1.5">
+        <Button onClick={() => guardar()} disabled={guardando} className="gap-1.5">
           {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Guardar
         </Button>
       </PageHeader>
 
-      {pdfDatos && <TarifadoPreviewModal data={pdfDatos} onClose={() => setPdfDatos(null)} />}
+      <AlertDialog open={confirmarBorrado} onOpenChange={o => { if (!o && !eliminando) setConfirmarBorrado(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar tarifado</AlertDialogTitle>
+            <AlertDialogDescription>
+              {errorEliminar ?? `¿Eliminar el tarifado N° ${numero != null ? numeroTarifado(numero, fecha) : ""}? Se borran también sus tarifas y observaciones. No se puede deshacer.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={eliminando}>Cancelar</AlertDialogCancel>
+            {!errorEliminar && <AlertDialogAction disabled={eliminando} onClick={e => { e.preventDefault(); eliminar() }}>{eliminando ? "Eliminando…" : "Eliminar"}</AlertDialogAction>}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {pdfDatos && <TarifadoPreviewModal data={pdfDatos.data} tarifadoId={pdfDatos.id} onClose={() => setPdfDatos(null)} />}
 
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -416,7 +483,7 @@ export default function TarifadoFormPage() {
                               readOnly={modoResaltar}
                               onClick={modoResaltar ? () => toggleResaltado(l.key, j) : undefined}
                               className={`${campoNum} ${resaltada ? "font-bold" : ""} ${modoResaltar ? "cursor-pointer" : ""}`}
-                              aria-label={`Tramo ${TRAMOS_DIESEL[j]}`} aria-pressed={modoResaltar ? resaltada : undefined} />
+                              aria-label={`Tramo ${TRAMOS_DIESEL[j]}`} />
                           </td>
                         )
                       })}
@@ -432,7 +499,7 @@ export default function TarifadoFormPage() {
               </tbody>
             </table>
           </div>
-          {modoResaltar && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Modo resaltar: haz clic en las casillas que quieres destacar en el PDF (otro clic las quita). Pulsa "Listo" para volver a editar.</p>}
+          {modoResaltar && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Modo resaltar: haz clic en las casillas que quieres destacar en el PDF (otro clic las quita). Pulsa &quot;Listo&quot; para volver a editar.</p>}
           <p className="text-xs text-muted-foreground">Valores en UF por viaje. Los cambios aquí aplican solo a este tarifado, no al catálogo.</p>
         </section>
 

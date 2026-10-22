@@ -2,13 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Plus, Loader2, Search } from "lucide-react"
+import { Plus, Loader2, Search, Trash2, Copy } from "lucide-react"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PageHeader } from "@/components/layout/page-header"
 import { createClient } from "@/lib/supabase"
 import { EMISORES } from "@/lib/cotizacion-pdf-build"
 import { numeroTarifado } from "@/lib/tarifado-transporte-pdf-build"
+import { duplicarTarifado } from "@/lib/tarifado-duplicar"
 
 type Fila = {
   id: string
@@ -26,6 +28,28 @@ export default function TarifadoTransportePage() {
   const [error, setError] = useState<string | null>(null)
   const [texto, setTexto] = useState("")
   const [emisor, setEmisor] = useState("")
+  const [aEliminar, setAEliminar] = useState<Fila | null>(null)
+  const [duplicando, setDuplicando] = useState<string | null>(null)
+
+  async function duplicar(id: string) {
+    setError(null)
+    setDuplicando(id)
+    try { router.push(`/tarifado-transporte/${await duplicarTarifado(id)}`) }
+    catch (e) { setError(e instanceof Error ? e.message : "No se pudo duplicar"); setDuplicando(null) }
+  }
+  const [eliminando, setEliminando] = useState(false)
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
+
+  async function confirmarEliminar() {
+    if (!aEliminar) return
+    setEliminando(true)
+    // Las tarifas y observaciones del tarifado se borran en cascada.
+    const { error } = await createClient().from("tarifados").delete().eq("id", aEliminar.id)
+    setEliminando(false)
+    if (error) { setErrorEliminar(error.message); return }
+    setFilas(prev => prev.filter(f => f.id !== aEliminar.id))
+    setAEliminar(null)
+  }
 
   useEffect(() => {
     (async () => {
@@ -83,6 +107,7 @@ export default function TarifadoTransportePage() {
                   <th className="px-3 py-2 font-medium">Emisor</th>
                   <th className="px-3 py-2 font-medium">Cliente</th>
                   <th className="px-3 py-2 font-medium">Atención</th>
+                  <th className="px-3 py-2 w-32"></th>
                 </tr>
               </thead>
               <tbody>
@@ -94,6 +119,18 @@ export default function TarifadoTransportePage() {
                     <td className="px-3 py-2">{f.emisor}</td>
                     <td className="px-3 py-2">{f.clientes_cotizacion?.nombre ?? "—"}</td>
                     <td className="px-3 py-2">{f.atencion ?? "—"}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button type="button" disabled={duplicando !== null}
+                        onClick={e => { e.stopPropagation(); duplicar(f.id) }}
+                        className="mr-3 inline-flex items-center gap-1 text-xs text-[#1a3a5c] hover:underline disabled:opacity-50">
+                        {duplicando === f.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
+                        Duplicar
+                      </button>
+                      <button type="button" onClick={e => { e.stopPropagation(); setErrorEliminar(null); setAEliminar(f) }}
+                        className="text-muted-foreground hover:text-destructive" aria-label={`Eliminar tarifado ${numeroTarifado(f.numero, f.fecha)}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -101,6 +138,20 @@ export default function TarifadoTransportePage() {
           </div>
         )}
       </div>
+      <AlertDialog open={!!aEliminar} onOpenChange={o => { if (!o && !eliminando) { setAEliminar(null); setErrorEliminar(null) } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar tarifado</AlertDialogTitle>
+            <AlertDialogDescription>
+              {errorEliminar ?? `¿Eliminar el tarifado N° ${aEliminar ? numeroTarifado(aEliminar.numero, aEliminar.fecha) : ""}? Se borran también sus tarifas y observaciones. No se puede deshacer.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={eliminando}>Cancelar</AlertDialogCancel>
+            {!errorEliminar && <AlertDialogAction disabled={eliminando} onClick={e => { e.preventDefault(); confirmarEliminar() }}>{eliminando ? "Eliminando…" : "Eliminar"}</AlertDialogAction>}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
