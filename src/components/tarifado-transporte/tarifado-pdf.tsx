@@ -125,7 +125,7 @@ export function TarifadoPDF({ data }: { data: TarifadoPDFData }) {
 
           <View style={s.superHead}>
             <View style={[s.superBanda, { width: ANCHO_TRAMO * TRAMOS_DIESEL.length + 8 }]}>
-              <Text style={s.superTxt}>TRAMOS DE VALOR DEL DIÉSEL (CLP)</Text>
+              <Text style={s.superTxt}>TRAMOS DE VALOR DEL DIÉSEL (CLP/litro)</Text>
               <Text style={s.superSub}>Tarifa escalonada en UF por viaje, según el valor del diésel</Text>
             </View>
           </View>
