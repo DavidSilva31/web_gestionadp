@@ -255,7 +255,9 @@ Misma mecánica que Cotizaciones, pero para tarifas escalonadas de transporte se
 Registro de notebooks/PCs y tablets entregados al personal. Solo `super_admin`, grupo Administración.
 
 - **Equipo** (`equipos`): tipo, marca, modelo, N° de serie (único si se informa), observaciones y estado (Disponible, Asignado, En reparación, Dado de baja). El estado pasa solo a Asignado/Disponible al entregar/devolver.
-- **Encargado** (`equipo_asignaciones`): cada entrega guarda nombre, RUT, cargo, fecha de entrega, devolución y el **acta de responsabilidad firmada** (PDF/JPG/PNG, 10 MB, bucket privado `equipos-actas`, solo `super_admin`). Un equipo tiene como máximo una entrega vigente; las anteriores quedan como historial. El acta se puede cargar al entregar o después, y reemplazar.
+- **Encargado** (`equipo_asignaciones`): cada entrega guarda nombre, RUT, cargo, fecha de entrega, devolución y el **acta de responsabilidad firmada** (PDF/JPG/PNG, 10 MB, bucket privado `equipos-actas`, solo `super_admin`). Un equipo tiene como máximo una entrega vigente; las anteriores quedan como historial. El acta se puede cargar al entregar o después, y reemplazar. **Cambiar encargado** cierra la entrega vigente en la fecha del traspaso y abre una nueva (con su propia acta y el motivo en observaciones), así el equipo conserva el historial; si abrir la nueva falla, reabre la anterior. **Editar datos** corrige nombre, RUT, cargo, fecha y observaciones de la entrega actual sin crear historial. La ficha muestra el **Historial de encargados** completo, con el actual marcado.
+- **Listado**: pestañas Todos / Notebooks y PCs / Tablets con su contador; tarjetas de resumen de la pestaña (equipos, asignados, disponibles, en reparación y **sin acta firmada**, que al pulsarla filtra esos equipos); búsqueda y filtro por estado. La columna Acta distingue "Cargada" de "Falta".
+- **Excel** (`/api/equipos/export`, solo `super_admin`): hoja "Equipos" (con su encargado vigente y si el acta está cargada) y hoja "Historial de entregas".
 - Migración: `migration_equipos.sql`.
 
 ---

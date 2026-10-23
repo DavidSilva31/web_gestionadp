@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Save, Loader2, FileCheck2, FileX2, Upload, Undo2, UserPlus } from "lucide-react"
+import { ArrowLeft, Save, Loader2, FileCheck2, FileX2, Upload, Undo2, UserPlus, Repeat, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -23,6 +23,7 @@ type Asignacion = {
 }
 
 const hoy = () => new Date().toISOString().slice(0, 10)
+const marcaTiempo = () => Date.now()   // fuera del componente: nombres de archivo únicos para el acta
 const fmtFecha = (f: string) => new Date(f + "T00:00:00").toLocaleDateString("es-CL")
 
 export default function EquipoPage() {
@@ -54,6 +55,14 @@ export default function EquipoPage() {
   const actaNuevaRef = useRef<HTMLInputElement>(null)
 
   const [fechaDevolucion, setFechaDevolucion] = useState(hoy())
+
+  // Cambio de encargado (cierra la entrega vigente y abre una nueva) o corrección de los datos de la vigente.
+  const [accion, setAccion] = useState<"ninguna" | "cambiar" | "editar">("ninguna")
+  const [edNombre, setEdNombre] = useState("")
+  const [edRut, setEdRut] = useState("")
+  const [edCargo, setEdCargo] = useState("")
+  const [edFecha, setEdFecha] = useState("")
+  const [edObs, setEdObs] = useState("")
 
   const vigente = asignaciones.find(a => a.fecha_devolucion === null) ?? null
 
@@ -106,7 +115,7 @@ export default function EquipoPage() {
     const invalido = validateUploadFile(archivo)
     if (invalido) { setError(invalido); return false }
     const supabase = createClient()
-    const path = `${equipoId}/${asignacionId}-${Date.now()}.${sanitizeExt(archivo.name)}`
+    const path = `${equipoId}/${asignacionId}-${marcaTiempo()}.${sanitizeExt(archivo.name)}`
     const { error: eUp } = await supabase.storage.from("equipos-actas").upload(path, archivo)
     if (eUp) { setError("No se pudo subir el acta. Intenta de nuevo."); return false }
     const { error: eDb } = await supabase.from("equipo_asignaciones").update({ acta_path: path }).eq("id", asignacionId)
@@ -138,6 +147,60 @@ export default function EquipoPage() {
     setTrabajando(false)
   }
 
+  async function cambiarEncargado() {
+    setError(null)
+    if (!equipoId || !vigente) return
+    if (!encNombre.trim()) { setError("Ingresa el nombre del nuevo encargado."); return }
+    if (encFecha < vigente.fecha_entrega) { setError("El traspaso no puede ser anterior a la entrega actual."); return }
+    if (encActa) { const inv = validateUploadFile(encActa); if (inv) { setError(inv); return } }
+    setTrabajando(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    // Un equipo solo puede tener una entrega vigente: primero se cierra la actual y luego se abre la nueva;
+    // si la nueva falla se reabre la anterior para no dejar el equipo sin encargado.
+    const { error: eCierre } = await supabase.from("equipo_asignaciones").update({ fecha_devolucion: encFecha }).eq("id", vigente.id)
+    if (eCierre) { setError(eCierre.message); setTrabajando(false); return }
+    const { data, error: eNueva } = await supabase.from("equipo_asignaciones").insert({
+      equipo_id: equipoId, encargado_nombre: encNombre.trim(), encargado_rut: encRut.trim() || null,
+      encargado_cargo: encCargo.trim() || null, fecha_entrega: encFecha, observaciones: encObs.trim() || null,
+      created_by: user?.id ?? null,
+    }).select("id").single()
+    if (eNueva || !data) {
+      await supabase.from("equipo_asignaciones").update({ fecha_devolucion: null }).eq("id", vigente.id)
+      setError(eNueva?.message ?? "No se pudo registrar el nuevo encargado")
+      setTrabajando(false)
+      return
+    }
+    if (encActa) await subirActa(data.id, encActa, null)
+    setEncNombre(""); setEncRut(""); setEncCargo(""); setEncObs(""); setEncActa(null); setEncFecha(hoy())
+    setAccion("ninguna")
+    await cargarAsignaciones(equipoId)
+    setTrabajando(false)
+  }
+
+  function empezarEdicion() {
+    if (!vigente) return
+    setEdNombre(vigente.encargado_nombre); setEdRut(vigente.encargado_rut ?? ""); setEdCargo(vigente.encargado_cargo ?? "")
+    setEdFecha(vigente.fecha_entrega); setEdObs(vigente.observaciones ?? "")
+    setError(null)
+    setAccion("editar")
+  }
+
+  async function guardarEdicion() {
+    setError(null)
+    if (!equipoId || !vigente) return
+    if (!edNombre.trim()) { setError("El nombre del encargado no puede quedar vacío."); return }
+    setTrabajando(true)
+    const { error: e } = await createClient().from("equipo_asignaciones").update({
+      encargado_nombre: edNombre.trim(), encargado_rut: edRut.trim() || null, encargado_cargo: edCargo.trim() || null,
+      fecha_entrega: edFecha, observaciones: edObs.trim() || null,
+    }).eq("id", vigente.id)
+    if (e) { setError(e.message); setTrabajando(false); return }
+    setAccion("ninguna")
+    await cargarAsignaciones(equipoId)
+    setTrabajando(false)
+  }
+
   async function devolver() {
     setError(null)
     if (!equipoId || !vigente) return
@@ -164,6 +227,43 @@ export default function EquipoPage() {
     if (e || !data) { setError("No se pudo abrir el acta."); return }
     window.open(data.signedUrl, "_blank", "noopener")
   }
+
+  // Campos del encargado nuevo: los usan "Registrar entrega" y "Cambiar encargado".
+  const camposEncargado = (etiquetaFecha: string, etiquetaObs: string) => (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="space-y-1">
+        <Label className="text-xs">Nombre del encargado</Label>
+        <Input value={encNombre} onChange={e => setEncNombre(e.target.value)} className="h-9" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">RUT</Label>
+        <Input value={encRut} onChange={e => setEncRut(e.target.value)} className="h-9" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Cargo / área</Label>
+        <Input value={encCargo} onChange={e => setEncCargo(e.target.value)} className="h-9" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">{etiquetaFecha}</Label>
+        <Input type="date" value={encFecha} onChange={e => setEncFecha(e.target.value)} className="h-9" />
+      </div>
+      <div className="space-y-1 md:col-span-2">
+        <Label className="text-xs">{etiquetaObs}</Label>
+        <Input value={encObs} onChange={e => setEncObs(e.target.value)} className="h-9" />
+      </div>
+      <div className="space-y-1 md:col-span-2">
+        <Label className="text-xs">Acta de responsabilidad firmada (PDF, JPG o PNG, máx. 10 MB)</Label>
+        <div className="flex items-center gap-2">
+          <input ref={actaNuevaRef} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" className="hidden"
+            onChange={e => { setEncActa(e.target.files?.[0] ?? null); e.target.value = "" }} />
+          <Button type="button" variant="outline" size="sm" onClick={() => actaNuevaRef.current?.click()} className="gap-1.5">
+            <Upload className="h-3.5 w-3.5" /> {encActa ? "Cambiar archivo" : "Elegir archivo"}
+          </Button>
+          <span className="text-xs text-muted-foreground truncate">{encActa?.name ?? "Se puede cargar después"}</span>
+        </div>
+      </div>
+    </div>
+  )
 
   if (cargando) {
     return <div className="p-6 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>
@@ -235,77 +335,111 @@ export default function EquipoPage() {
                   </div>
                   <ActaBoton a={vigente} onVer={verActa} onSubir={cambiarActa} disabled={trabajando} />
                 </div>
-                <div className="flex flex-wrap items-end gap-2 border-t pt-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Fecha de devolución</Label>
-                    <Input type="date" value={fechaDevolucion} onChange={e => setFechaDevolucion(e.target.value)} className="h-9 w-44" />
+                {accion === "ninguna" && (
+                  <div className="flex flex-wrap items-end gap-2 border-t pt-3">
+                    <Button variant="outline" onClick={() => { setError(null); setAccion("cambiar") }} className="gap-1.5">
+                      <Repeat className="h-4 w-4" /> Cambiar encargado
+                    </Button>
+                    <Button variant="outline" onClick={empezarEdicion} className="gap-1.5">
+                      <Pencil className="h-4 w-4" /> Editar datos
+                    </Button>
+                    <div className="ml-auto flex items-end gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Fecha de devolución</Label>
+                        <Input type="date" value={fechaDevolucion} onChange={e => setFechaDevolucion(e.target.value)} className="h-9 w-44" />
+                      </div>
+                      <Button variant="outline" onClick={devolver} disabled={trabajando} className="gap-1.5">
+                        {trabajando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Registrar devolución
+                      </Button>
+                    </div>
                   </div>
-                  <Button variant="outline" onClick={devolver} disabled={trabajando} className="gap-1.5">
-                    {trabajando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Registrar devolución
-                  </Button>
-                </div>
+                )}
+
+                {accion === "cambiar" && (
+                  <div className="space-y-3 border-t pt-3">
+                    <p className="text-sm font-medium">Nuevo encargado</p>
+                    <p className="text-xs text-muted-foreground">
+                      {vigente.encargado_nombre} queda en el historial con devolución en la fecha del traspaso, y el equipo pasa al nuevo encargado.
+                    </p>
+                    {camposEncargado("Fecha del traspaso", "Motivo u observaciones del cambio")}
+                    <div className="flex gap-2">
+                      <Button onClick={cambiarEncargado} disabled={trabajando} className="gap-1.5">
+                        {trabajando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />} Confirmar cambio
+                      </Button>
+                      <Button variant="outline" onClick={() => setAccion("ninguna")} disabled={trabajando}>Cancelar</Button>
+                    </div>
+                  </div>
+                )}
+
+                {accion === "editar" && (
+                  <div className="space-y-3 border-t pt-3">
+                    <p className="text-sm font-medium">Corregir los datos de la entrega actual</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Nombre del encargado</Label>
+                        <Input value={edNombre} onChange={e => setEdNombre(e.target.value)} className="h-9" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">RUT</Label>
+                        <Input value={edRut} onChange={e => setEdRut(e.target.value)} className="h-9" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Cargo / área</Label>
+                        <Input value={edCargo} onChange={e => setEdCargo(e.target.value)} className="h-9" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Fecha de entrega</Label>
+                        <Input type="date" value={edFecha} onChange={e => setEdFecha(e.target.value)} className="h-9" />
+                      </div>
+                      <div className="space-y-1 md:col-span-2">
+                        <Label className="text-xs">Observaciones</Label>
+                        <Input value={edObs} onChange={e => setEdObs(e.target.value)} className="h-9" />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={guardarEdicion} disabled={trabajando} className="gap-1.5">
+                        {trabajando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Guardar cambios
+                      </Button>
+                      <Button variant="outline" onClick={() => setAccion("ninguna")} disabled={trabajando}>Cancelar</Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="rounded-lg border p-4 space-y-3">
                 <p className="text-sm text-muted-foreground">El equipo no tiene encargado. Regístralo para entregarlo.</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Nombre del encargado</Label>
-                    <Input value={encNombre} onChange={e => setEncNombre(e.target.value)} className="h-9" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">RUT</Label>
-                    <Input value={encRut} onChange={e => setEncRut(e.target.value)} className="h-9" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Cargo / área</Label>
-                    <Input value={encCargo} onChange={e => setEncCargo(e.target.value)} className="h-9" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Fecha de entrega</Label>
-                    <Input type="date" value={encFecha} onChange={e => setEncFecha(e.target.value)} className="h-9" />
-                  </div>
-                  <div className="space-y-1 md:col-span-2">
-                    <Label className="text-xs">Observaciones de la entrega</Label>
-                    <Input value={encObs} onChange={e => setEncObs(e.target.value)} className="h-9" />
-                  </div>
-                  <div className="space-y-1 md:col-span-2">
-                    <Label className="text-xs">Acta de responsabilidad firmada (PDF, JPG o PNG, máx. 10 MB)</Label>
-                    <div className="flex items-center gap-2">
-                      <input ref={actaNuevaRef} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" className="hidden"
-                        onChange={e => { setEncActa(e.target.files?.[0] ?? null); e.target.value = "" }} />
-                      <Button type="button" variant="outline" size="sm" onClick={() => actaNuevaRef.current?.click()} className="gap-1.5">
-                        <Upload className="h-3.5 w-3.5" /> {encActa ? "Cambiar archivo" : "Elegir archivo"}
-                      </Button>
-                      <span className="text-xs text-muted-foreground truncate">{encActa?.name ?? "Se puede cargar después"}</span>
-                    </div>
-                  </div>
-                </div>
+                {camposEncargado("Fecha de entrega", "Observaciones de la entrega")}
                 <Button onClick={entregar} disabled={trabajando} className="gap-1.5">
                   {trabajando ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Registrar entrega
                 </Button>
               </div>
             )}
 
-            {asignaciones.filter(a => a.fecha_devolucion !== null).length > 0 && (
+            {asignaciones.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Historial</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Historial de encargados</h4>
                 <div className="rounded-lg border overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-muted/50 text-left">
                       <tr>
                         <th className="px-3 py-2 font-medium">Encargado</th>
+                        <th className="px-3 py-2 font-medium">Cargo / área</th>
                         <th className="px-3 py-2 font-medium">Entrega</th>
-                        <th className="px-3 py-2 font-medium">Devolución</th>
+                        <th className="px-3 py-2 font-medium">Hasta</th>
+                        <th className="px-3 py-2 font-medium">Observaciones</th>
                         <th className="px-3 py-2 font-medium">Acta</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {asignaciones.filter(a => a.fecha_devolucion !== null).map(a => (
-                        <tr key={a.id} className="border-t">
+                      {asignaciones.map(a => (
+                        <tr key={a.id} className={`border-t ${a.fecha_devolucion === null ? "bg-sky-50/50 dark:bg-sky-950/20" : ""}`}>
                           <td className="px-3 py-2">{a.encargado_nombre}{a.encargado_rut && <span className="text-muted-foreground"> · {a.encargado_rut}</span>}</td>
-                          <td className="px-3 py-2">{fmtFecha(a.fecha_entrega)}</td>
-                          <td className="px-3 py-2">{fmtFecha(a.fecha_devolucion!)}</td>
+                          <td className="px-3 py-2">{a.encargado_cargo || "—"}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{fmtFecha(a.fecha_entrega)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {a.fecha_devolucion ? fmtFecha(a.fecha_devolucion) : <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-950 dark:text-sky-300">Actual</span>}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">{a.observaciones || "—"}</td>
                           <td className="px-3 py-2"><ActaBoton a={a} onVer={verActa} onSubir={cambiarActa} disabled={trabajando} compacto /></td>
                         </tr>
                       ))}
