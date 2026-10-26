@@ -9,3 +9,29 @@ export function estadoEquipoClase(estado: string): string {
     default:              return "bg-muted text-muted-foreground"
   }
 }
+
+// ── Actas de entrega: se acepta cualquier tipo de archivo (PDF, Word, imágenes escaneadas, etc.) ──
+export const ACTA_MAX_BYTES = 25 * 1024 * 1024 // 25 MB
+// Por seguridad no se aceptan archivos ejecutables o scripts, aunque el resto de los tipos sí.
+const ACTA_BLOQUEADAS = ["exe", "bat", "cmd", "com", "msi", "scr", "ps1", "vbs", "js", "jar", "sh", "dll", "lnk"]
+
+export function extensionActa(nombre: string): string {
+  const ext = (nombre.split(".").pop() ?? "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8)
+  return nombre.includes(".") && ext ? ext : "bin"
+}
+
+// Devuelve un mensaje de error si el archivo no se puede subir, o null si está bien.
+export function validarActa(file: File): string | null {
+  if (ACTA_BLOQUEADAS.includes(extensionActa(file.name))) return `No se aceptan archivos ejecutables o de comandos (${file.name}).`
+  if (file.size > ACTA_MAX_BYTES) return `Archivo muy grande (${file.name}) — máximo 25 MB.`
+  if (file.size === 0) return `El archivo está vacío (${file.name}).`
+  return null
+}
+
+// Cómo se muestra un acta en el visor: PDF e imágenes comunes se ven dentro del sistema; Word y el resto solo se descargan.
+export function tipoVisorActa(path: string): "pdf" | "imagen" | "otro" {
+  const ext = extensionActa(path)
+  if (ext === "pdf") return "pdf"
+  if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif"].includes(ext)) return "imagen"
+  return "otro"
+}

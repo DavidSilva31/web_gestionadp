@@ -89,6 +89,9 @@ Control de ítems almacenados por cliente:
 - **Vista "Detalle" (Kardex)**: disponible para todos los clientes — toggle Resumen/Detalle junto al agregado habitual; muestra el historial transaccional real **una sola grilla por producto** (agrupado por `carga`, no por lote/código individual) con saldo corrido (posiciones y unidades). El saldo parte del stock actual del ítem (`stock_actual`/`stock_unidades`), así el último saldo coincide siempre con el stock de Resumen. Los productos sin movimientos aparecen con el encabezado "0 movimientos". Filtro de Producto con buscador tipo combobox (escribir para filtrar, sin el viejo `<select>` nativo); navegación solo con scroll nativo horizontal/vertical (barras más gruesas que el resto de la app, sin arrastre por clic). Columnas: **SKU** (código del producto, constante para cada uno), **Nr. Pallet**, fecha, tipo, IMO, **NU**, lote, CAS, guía, OC, fechas de elaboración/vencimiento, envase, report de origen, posiciones/unidades de ingreso y despacho, stock corrido y bodega — todas editables inline
 - **Report clicable en el Detalle**: el número de la columna "Report" abre el report en un visor (el mismo PDF de Reports, con botón Descargar) encima de Inventario, sin salir de la pantalla; en modo "Editar" vuelve a ser la celda editable
 - **Detalle por N° de pallet** (`detallePorPallet()` en `src/lib/inventario.ts`, hoy solo **Sherwin Williams**): como todo es PINTURA y lo único que distingue cada línea es el pallet, el Detalle reemplaza los filtros de producto/IMO por un selector con los pallets del sistema y no muestra ninguno hasta elegir uno. Cada pallet es un producto distinto: nombre `PINTURA (859) (CAJA)`, SKU = N° de pallet (`inventario_items.codigo`), 1 posición y las unidades del pallet en un movimiento de ingreso con `carga` propia (`PINTURA (859)`), así cada uno tiene su saldo. Así se reciben en un report: `{producto} ({envase}) {sku}`
+- **Nombre del producto editable**: con "Editar" activo, el nombre de cada producto en la cabecera de su grilla es una celda editable. Cambia el nombre del ítem y el texto `carga` de todos sus movimientos (así Kardex, Excel y HES lo muestran igual) y queda en Auditoría. El trigger de stock de `movimientos` solo se dispara al cambiar tipo, unidades, posiciones o producto (`UPDATE OF`), así editar textos no recalcula el stock
+- **Detalle de UTI Chile** (`detalleConRack()`): igual que el de Sherwin (selector de pallets, nada hasta elegir uno) pero con más: columna **Rack** (editable), pallets con varios valores como `401/403` (se encuentran buscando 401 o 403), un **filtro de Lote** que aparece cuando el pallet elegido tiene 2 o más lotes, y un buscador **SKU o lote** para ver en qué pallets está un lote. UTI no usa posiciones en pantalla: se ocultan las columnas Ing./Desp./Stock Pos. Cada SKU es un producto (`LIMPIEZA INDUSTRIAL (SKU)`) y cada línea de pallet un movimiento con su N° de pallet, rack, lote y bodega
+- El selector de producto del Detalle lista cada nombre una sola vez (dos productos pueden llamarse igual) y al elegirlo muestra todos los que lo llevan
 - **Filtro por lote** en la vista Detalle: el saldo corrido y la grilla se pueden acotar a un lote específico; el stock mostrado se calcula sobre ese lote
 - Los movimientos marcados como **ocultos** (`movimientos.oculto = true`) siguen en la base y mantienen su efecto de stock y su vínculo con el report, pero no aparecen en el Kardex ni en las sugerencias de lote
 - **Stock Pos / Stock Und editables** en la vista Detalle (con el modo "Editar" activado): al cambiar un saldo se inserta un movimiento de ajuste por la diferencia (1 segundo después del movimiento editado), sin tocar los movimientos existentes. Es la forma de corregir un stock sin pasar por SQL
@@ -115,6 +118,7 @@ Directorio de empresas con carga en bodega:
 - Alta, edición y desactivación de clientes
 - Sector económico con badges de color
 - **Contactos separados por rol**: contacto comercial (recibe el HES — nombre/cargo/teléfono, correos en `emails[]`) distinto de hasta 3 contactos operacionales (nombre/cargo/correo/teléfono cada uno)
+- **Día de corte de facturación** editable (1 a 31): 1 = mes calendario; otro día = ciclo (ej. 26: del 26 al 25 del mes siguiente). Lo usa el HES de ese cliente
 - Vínculo de **stock compartido** con otro cliente (mismo pool de inventario, facturación independiente)
 - Activación del flag **"Usa vista Detalle"** (Kardex) en Inventario
 
@@ -171,6 +175,11 @@ Informes de recepción de carga:
 - **Lista de reports**: los abiertos arriba y los finalizados (despachado, anulado) abajo, separados por una fila "Finalizados"; dentro de cada grupo, por número descendente
 - **IMO, NU y fechas de lote automáticos**: al elegir un producto en Bodegaje, la Clase IMO y el NU salen de la ficha y, si ahí faltan, del último movimiento; al elegir un lote conocido se completan sus fechas de elaboración y vencimiento
 - **Imágenes de referencia (Sección 3)**: debajo de Observaciones se pueden adjuntar imágenes JPG/PNG opcionales (máx. 10 MB) como referencia; se suben al guardar al bucket `reports-firmados` y sus paths quedan en `reports.sec3_imagenes_referencia`. Solo en la pantalla de edición, y no salen en el PDF
+- **N° Posición**: en Bodegaje, el campo que se llamaba "N° Pallets" pasó a "N° Posición" (el de unidades sigue igual). En un **despacho**, al elegir el producto se precargan su Clase IMO, NU y N° de bodega desde lo ya guardado
+- **Bodegaje de UTI Chile** (por pallet, no por posiciones): el formulario trae **N° Pallet** y **Rack** en vez de N° Posición, y no pide CAS, OC ni fechas. En un despacho el pallet se elige entre los que tienen stock de ese producto (con sus unidades y rack), el lote entre los de ese pallet y se avisa cuánto queda disponible; en un ingreso se elige un pallet existente o se escribe uno nuevo. Al despachar el report, `rebuild_bodegaje_movimientos()` calcula las **posiciones** solas, solo para el HES: un ingreso a un pallet sin stock suma 1 (en la línea de la clase más cara); un despacho que deja el pallet en 0 unidades resta 1 con un movimiento aparte de 0 unidades (oculto en el Detalle). Las líneas despachadas descuentan solo unidades. El PDF y el Excel muestran pallet y rack
+- **Despacho Full / Vacío / Parcial (Sección 1)**: en un despacho de 20ft/40ft hay tres opciones excluyentes: **Despacho Full**, **Despacho Vacío** y **Despacho Parcial** (en un ingreso siguen "Almacenaje Full/Vacío"). Full y Vacío eligen el contenedor de la lista de los que están en bodega, **filtrada por ese estado** (cada sigla muestra si está Full o Vacía). **Parcial** es el contenedor que llega lleno, se desconsolida en parte y se va con carga: nunca estuvo en bodega, así que la sigla se escribe, **no mueve el stock de CONTENEDORES** y el report pasa a "En proceso" como un contenedor sin Full/Vacío (`sec1_almacenaje = 'parcial'`). En la **Sección 2** hay una opción **Parcial** (`sec2_parcial`) para marcar una consolidación o desconsolidación parcial
+- **Quitar archivos adjuntos**: los adjuntos de HDS/Guía, la evidencia de la Sección 2 y las imágenes de la Sección 3 tienen una X para quitarlos del report (con confirmación en un popup con el diseño de la web, `ConfirmarDialogo`); se guarda al instante, queda en Auditoría y el archivo sigue en el almacenamiento privado, que no se borra desde la app
+- **Tomar foto**: junto a cada zona de adjuntos hay un botón **Tomar foto** que abre la cámara de la tablet o el celular directamente (`TomarFotoBoton`, `capture="environment"`); se saca la foto y queda adjunta. Está en la evidencia de la Sección 2, las imágenes de la Sección 3, los adjuntos de HDS/Guía, el panel de archivos adjuntos, la cola de despacho (incluido el report firmado) y las actas de Equipos
 - **Teclado en el formulario**: Enter salta al siguiente campo y, en las listas desplegables (cliente, empresa, conductor/RUT, producto), las flechas mueven la selección y Enter elige la opción
 - **Resync de Bodegaje en reports despachados**: cuando un super_admin o Javier Navarro edita los productos, cantidades o lotes de un report ya despachado, el stock y los movimientos generados se recalculan automáticamente (vía `rebuild_bodegaje_movimientos()`)
 - Exportar listado filtrado a **Excel** (incluye una hoja "Bodegaje - Detalle" con una fila por report × producto)
@@ -206,6 +215,7 @@ Hoja de Estadía — cálculo de almacenaje para facturación mensual:
 - **Múltiples tarifas por cliente**: un cliente puede tener varias tarifas activas simultáneas (ej. clase IMO 8 y clase IMO 3). Selector inline en el header cuando existen más de una. `cotizacion_numero` se auto-genera con formato `COT-YYYY-NNN` mediante secuencia PostgreSQL + trigger si se deja vacío
 - **Cálculo automático**: stock inicial + movimientos diarios del período → pallet-días → monto en UF
 - **Pallets = posiciones**: el HES cuenta los pallets de cada movimiento con `movimientos.posiciones`; solo si un movimiento no trae posiciones (stock inicial agregado y movimientos manuales antiguos) usa `unidades`. Antes sumaba siempre `unidades`, mezclando pallets con cantidad de envases (22 pallets de xantato eran 748 unidades)
+- **UTI Chile se factura por posiciones (pallets) y por clase IMO**: almacenaje diario de pallets de IMO 8, IMO 5 y carga normal (la cantidad es la suma del stock de cada día), más ingreso/salida de pallets y servicios (picking, paletizado, traslados, habilitación). Cada pallet cuenta **1 posición, en la clase más cara que contiene** (`uti_tarifa_clase()`); los reports de UTI calculan las posiciones solos (ver Reports)
 - **Día de corte de facturación por cliente** (`clientes.dia_corte_facturacion`): con corte 1 el período es el mes calendario; con otro día es un ciclo rodante (ej. corte 26 → "Septiembre" va del 26 de agosto al 25 de septiembre, como PROQUIMIN y ENAP)
 - **Facturación mínima una vez por cliente** en modo unificado (varias tarifas/clases activas): se aplica el máximo de los mínimos configurados sobre el total sumado, en vez de un mínimo independiente por clase
 - Tabla día a día con ingresos, despachos, stock al cierre y tarifa
@@ -255,10 +265,11 @@ Misma mecánica que Cotizaciones, pero para tarifas escalonadas de transporte se
 Registro de notebooks/PCs y tablets entregados al personal. Solo `super_admin`, grupo Administración.
 
 - **Equipo** (`equipos`): tipo, marca, modelo, N° de serie (único si se informa), observaciones y estado (Disponible, Asignado, En reparación, Dado de baja). El estado pasa solo a Asignado/Disponible al entregar/devolver.
-- **Encargado** (`equipo_asignaciones`): cada entrega guarda nombre, RUT, cargo, fecha de entrega, devolución y el **acta de responsabilidad firmada** (PDF/JPG/PNG, 10 MB, bucket privado `equipos-actas`, solo `super_admin`). Un equipo tiene como máximo una entrega vigente; las anteriores quedan como historial. El acta se puede cargar al entregar o después, y reemplazar. **Cambiar encargado** cierra la entrega vigente en la fecha del traspaso y abre una nueva (con su propia acta y el motivo en observaciones), así el equipo conserva el historial; si abrir la nueva falla, reabre la anterior. **Editar datos** corrige nombre, RUT, cargo, fecha y observaciones de la entrega actual sin crear historial. La ficha muestra el **Historial de encargados** completo, con el actual marcado.
+- **Encargado** (`equipo_asignaciones`): cada entrega guarda nombre, RUT, cargo, fecha de entrega, devolución y el **acta de responsabilidad firmada** (cualquier tipo de archivo —PDF, Word, imágenes escaneadas—, máx. 25 MB, sin ejecutables, bucket privado `equipos-actas`, solo `super_admin`). Un equipo tiene como máximo una entrega vigente; las anteriores quedan como historial. El acta se puede cargar al entregar o después, y reemplazar. **Cambiar encargado** cierra la entrega vigente en la fecha del traspaso y abre una nueva (con su propia acta y el motivo en observaciones), así el equipo conserva el historial; si abrir la nueva falla, reabre la anterior. **Editar datos** corrige nombre, RUT, cargo, fecha y observaciones de la entrega actual sin crear historial. La ficha muestra el **Historial de encargados** completo, con el actual marcado.
+- **Ver, eliminar y fotografiar el acta**: "Ver acta" abre un **visor dentro del sistema** (`VisorArchivo`; PDF e imágenes se ven ahí, Word y otros formatos se descargan). Cada acta cargada se puede **eliminar** (con confirmación; borra también el archivo del almacenamiento) y se puede sacar con la cámara de la tablet (**Foto**)
 - **Listado**: pestañas Todos / Notebooks y PCs / Tablets con su contador; tarjetas de resumen de la pestaña (equipos, asignados, disponibles, en reparación y **sin acta firmada**, que al pulsarla filtra esos equipos); búsqueda y filtro por estado. La columna Acta distingue "Cargada" de "Falta".
 - **Excel** (`/api/equipos/export`, solo `super_admin`): hoja "Equipos" (con su encargado vigente y si el acta está cargada) y hoja "Historial de entregas".
-- Migración: `migration_equipos.sql`.
+- Migraciones: `migration_equipos.sql` y `migration_equipos_actas_cualquier_archivo.sql` (quita la restricción de tipo del bucket).
 
 ---
 
@@ -418,6 +429,9 @@ src/
 │   │   ├── report-form-widgets.tsx    # BodegajeItemsList, EmpresaTransporteCombobox, etc.
 │   │   ├── report-form-types.ts       # Tipos y mapper DB → form
 │   │   └── report-preview-modal.tsx   # Modal de previsualización/descarga del PDF
+│   ├── confirmar-dialogo.tsx          # Confirmación con el diseño de la web (reemplaza window.confirm)
+│   ├── visor-archivo.tsx              # Visor de PDF / imagen dentro del sistema (actas de Equipos)
+│   ├── tomar-foto-boton.tsx           # Botón que abre la cámara directamente (tablet / celular)
 │   └── ui/                            # Componentes shadcn/ui
 ├── contexts/auth-context.tsx          # Sesión y perfil de usuario
 ├── proxy.ts                           # Protección de rutas + control de roles (Next.js 16)
@@ -441,6 +455,7 @@ src/
     ├── backup-inventario.ts           # Genera el Excel diario del inventario
     ├── backup-servidor.ts             # Verifica super_admin en las rutas /api/admin/backup/*
     ├── auth-reintento.ts              # getUser() con reintentos ante fallos de red (proxy y layout del dashboard)
+    ├── inventario.ts                  # Helpers de inventario: partesProducto, detallePorPallet / detalleConRack, valoresPallet (pallets "401/403")
     ├── sigla.ts                       # Formato XXXXXX-X de siglas de contenedor / isotanque
     ├── chatbot-knowledge.ts           # Base de conocimiento (system prompt) del asistente
     ├── chatbot-tools.ts               # Function calling de solo lectura para el asistente
@@ -451,48 +466,30 @@ src/
 
 ## Scripts SQL (`supabase/`)
 
+Todo lo que se ejecuta en el SQL Editor de Supabase está ordenado en carpetas, con un índice completo por tema en [`supabase/README.md`](supabase/README.md):
+
+| Ruta | Descripción |
+|---|---|
+| `schema.sql` | Esquema completo de la base de datos (tablas, funciones, RLS, triggers) — solo para armar una base desde cero |
+| `migraciones_aplicadas/` | Cambios de **esquema** ya ejecutados en producción (~110 `migration_*.sql` y `supabase_security_fixes.sql`): tablas, columnas, funciones, triggers, políticas e índices |
+| `cargas_de_datos/` | Cargas y correcciones puntuales de **datos** ya ejecutadas: inventarios de UTI Chile y Wilhelmsen, arreglos de reports puntuales, reinicio de correlativos |
+| `demo/` | Datos de demostración (`demo_data.sql`, `demo_data_hes.sql`) y su limpieza (`demo_data_cleanup.sql`, ejecutar antes de pasar a producción) |
+
+Migraciones recientes que conviene conocer (todas en `migraciones_aplicadas/`):
+
 | Archivo | Descripción |
 |---|---|
-| `schema.sql` | Esquema completo de la base de datos (tablas, funciones, RLS, triggers) |
-| `demo_data.sql` | Datos de demostración base (usuarios, clientes) |
-| `demo_data_hes.sql` | Datos de demostración para HES: tarifas y movimientos de Brenntag, BASF y Air Liquide (Julio 2026) |
-| `demo_data_cleanup.sql` | Limpieza de datos demo — ejecutar antes de pasar a producción |
-| `migraciones_aplicadas/` | Historial de las ~100 migraciones delta (`migration_*.sql` y `supabase_security_fixes.sql`) ya ejecutadas en producción, archivadas aquí para que `supabase/` solo tenga lo vigente. Cada archivo indica en su encabezado qué hace; los nombres de abajo están en esa carpeta. **Las migraciones nuevas se dejan en esta carpeta** y se ejecutan una sola vez en el SQL Editor de Supabase |
-| `migration_report_bodegaje_items.sql` | Tabla `report_bodegaje_items`: Sección 3 con múltiples productos por report |
-| `migration_resync_bodegaje_despachado.sql` / `migration_resync_bodegaje_fixes.sql` | `rebuild_bodegaje_movimientos()` y resync de stock al editar un report despachado |
-| `migration_reports_codigo_verificacion.sql` | Código de verificación de 5 dígitos por report (trigger + backfill) |
-| `migration_conductores.sql` | Catálogo de conductores |
-| `migration_reports_sec3_cda.sql` / `migration_reports_sec3_cuyd.sql` | Campos CUyD / CDA de la Sección 3 |
-| `migration_movimientos_oculto.sql` | Columna `movimientos.oculto` (ocultar movimientos del Kardex y de las sugerencias de lote) |
-| `migration_reports_sec1_almacenaje.sql` | Columna `reports.sec1_almacenaje` (Almacenaje Full / Vacío de la Sección 1) |
-| `migration_reports_en_proceso.sql` | Estado `en_proceso` y la transición pendiente_despacho → en_proceso en `validate_report_transition()` |
-| `migration_rebuild_bodegaje_manifiesto.sql` | `rebuild_bodegaje_movimientos()` ahora copia al movimiento la Clase IMO, NU, bodega, SKU, envase y transporte del report (antes quedaban vacíos en el Detalle del inventario), y rellena los movimientos ya generados sin pisar datos |
-| `migration_indices_revision.sql` | Índices nuevos según las consultas reales de la app (movimientos por producto y por carga, auditoría por acción y fecha, cotizaciones y transporte por fecha) y se elimina `idx_mov_cliente`, redundante. Incluye consultas de solo lectura para ver el uso real de cada índice |
-| `migration_report_bodegaje_peso_neto.sql` | Columna `report_bodegaje_items.sec3_peso_neto` y copia del peso al movimiento (columna "Peso neto" del Detalle) |
-| `migration_reports_contenedores.sql` | Producto CONTENEDORES: envase Full/Vacío en movimientos y rama de contenedores en `create_movimiento_from_report()` |
-| `migration_movimientos_sync_pos_und.sql` | `sync_inventario_from_movimiento()`: `stock_actual` ← posiciones y `stock_unidades` ← unidades (mismo criterio que reports) |
-| `migration_inventario_items_protege_stock.sql` | Trigger que bloquea cambios directos a `stock_actual`/`stock_unidades`/`cliente_id` (solo se puede mover stock vía movimientos) — el corte es `pg_trigger_depth() <= 1`: medido dentro del propio trigger, un UPDATE directo da 1 (no 0) y uno disparado desde otro trigger da 2. Por eso las funciones de stock solo pueden tocar el stock cuando corren desde un trigger; una corrección manual necesita desactivar este trigger un instante |
-| `migration_inventario_items_codigo.sql` | Columna `inventario_items.codigo` (SKU del producto) |
-| `migration_reports_isotanque.sql` | `create_movimiento_from_report()`: rama de isotanques (código, ítem ISOTANQUE del cliente, ±1 unidad) |
-| `migration_cotizaciones.sql` | Módulo de Cotizaciones: tablas, RLS solo `super_admin` y carga de catálogos (ítems, categorías, observaciones) |
-| `migration_clientes_cotizacion.sql` | Tabla `clientes_cotizacion` (clientes propios de Cotizaciones), `cotizaciones.id_portal` para conservar el id del portal anterior, y `cotizaciones.numero` deja de ser único |
-| `migration_cotizaciones_ocultar_totales.sql` | Columna `cotizaciones.ocultar_totales` (no mostrar Neto/IVA/Total en el PDF) |
-| `migration_tarifado_transporte.sql` | Módulo Tarifado Transporte: catálogo de tarifas escalonadas (hoja AJUSTADA), tarifados, tarifas copiadas, RLS `super_admin` |
-| `migration_tarifado_observaciones_propias.sql` | Observaciones propias del tarifado (`tarifado_obs_catalogo`) en vez de las de Cotizaciones |
-| `migration_tarifado_resaltados.sql` | `tarifado_lineas.resaltados`: casillas resaltadas en el PDF |
+| `migration_movimientos_sync_solo_stock.sql` | El trigger de stock de `movimientos` solo se dispara al cambiar tipo, unidades, posiciones o producto: editar un texto (lote, bodega, nombre) ya no recalcula el stock |
+| `migration_movimientos_rack.sql` | Columna `movimientos.rack` (UTI Chile) |
+| `migration_reports_bodegaje_pallet_rack.sql` | `report_bodegaje_items.sec3_numero_pallet` / `sec3_rack`; el movimiento copia pallet y rack |
+| `migration_uti_posiciones_clase_mas_cara.sql` | Función `uti_tarifa_clase()` y corrección de la carga de UTI: 1 posición por pallet, en su clase más cara |
+| `migration_reports_uti_posiciones_automaticas.sql` | `rebuild_bodegaje_movimientos()` calcula las posiciones por pallet de UTI (para el HES) |
+| `migration_reports_despacho_parcial.sql` | `sec1_almacenaje = 'parcial'`, `reports.sec2_parcial` y la rama del contenedor entero solo para Full/Vacío |
+| `migration_equipos_actas_cualquier_archivo.sql` | El bucket `equipos-actas` acepta cualquier tipo de archivo (25 MB) |
+| `migration_reports_sec3_imagenes_referencia.sql` | `reports.sec3_imagenes_referencia` (imágenes de referencia de la Sección 3) |
 | `migration_equipos.sql` | Módulo Equipos: tablas, RLS y bucket privado `equipos-actas` |
-| `migration_rls_initplan.sql` | Envuelve `current_user_role()` / `auth.uid()` en `(select …)` en las políticas RLS (rendimiento) |
-| `migration_fix_sherwin_carga_nombre_producto.sql` | Alinea `movimientos.carga` de Sherwin Williams con el nombre actual de cada producto |
-| `migration_reports_recepcion_editor_total.sql` | La cuenta de Recepción pasa a ser "editor total" en `es_editor_total_reports()` (hay que mantenerlo igual en `reports/[id]/page.tsx`) |
-| `migration_inventario_solo_lectura.sql` | Columna `profiles.inventario_solo_lectura`, trigger que bloquea escrituras directas sobre `inventario_items` para esos usuarios y acceso de Jocelyn a Inventario en solo lectura |
-| `migration_fix_default_pallets_bodegaje.sql` | N° Pallets vacío cuenta como 0 y no como 1 en las funciones de stock de Bodegaje |
-| `migration_fix_bodegaje_carga_item_vinculado.sql` | `rebuild_bodegaje_movimientos()` usa la descripción real del ítem vinculado como `carga` (sin recortarle el envase) |
-| `migration_bodegaje_contenedor_transporte_y_sku.sql` | Producto en contenedor 20ft/40ft: Transporte = sigla y el contenedor se registra como producto CONTENEDORES |
-| `migration_reports_sec1_segundo_contenedor.sql` | Columnas `sec1_sigla_2` / `sec1_interchange_2` (hasta 2 contenedores de 20ft) y un movimiento por contenedor; trigger `zz_` que concatena las siglas en Transporte Incomex |
-| `migration_reports_sec3_imagenes_referencia.sql` | Columna `reports.sec3_imagenes_referencia` (imágenes de referencia de la Sección 3) |
-| `migration_fix_report80_duplicados.sql`, `migration_fix_stock_residual_report80.sql`, `migration_fix_report103_solo_contenedor.sql` | Correcciones puntuales de datos de reports específicos (doble guardado, stock residual, report registrado con secciones de más). Sirven de ejemplo de cómo corregir un report despachado sin romper el stock |
 
-> **Nota de despliegue:** Para aplicar cambios de schema a una BD existente (no desde cero), ejecutar solo los bloques delta en el SQL Editor de Supabase — no correr `schema.sql` completo ya que fallará en tipos y tablas que ya existen.
+> **Nota de despliegue:** para aplicar cambios a una base existente (no desde cero), ejecutar solo los bloques delta en el SQL Editor de Supabase — no correr `schema.sql` completo, ya que falla con lo que ya existe. Un cambio nuevo se escribe como `migration_<tema>.sql` en una transacción con verificación al final, se ejecuta una vez y se guarda en `migraciones_aplicadas/` (esquema) o `cargas_de_datos/` (datos).
 
 ---
 

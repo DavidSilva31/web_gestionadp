@@ -2,7 +2,7 @@ export type TipoMovimiento = "ingreso" | "despacho"
 export type TipoContenedor = "20ft" | "40ft" | "isotanque"
 // Con 20ft/40ft: meter o sacar el contenedor entero ("full" = con carga, "vacio" = vacío).
 // Sin ninguno de los dos, el contenedor pasa a Operaciones (consolidado/desconsolidado).
-export type AlmacenajeContenedor = "full" | "vacio"
+export type AlmacenajeContenedor = "full" | "vacio" | "parcial"
 export type SolicitadoPor  = "clientes" | "hds" | "operaciones"
 export type TransporteTipo = "propio" | "externo"
 
@@ -41,6 +41,8 @@ export interface ReportFormData {
   sec2_paletizado:     boolean
   sec2_etiquetado:     boolean
   sec2_otro:           boolean
+  // Consolidación / desconsolidación parcial (el contenedor llega, se trabaja una parte y se va)
+  sec2_parcial:        boolean
   sec2_hora_inicio:    string
   sec2_hora_termino:   string
   sec2_sigla_numero:   string
@@ -78,6 +80,9 @@ export interface BodegajeItemFormData {
   sec3_clase_imo:          string
   sec3_nu:                 string
   sec3_numero_bodega:      string
+  // N° de pallet y rack (solo UTI Chile: ahí se trabaja por pallet y no por posiciones)
+  sec3_numero_pallet:      string
+  sec3_rack:               string
   sec3_numero_pallets:     string
   sec3_numero_unidades:    string
   sec3_lote:               string
@@ -96,7 +101,7 @@ export interface BodegajeItemFormData {
 export function emptyBodegajeItem(): BodegajeItemFormData {
   return {
     sec3_inventario_item_id: "", sec3_producto: "", sec3_clase_imo: "", sec3_nu: "",
-    sec3_numero_bodega: "", sec3_numero_pallets: "", sec3_numero_unidades: "",
+    sec3_numero_bodega: "", sec3_numero_pallet: "", sec3_rack: "", sec3_numero_pallets: "", sec3_numero_unidades: "",
     sec3_lote: "", sec3_cas: "", sec3_orden_compra: "",
     sec3_fecha_elaboracion: "", sec3_fecha_vencimiento: "", sec3_peso_neto: "", tarifa_cliente_id: "",
   }
@@ -112,6 +117,8 @@ export function bodegajeItemFromDb(data: Record<string, any>): BodegajeItemFormD
     sec3_clase_imo:          s(data.sec3_clase_imo),
     sec3_nu:                 s(data.sec3_nu),
     sec3_numero_bodega:      s(data.sec3_numero_bodega),
+    sec3_numero_pallet:      s(data.sec3_numero_pallet),
+    sec3_rack:               s(data.sec3_rack),
     sec3_numero_pallets:     data.sec3_numero_pallets  != null ? String(data.sec3_numero_pallets)  : "",
     sec3_numero_unidades:    data.sec3_numero_unidades != null ? String(data.sec3_numero_unidades) : "",
     sec3_lote:               s(data.sec3_lote),
@@ -149,7 +156,7 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
     sec2_activa: b(data.sec2_activa), sec2_consolidado: b(data.sec2_consolidado),
     sec2_desconsolidado: b(data.sec2_desconsolidado), sec2_picking: b(data.sec2_picking),
     sec2_paletizado: b(data.sec2_paletizado), sec2_etiquetado: b(data.sec2_etiquetado),
-    sec2_otro: b(data.sec2_otro),
+    sec2_otro: b(data.sec2_otro), sec2_parcial: b(data.sec2_parcial),
     sec2_hora_inicio: s(data.sec2_hora_inicio), sec2_hora_termino: s(data.sec2_hora_termino),
     sec2_sigla_numero: s(data.sec2_sigla_numero), sec2_observaciones: s(data.sec2_observaciones),
     sec3_activa: b(data.sec3_activa),

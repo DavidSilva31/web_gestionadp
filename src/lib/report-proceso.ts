@@ -1,6 +1,7 @@
 // Reports de Depósito de Contenedores que NO se cierran al despachar el camión.
 //
-// Un 20ft o 40ft SIN "Almacenaje Full" ni "Almacenaje Vacío" es un contenedor
+// Un 20ft o 40ft SIN "Almacenaje Full" ni "Almacenaje Vacío" (o con "Despacho Parcial": llega lleno,
+// se desconsolida en parte y se va con carga) es un contenedor
 // que Operaciones debe trabajar después (consolidado/desconsolidado), un
 // proceso largo: el chofer no puede esperar, así que el camión sale y el report
 // queda "en_proceso" (con su PDF ya disponible) hasta que Operaciones lo cierre.
@@ -21,7 +22,7 @@ interface ReportContenedor {
 export function requiereProceso(r: ReportContenedor): boolean {
   return !!r.sec1_activa
     && (r.sec1_tipo_contenedor === "20ft" || r.sec1_tipo_contenedor === "40ft")
-    && !r.sec1_almacenaje
+    && (!r.sec1_almacenaje || r.sec1_almacenaje === "parcial")
 }
 
 // Estado en que queda un report cuando el camión sale (despacho en portería).

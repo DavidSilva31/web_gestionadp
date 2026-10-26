@@ -13,7 +13,14 @@ export const INVENTARIO_UNIDADES = ["unidad", "pallets", "contenedor", "isotanqu
 // Clientes cuyo inventario se maneja por pallet (todo es un mismo producto, p. ej. PINTURA, y lo que
 // los distingue es el N° de pallet, que hace de SKU): su Detalle se busca por número de pallet y no
 // por producto/IMO. Hoy solo Sherwin Williams.
-export const detallePorPallet = (nombreCliente: string | null | undefined) => /sherwin/i.test(nombreCliente ?? "")
+export const detallePorPallet = (nombreCliente: string | null | undefined) => /sherwin|uti chile/i.test(nombreCliente ?? "")
+
+// UTI Chile además lleva el RACK de cada pallet (columna extra en el Detalle) y busca también por SKU o lote.
+export const detalleConRack = (nombreCliente: string | null | undefined) => /uti chile/i.test(nombreCliente ?? "")
+
+// Un N° de pallet puede traer dos o más valores ("401/403", "401, 403"): se separan para buscarlos uno a uno.
+export const valoresPallet = (texto: string | null | undefined): string[] =>
+  (texto ?? "").split(/[\/,;]+/).map(v => v.trim()).filter(Boolean)
 
 // Tipos de envase del Kardex (Detalle de /inventario) — mismo catálogo que el
 // CHECK de movimientos.tipo_envase (migration_kardex_inventario.sql).
@@ -31,6 +38,8 @@ export const ENVASES_CONTENEDOR = ["Full", "Vacío"] as const
 export interface InventarioItemOption {
   id: string; descripcion: string; clase_imo: string | null; nu: string | null
   codigo?: string | null; unidad?: string | null
+  // Bodega del último movimiento del producto (se usa para precargar el N° de bodega en un despacho)
+  bodega?: string | null
 }
 
 // Cómo se muestra un producto al elegirlo en un report: "{producto} ({envase}) {sku}".

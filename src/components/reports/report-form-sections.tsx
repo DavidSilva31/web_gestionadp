@@ -104,7 +104,8 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
   const esIso = form.sec1_tipo_contenedor === "isotanque"
   // 20ft/40ft con Almacenaje Full/Vacío: el contenedor entero se ingresa o despacha
   // como una unidad con su sigla (SKU), igual que un isotanque — producto "CONTENEDORES".
-  const esContenedorUnidad = (form.sec1_tipo_contenedor === "20ft" || form.sec1_tipo_contenedor === "40ft") && !!form.sec1_almacenaje
+  const almacenajeEntero = form.sec1_almacenaje === "full" || form.sec1_almacenaje === "vacio"
+  const esContenedorUnidad = (form.sec1_tipo_contenedor === "20ft" || form.sec1_tipo_contenedor === "40ft") && almacenajeEntero
   const esUnidad = esIso || esContenedorUnidad
   const productoUnidad = esIso ? { descripcion: "ISOTANQUE", categoria: "Isotanque" } : { descripcion: "CONTENEDORES", categoria: "Contenedor IMO" }
   // El Ingreso/Despacho ya no se pregunta en la Sección 1: se toma del
@@ -115,8 +116,13 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
   // "Almacenaje Vacío" (ver el select de Sigla), que es lo que hace que el
   // contenedor se descuente del stock y el report se cierre al salir el camión.
   const esContenedor = form.sec1_tipo_contenedor === "20ft" || form.sec1_tipo_contenedor === "40ft"
-  const esDespachoUnidad = (esIso || esContenedor) && (form.sec3_tipo || form.sec1_tipo_movimiento) === "despacho"
+  const esDespacho = (form.sec3_tipo || form.sec1_tipo_movimiento) === "despacho"
+  // Despacho Parcial: el contenedor llegó lleno, se desconsolida en parte y se va con carga — nunca estuvo en
+  // bodega, así que la sigla se escribe (no se elige de la lista de contenedores en bodega).
+  const esDespachoUnidad = (esIso || esContenedor) && esDespacho && form.sec1_almacenaje !== "parcial"
   const [enBodega, setEnBodega] = useState<string[]>([])
+  // Estado de cada contenedor en bodega ("Full" / "Vacío"), según el último ingreso que lo registró.
+  const [envaseDe, setEnvaseDe] = useState<Record<string, string>>({})
   const { descripcion: descProducto, categoria: catProducto } = productoUnidad
 
   useEffect(() => {
@@ -129,17 +135,28 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
       const { data: items } = await supabase.from("inventario_items").select("id")
         .eq("cliente_id", cli.id).eq("descripcion", descProducto).eq("categoria", catProducto)
       if (!items?.length) { if (vivo) setEnBodega([]); return }
-      const { data: movs } = await supabase.from("movimientos").select("codigo, tipo")
-        .in("inventario_item_id", items.map(i => i.id)).not("codigo", "is", null)
+      const { data: movs } = await supabase.from("movimientos").select("codigo, tipo, tipo_envase, fecha")
+        .in("inventario_item_id", items.map(i => i.id)).not("codigo", "is", null).order("fecha", { ascending: true })
       const neto = new Map<string, number>()
+      const envases: Record<string, string> = {}
       for (const m of movs ?? []) {
         const k = m.codigo as string
         neto.set(k, (neto.get(k) ?? 0) + (m.tipo === "ingreso" ? 1 : -1))
+        if (m.tipo === "ingreso" && (m.tipo_envase === "Full" || m.tipo_envase === "Vacío")) envases[k] = m.tipo_envase
       }
-      if (vivo) setEnBodega([...neto.entries()].filter(([, n]) => n > 0).map(([k]) => k).sort())
+      if (vivo) {
+        setEnBodega([...neto.entries()].filter(([, n]) => n > 0).map(([k]) => k).sort())
+        setEnvaseDe(envases)
+      }
     })()
     return () => { vivo = false }
   }, [esDespachoUnidad, form.cliente, descProducto, catProducto])
+
+  // "Despacho Parcial" solo existe en un despacho: si el report pasa a ingreso, se quita.
+  useEffect(() => {
+    if (!readOnly && !esDespacho && form.sec1_almacenaje === "parcial") set("sec1_almacenaje", "")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly, esDespacho, form.sec1_almacenaje])
 
   const [agregado, setAgregado] = useState(false)
   // Un camión lleva 2 de 20ft, 1 de 40ft o 1 isotanque: el segundo contenedor
@@ -152,27 +169,54 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
   // campo; sin contenedores en bodega un 20ft/40ft cae al campo libre (puede ser
   // un contenedor que llegó vacío a cargarse y nunca se registró). El isotanque
   // siempre es lista.
+  // Con Almacenaje Full o Vacío elegido, un despacho de 20ft/40ft solo ofrece los contenedores que están en ese
+  // estado. Los que no tienen el estado registrado (cargas antiguas) se muestran siempre.
+  const coincideAlmacenaje = (codigo: string) => {
+    if (!esContenedor || !almacenajeEntero) return true
+    const env = envaseDe[codigo]
+    if (!env) return true
+    return form.sec1_almacenaje === "full" ? env === "Full" : env === "Vacío"
+  }
+  // Al cambiar Full/Vacío, se quitan las siglas ya elegidas que ya no coinciden.
+  const cambiarAlmacenaje = (v: "full" | "vacio" | "parcial" | "") => {
+    set("sec1_almacenaje", v)
+    if (!esDespachoUnidad || !v || v === "parcial") return
+    for (const key of ["sec1_sigla", "sec1_sigla_2"] as const) {
+      const c = form[key]
+      const env = c ? envaseDe[c] : undefined
+      if (c && env && (v === "full" ? env !== "Full" : env !== "Vacío")) set(key, "")
+    }
+  }
+
   const siglaCampo = (n: 1 | 2) => {
     const key = n === 1 ? "sec1_sigla" : "sec1_sigla_2"
     const valor = form[key]
     const otra = n === 1 ? form.sec1_sigla_2 : form.sec1_sigla
     const base = esDespachoUnidad ? (esIso ? "Isotanque a despachar" : "Contenedor a despachar") : esUnidad ? (esIso ? "Código del isotanque" : "Sigla del contenedor") : "Sigla"
-    const opciones = [...new Set(valor ? [valor, ...enBodega] : enBodega)].filter(c => c === valor || c !== otra)
+    const opciones = [...new Set(valor ? [valor, ...enBodega] : enBodega)]
+      .filter(c => c === valor || c !== otra)
+      .filter(c => c === valor || coincideAlmacenaje(c))
     return (
       <Field label={hay2 ? `${base} ${n}` : base}>
         {esDespachoUnidad && (esIso || enBodega.length > 0) ? (
           <select value={valor}
             onChange={e => {
               set(key, e.target.value)
-              if (esContenedor && e.target.value && !form.sec1_almacenaje) set("sec1_almacenaje", "vacio")
+              // Sin Full/Vacío elegido, queda el estado real del contenedor (si no se sabe, Vacío como antes).
+              if (esContenedor && e.target.value && !form.sec1_almacenaje) set("sec1_almacenaje", envaseDe[e.target.value] === "Full" ? "full" : "vacio")
             }}
             disabled={readOnly} className="h-8 text-xs rounded-md border bg-background px-2">
             <option value="">— Seleccionar —</option>
-            {opciones.map(c => <option key={c} value={c}>{c}</option>)}
+            {opciones.map(c => <option key={c} value={c}>{esContenedor && envaseDe[c] ? `${c} · ${envaseDe[c]}` : c}</option>)}
           </select>
         ) : (
           <Input value={valor} onChange={e => set(key, formatearSigla(e.target.value))}
             placeholder={esUnidad ? "Ej: BLKU257599-0" : "Sigla del contenedor"} className="h-8 text-xs" disabled={readOnly} />
+        )}
+        {esDespachoUnidad && esContenedor && enBodega.length > 0 && almacenajeEntero && opciones.length === 0 && (
+          <p className="text-[10px] text-amber-600 mt-1">
+            No hay contenedores {form.sec1_almacenaje === "full" ? "Full" : "Vacíos"} en bodega para este cliente.
+          </p>
         )}
       </Field>
     )
@@ -211,19 +255,29 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
               camión se vaya. */}
           {(form.sec1_tipo_contenedor === "20ft" || form.sec1_tipo_contenedor === "40ft") && (
             <div className="space-y-1">
+              {/* Solo una opción a la vez. En un despacho: Despacho Full, Despacho Vacío o Despacho Parcial. */}
               <div className="flex items-center gap-6">
                 <div className="flex items-center gap-2">
                   <Checkbox id="sec1_almacenaje_full" checked={form.sec1_almacenaje === "full"}
-                    onCheckedChange={v => !readOnly && set("sec1_almacenaje", v === true ? "full" : "")}
+                    onCheckedChange={v => !readOnly && cambiarAlmacenaje(v === true ? "full" : "")}
                     className="h-3.5 w-3.5" disabled={readOnly} />
-                  <label htmlFor="sec1_almacenaje_full" className="text-xs text-foreground/80 cursor-pointer">Almacenaje Full</label>
+                  <label htmlFor="sec1_almacenaje_full" className="text-xs text-foreground/80 cursor-pointer">{esDespacho ? "Despacho Full" : "Almacenaje Full"}</label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Checkbox id="sec1_almacenaje_vacio" checked={form.sec1_almacenaje === "vacio"}
-                    onCheckedChange={v => !readOnly && set("sec1_almacenaje", v === true ? "vacio" : "")}
+                    onCheckedChange={v => !readOnly && cambiarAlmacenaje(v === true ? "vacio" : "")}
                     className="h-3.5 w-3.5" disabled={readOnly} />
-                  <label htmlFor="sec1_almacenaje_vacio" className="text-xs text-foreground/80 cursor-pointer">Almacenaje Vacío</label>
+                  <label htmlFor="sec1_almacenaje_vacio" className="text-xs text-foreground/80 cursor-pointer">{esDespacho ? "Despacho Vacío" : "Almacenaje Vacío"}</label>
                 </div>
+                {esDespacho && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="sec1_almacenaje_parcial" checked={form.sec1_almacenaje === "parcial"}
+                      onCheckedChange={v => !readOnly && cambiarAlmacenaje(v === true ? "parcial" : "")}
+                      className="h-3.5 w-3.5" disabled={readOnly} />
+                    <label htmlFor="sec1_almacenaje_parcial" className="text-xs text-foreground/80 cursor-pointer"
+                      title="Llega lleno, se desconsolida en parte y se va con carga">Despacho Parcial</label>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -371,6 +425,8 @@ export function Sec2Content({ form, set, readOnly, toUpperCase: uc, hideActivati
         <div className="space-y-1.5 p-3 bg-muted/40 rounded-lg">
           <div className="flex items-center gap-4">
             {exclusiveFields.map(checkboxItem)}
+            <span className="h-4 w-px bg-border" />
+            {checkboxItem(["sec2_parcial", "Parcial"])}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {multiFields.map(checkboxItem)}

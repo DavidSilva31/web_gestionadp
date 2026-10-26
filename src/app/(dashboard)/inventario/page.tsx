@@ -19,7 +19,7 @@ import { createClient } from "@/lib/supabase"
 import { fetchTodas } from "@/lib/fetch-todas"
 import { invalidarCache } from "@/lib/cache-consultas"
 import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
-import { resolveEffectiveClienteId, sembrarClienteEfectivo, detallePorPallet, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE, ENVASES_CONTENEDOR } from "@/lib/inventario"
+import { resolveEffectiveClienteId, sembrarClienteEfectivo, detallePorPallet, detalleConRack, valoresPallet, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE, ENVASES_CONTENEDOR } from "@/lib/inventario"
 import { ItemFormDialog } from "@/components/inventario/item-form-dialog"
 import { cn } from "@/lib/utils"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
@@ -341,6 +341,8 @@ function InventarioContent() {
   const [kardexProducto, setKardexProducto] = useState<string | null>(null)
   // Detalle por N° de pallet (solo clientes de detallePorPallet, ej. Sherwin Williams)
   const [kardexPallet, setKardexPallet] = useState("")
+  // UTI: búsqueda libre por SKU o lote (además del pallet)
+  const [kardexTexto, setKardexTexto] = useState("")
   // Report abierto en el visor desde la columna "Report" del Detalle (sin salir de Inventario)
   const [previewReport,  setPreviewReport]  = useState<Report | null>(null)
   const [abriendoReport, setAbriendoReport] = useState<string | null>(null)
@@ -448,6 +450,7 @@ function InventarioContent() {
     setVista("resumen")
     setKardexProducto(null)
     setKardexPallet("")
+    setKardexTexto("")
     setKardexImoFiltro(null)
     setKardexLoteFiltro(null)
     setKardexEditing(false)
@@ -487,6 +490,10 @@ function InventarioContent() {
   // por lote/código, con saldo corrido fila a fila igual que el Kardex en
   // excel del cliente (el saldo nunca se guarda en BD). El lote de cada
   // movimiento sigue viéndose en su propia columna dentro de la tabla.
+  // Clientes por pallet (Sherwin, UTI): el Detalle se busca por N° de pallet y no por producto/IMO.
+  const modoPallet = !!selected && detallePorPallet(selected.nombre)
+  const modoRack = !!selected && detalleConRack(selected.nombre)
+
   const kardexGroups = useMemo(() => {
     const movs = selected ? (kardexMovs[selected.id] ?? []) : []
     const itemsCliente = selected ? (clienteItems[selected.id] ?? []) : []
@@ -522,7 +529,7 @@ function InventarioContent() {
         else                      { stockPos -= m.posiciones ?? 0; stockUnd -= m.unidades ?? 0 }
         return { ...m, stockPos, stockUnd }
       })
-      return { key, carga: nombre, rows }
+      return { key, carga: nombre, itemId: key.startsWith("item:") ? key.slice(5) : null as string | null, rows }
     })
     const sinSufijo = (s: string) => s.replace(/\s*\([^()]*\)\s*$/, "").trim().toUpperCase()
     const cargasConMovs = new Set<string>()
@@ -533,20 +540,38 @@ function InventarioContent() {
       const k = exacto.toUpperCase()
       if (cargasConMovs.has(k) || cargasConMovs.has(sinSufijo(exacto)) || vistos.has(k)) continue
       vistos.add(k)
-      grupos.push({ key: `sin-mov-${k}`, carga: exacto, rows: [] })
+      grupos.push({ key: `sin-mov-${k}`, carga: exacto, itemId: it.id as string | null, rows: [] })
     }
     return grupos
   }, [selected, kardexMovs, clienteItems])
 
+  // Lotes que trae el pallet elegido: si son 2 o más se ofrece un filtro para acotar rápido.
+  const kardexLotesPallet = useMemo(() => {
+    const q = kardexPallet.trim().toLowerCase()
+    if (!modoPallet || !q) return []
+    const set = new Set<string>()
+    for (const g of kardexGroups) for (const r of g.rows) {
+      const pallets = [...valoresPallet(r.numero_pallet), ...(modoRack ? [] : valoresPallet(r.codigo))].map(p => p.toLowerCase())
+      if (r.lote && pallets.includes(q)) set.add(r.lote)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }, [modoPallet, modoRack, kardexPallet, kardexGroups])
+
   // N° de pallet existentes del cliente (SKU de cada producto) — alimentan el buscador del Detalle por pallet.
   const kardexPallets = useMemo(() => {
     const set = new Set<string>()
-    for (const g of kardexGroups) for (const r of g.rows) { const p = (r.codigo ?? r.numero_pallet ?? "").trim(); if (p) set.add(p) }
+    for (const g of kardexGroups) for (const r of g.rows) {
+      for (const p of valoresPallet(r.numero_pallet)) set.add(p)
+      if (!modoRack) for (const p of valoresPallet(r.codigo)) set.add(p)
+    }
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-  }, [kardexGroups])
+  }, [kardexGroups, modoRack])
 
   const kardexProductos = useMemo(() => {
-    return kardexGroups.map(g => ({ carga: g.carga })).sort((a, b) => a.carga.localeCompare(b.carga))
+    // Dos productos distintos pueden llamarse igual (mismo nombre, otro SKU o envase): el selector
+    // lista cada nombre una sola vez y, al elegirlo, el Detalle muestra todos los que lo llevan.
+    const nombres = [...new Set(kardexGroups.map(g => g.carga))]
+    return nombres.map(carga => ({ carga })).sort((a, b) => a.carga.localeCompare(b.carga))
   }, [kardexGroups])
 
   // IMOs distintos presentes en los movimientos del cliente — permite buscar
@@ -563,15 +588,12 @@ function InventarioContent() {
   // lotes de productos distintos).
   const kardexLotes = useMemo(() => {
     if (!kardexProducto) return []
-    const group = kardexGroups.find(g => g.carga === kardexProducto)
-    if (!group) return []
     const set = new Set<string>()
-    for (const r of group.rows) if (r.lote) set.add(r.lote)
+    for (const g of kardexGroups) if (g.carga === kardexProducto) for (const r of g.rows) if (r.lote) set.add(r.lote)
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   }, [kardexGroups, kardexProducto])
 
   // Clientes por pallet: no hay selector de producto — se ven todos los movimientos y se busca por N° de pallet.
-  const modoPallet = !!selected && detallePorPallet(selected.nombre)
 
   const kardexGroupsFiltered = modoPallet
     ? kardexGroups
@@ -604,13 +626,21 @@ function InventarioContent() {
   // Con búsqueda, el saldo corrido se recalcula solo con los movimientos de esos pallets.
   const kardexGroupsVista = useMemo(() => {
     const q = kardexPallet.trim().toLowerCase()
+    const t = kardexTexto.trim().toLowerCase()
     if (!modoPallet) return kardexGroupsFilteredPorLote
-    if (!q) return [] // hasta escribir un N° de pallet no se muestra ninguno
+    if (!q && !t) return [] // hasta elegir un pallet (o buscar un SKU/lote) no se muestra ninguno
     return kardexGroupsFilteredPorLote.map(group => {
       let stockPos = 0
       let stockUnd = 0
       const rows = group.rows
-        .filter(r => (r.codigo ?? "").trim().toLowerCase() === q || (r.numero_pallet ?? "").trim().toLowerCase() === q)
+        .filter(r => {
+          if (q) {
+            const pallets = [...valoresPallet(r.numero_pallet), ...(modoRack ? [] : valoresPallet(r.codigo))].map(p => p.toLowerCase())
+            if (!pallets.includes(q)) return false
+          }
+          if (t && !((r.codigo ?? "").toLowerCase().includes(t) || (r.lote ?? "").toLowerCase().includes(t))) return false
+          return true
+        })
         .map(m => {
           if (m.tipo === "ingreso") { stockPos += m.posiciones ?? 0; stockUnd += m.unidades ?? 0 }
           else                      { stockPos -= m.posiciones ?? 0; stockUnd -= m.unidades ?? 0 }
@@ -618,10 +648,37 @@ function InventarioContent() {
         })
       return { ...group, rows }
     }).filter(g => g.rows.length > 0) // cada pallet es un producto: solo los que coinciden
-  }, [modoPallet, kardexPallet, kardexGroupsFilteredPorLote])
+  }, [modoPallet, modoRack, kardexPallet, kardexTexto, kardexGroupsFilteredPorLote])
 
   // Edición inline de un valor del Kardex — el trigger de BD ya recalcula
   // stock_actual del ítem cuando cambian tipo/unidades, no hay que tocarlo acá.
+  // Renombra un producto desde el Detalle (modo Editar): cambia el nombre del ítem y el texto `carga`
+  // de todos sus movimientos, para que Kardex, Excel, HES y el resto lo muestren igual.
+  async function renombrarProducto(itemId: string, antes: string, nuevo: string | number | null): Promise<string | void> {
+    if (!selected) return
+    const nombre = String(nuevo ?? "").replace(/\s+/g, " ").trim().toUpperCase()
+    if (!nombre) return "El nombre no puede quedar vacío"
+    if (nombre === antes) return
+    const supabase = createClient()
+    const { error } = await supabase.from("inventario_items").update({ descripcion: nombre }).eq("id", itemId)
+    if (error) return error.message
+    const { error: movErr } = await supabase.from("movimientos").update({ carga: nombre }).eq("inventario_item_id", itemId)
+    if (movErr) return `El producto se renombró, pero no sus movimientos: ${movErr.message}`
+    logAudit({
+      tabla:          "inventario_items",
+      registro_id:    itemId,
+      accion:         "inventario.actualizar_item",
+      descripcion:    `Producto renombrado: ${antes} → ${nombre} — ${selected.nombre}`,
+      usuario_id:     user?.id,
+      usuario_nombre: profile?.nombre ?? user?.email,
+    })
+    invalidarCache("productos:")
+    // Si era el producto filtrado, el filtro sigue al nombre nuevo.
+    setKardexProducto(prev => (prev === antes ? nombre : prev))
+    setKardexDirty(true)
+    await Promise.all([fetchKardexForCliente(selected.id), fetchItemsForCliente(selected.id)])
+  }
+
   async function updateKardexField<K extends keyof Movimiento>(movId: string, field: K, value: Movimiento[K]) {
     if (!selected) return
     const supabase = createClient()
@@ -1248,11 +1305,35 @@ function InventarioContent() {
                         <Label className="text-[11px] text-muted-foreground font-medium">N° Pallet</Label>
                         <SearchableSelect
                           value={kardexPallet}
-                          onChange={v => { setKardexPallet(v); setKardexEditing(false); setKardexDirty(false) }}
+                          onChange={v => { setKardexPallet(v); setKardexLoteFiltro(null); setKardexEditing(false); setKardexDirty(false) }}
                           options={kardexPallets.map(p => ({ value: p, label: p }))}
                           placeholder="Selecciona o busca un pallet…"
                           className="flex-1 max-w-sm"
                         />
+                        {kardexLotesPallet.length > 1 && (
+                          <>
+                            <Label className="text-[11px] text-muted-foreground font-medium">Lote</Label>
+                            <select value={kardexLoteFiltro ?? ""}
+                              onChange={e => setKardexLoteFiltro(e.target.value || null)}
+                              className="h-8 w-40 rounded-md border border-input bg-background px-2.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring">
+                              <option value="">Todos ({kardexLotesPallet.length})</option>
+                              {kardexLotesPallet.map(lote => (
+                                <option key={lote} value={lote}>{lote}</option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+                        {modoRack && (
+                          <>
+                            <Label className="text-[11px] text-muted-foreground font-medium">SKU o lote</Label>
+                            <Input
+                              value={kardexTexto}
+                              onChange={e => setKardexTexto(e.target.value)}
+                              placeholder="Buscar por SKU o lote…"
+                              className="h-8 max-w-[14rem] text-[12px]"
+                            />
+                          </>
+                        )}
                       </>
                     )}
                     <div className={cn("contents", modoPallet && "hidden")}>
@@ -1297,7 +1378,7 @@ function InventarioContent() {
                       </>
                     )}
                     </div>
-                    {(modoPallet ? !!kardexPallet.trim() : (kardexProducto || kardexImoFiltro)) && !soloLectura && (
+                    {(modoPallet ? (!!kardexPallet.trim() || !!kardexTexto.trim()) : (kardexProducto || kardexImoFiltro)) && !soloLectura && (
                       <Button
                         type="button"
                         size="sm"
@@ -1339,18 +1420,18 @@ function InventarioContent() {
                         <Package className="h-10 w-10 opacity-20" />
                         <p className="text-sm font-medium">Sin movimientos registrados</p>
                       </div>
-                    ) : (modoPallet ? !kardexPallet.trim() : (!kardexProducto && !kardexImoFiltro)) ? (
+                    ) : (modoPallet ? (!kardexPallet.trim() && !kardexTexto.trim()) : (!kardexProducto && !kardexImoFiltro)) ? (
                       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                         <Package className="h-10 w-10 opacity-20" />
                         <p className="text-sm font-medium">
-                          {modoPallet ? "Selecciona un pallet para ver el Detalle" : "Selecciona un producto o un IMO para ver el Detalle"}
+                          {modoPallet ? (modoRack ? "Selecciona un pallet, o busca un SKU o lote, para ver el Detalle" : "Selecciona un pallet para ver el Detalle") : "Selecciona un producto o un IMO para ver el Detalle"}
                         </p>
                         <p className="text-xs">{modoPallet ? kardexPallets.length + " pallets en el sistema" : kardexProductos.length + " productos con movimientos"}</p>
                       </div>
-                    ) : modoPallet && kardexPallet.trim() && kardexGroupsVista.every(g => g.rows.length === 0) ? (
+                    ) : modoPallet && (kardexPallet.trim() || kardexTexto.trim()) && kardexGroupsVista.every(g => g.rows.length === 0) ? (
                       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                         <Package className="h-10 w-10 opacity-20" />
-                        <p className="text-sm font-medium">Ningún pallet coincide con «{kardexPallet.trim()}»</p>
+                        <p className="text-sm font-medium">Nada coincide con «{[kardexPallet.trim(), kardexTexto.trim()].filter(Boolean).join(" · ")}»</p>
                       </div>
                     ) : kardexGroupsFiltered.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
@@ -1362,7 +1443,13 @@ function InventarioContent() {
                         {kardexGroupsVista.map(group => (
                           <div key={group.key} className="rounded-lg border border-border/40 overflow-hidden">
                             <div className="px-3 py-2 bg-muted/40 border-b border-border/30 flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-bold">{group.carga}</span>
+                              {kardexEditing && group.itemId ? (
+                                <div className="min-w-[16rem] max-w-md text-xs font-bold">
+                                  <KardexCell kind="text" value={group.carga} onSave={v => renombrarProducto(group.itemId!, group.carga, v)} />
+                                </div>
+                              ) : (
+                                <span className="text-xs font-bold">{group.carga}</span>
+                              )}
                               {kardexLoteFiltro && (
                                 <Badge className="text-[10px] px-2 py-0.5 border-0 font-semibold bg-primary/10 text-primary">
                                   Lote {kardexLoteFiltro}
@@ -1378,6 +1465,7 @@ function InventarioContent() {
                                   <tr className="text-left text-muted-foreground">
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">SKU</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Nr. Pallet</th>
+                                    {modoRack && <th className="px-2 py-1.5 font-medium whitespace-nowrap">Rack</th>}
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Fecha</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Tipo</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">IMO</th>
@@ -1392,11 +1480,11 @@ function InventarioContent() {
                                     <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Peso neto</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Envase</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Report</th>
-                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Ing. Pos</th>
+                                    {!modoRack && <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Ing. Pos</th>}
                                     <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Ing. Und</th>
-                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Desp. Pos</th>
+                                    {!modoRack && <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Desp. Pos</th>}
                                     <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Desp. Und</th>
-                                    <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Stock Pos</th>
+                                    {!modoRack && <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Stock Pos</th>}
                                     <th className="px-2 py-1.5 font-medium text-right whitespace-nowrap">Stock Und</th>
                                     <th className="px-2 py-1.5 font-medium whitespace-nowrap">Bodega</th>
                                     {kardexEditing && <th className="px-2 py-1.5 font-medium whitespace-nowrap w-8"></th>}
@@ -1415,6 +1503,11 @@ function InventarioContent() {
                                         <td className="p-0 whitespace-nowrap text-muted-foreground">
                                           <KardexCell kind="text" value={m.numero_pallet} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "numero_pallet", v as string | null)} />
                                         </td>
+                                        {modoRack && (
+                                          <td className="p-0 whitespace-nowrap text-muted-foreground">
+                                            <KardexCell kind="text" value={m.rack ?? null} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "rack", v as string | null)} />
+                                          </td>
+                                        )}
                                         <td className="p-0 whitespace-nowrap tabular-nums">
                                           <KardexCell kind="date" value={m.fecha.slice(0, 10)} disabled={!kardexEditing}
                                             onSave={async v => {
@@ -1479,29 +1572,35 @@ function InventarioContent() {
                                             <KardexCell kind="text" value={m.reports?.numero ?? null} disabled={!kardexEditing} onSave={v => updateKardexReport(m.id, v)} />
                                           )}
                                         </td>
-                                        <td className="p-0 text-right whitespace-nowrap tabular-nums">
-                                          {m.tipo === "ingreso"
-                                            ? <KardexCell kind="number" align="right" value={m.posiciones} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
-                                            : ""}
-                                        </td>
+                                        {!modoRack && (
+                                          <td className="p-0 text-right whitespace-nowrap tabular-nums">
+                                            {m.tipo === "ingreso"
+                                              ? <KardexCell kind="number" align="right" value={m.posiciones} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
+                                              : ""}
+                                          </td>
+                                        )}
                                         <td className="p-0 text-right whitespace-nowrap tabular-nums">
                                           {m.tipo === "ingreso"
                                             ? <KardexCell kind="number" align="right" value={m.unidades} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "unidades", v as number | null)} />
                                             : ""}
                                         </td>
-                                        <td className="p-0 text-right whitespace-nowrap tabular-nums">
-                                          {m.tipo === "despacho"
-                                            ? <KardexCell kind="number" align="right" value={m.posiciones} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
-                                            : ""}
-                                        </td>
+                                        {!modoRack && (
+                                          <td className="p-0 text-right whitespace-nowrap tabular-nums">
+                                            {m.tipo === "despacho"
+                                              ? <KardexCell kind="number" align="right" value={m.posiciones} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "posiciones", v as number | null)} />
+                                              : ""}
+                                          </td>
+                                        )}
                                         <td className="p-0 text-right whitespace-nowrap tabular-nums">
                                           {m.tipo === "despacho"
                                             ? <KardexCell kind="number" align="right" value={m.unidades} disabled={!kardexEditing} onSave={v => updateKardexField(m.id, "unidades", v as number | null)} />
                                             : ""}
                                         </td>
-                                        <td className="p-0 text-right whitespace-nowrap tabular-nums font-semibold">
-                                          <KardexCell kind="number" align="right" value={m.stockPos} disabled={!kardexEditing} onSave={v => ajustarStockCorrido(m, "pos", Number(v ?? 0))} />
-                                        </td>
+                                        {!modoRack && (
+                                          <td className="p-0 text-right whitespace-nowrap tabular-nums font-semibold">
+                                            <KardexCell kind="number" align="right" value={m.stockPos} disabled={!kardexEditing} onSave={v => ajustarStockCorrido(m, "pos", Number(v ?? 0))} />
+                                          </td>
+                                        )}
                                         <td className="p-0 text-right whitespace-nowrap tabular-nums font-semibold">
                                           <KardexCell kind="number" align="right" value={m.stockUnd} disabled={!kardexEditing} onSave={v => ajustarStockCorrido(m, "und", Number(v ?? 0))} />
                                         </td>

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { ConfirmarDialogo } from "@/components/confirmar-dialogo"
 import {
   Search, Wrench, Plus, Pencil, Trash2, Loader2,
   ChevronRight, GripVertical, Check, X, ArrowLeft, AlertCircle,
@@ -169,15 +170,18 @@ function ServiceCard({
 }) {
   const { user, profile } = useAuth()
   const [deleting, setDeleting] = useState(false)
+  const [confirmando, setConfirmando] = useState(false)
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
 
   async function handleDelete() {
-    if (!confirm(`¿Eliminar servicio "${srv.nombre}"?`)) return
+    setErrorEliminar(null)
     setDeleting(true)
     const supabase = createClient()
     const { data, error } = await supabase.from("servicios_cliente")
       .update({ activo: false }).eq("id", srv.id).select("id").single()
     setDeleting(false)
-    if (error || !data) { alert("Error al eliminar: " + (error?.message ?? "sin permiso")); return }
+    if (error || !data) { setErrorEliminar("Error al eliminar: " + (error?.message ?? "sin permiso")); return }
+    setConfirmando(false)
     logAudit({
       tabla:          "servicios_cliente",
       registro_id:    srv.id,
@@ -215,11 +219,20 @@ function ServiceCard({
           className="h-7 w-7 p-0 hover:bg-primary/10 hover:text-primary">
           <Pencil className="h-3.5 w-3.5" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={handleDelete} disabled={deleting}
+        <Button variant="ghost" size="sm" onClick={() => { setErrorEliminar(null); setConfirmando(true) }} disabled={deleting}
           className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive">
           {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
         </Button>
       </div>
+      <ConfirmarDialogo
+        abierto={confirmando}
+        titulo="¿Eliminar servicio?"
+        descripcion={<>Se eliminará <span className="font-semibold text-foreground">{srv.nombre}</span> del catálogo de {clienteNombre}.</>}
+        ocupado={deleting}
+        error={errorEliminar}
+        onConfirmar={handleDelete}
+        onCancelar={() => setConfirmando(false)}
+      />
     </div>
   )
 }

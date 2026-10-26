@@ -489,6 +489,7 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
   // Clase IMO y NU de respaldo (último movimiento del ítem) para productos cuya ficha no los trae.
   const [imoPorItem, setImoPorItem] = useState<Record<string, string>>({})
   const [unPorItem,  setUnPorItem]  = useState<Record<string, string>>({})
+  const [bodegaPorItem, setBodegaPorItem] = useState<Record<string, string>>({})
   const [open,   setOpen]   = useState(false)
   const [query,  setQuery]  = useState(value)
   const [highlighted, setHighlighted] = useState(0)
@@ -505,6 +506,7 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
     setEnvasePorItem({})
     setImoPorItem({})
     setUnPorItem({})
+    setBodegaPorItem({})
     if (!clienteId) return
     const supabase = createClient()
     resolveEffectiveClienteId(supabase, clienteId).then(effectiveId => {
@@ -518,7 +520,7 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
 
       consultaCacheada(`productos:skus:${effectiveId}`, () => supabase
         .from("movimientos")
-        .select("inventario_item_id, codigo, tipo_envase, imo, un, fecha")
+        .select("inventario_item_id, codigo, tipo_envase, imo, un, bodega, fecha")
         .eq("cliente_id", effectiveId)
         .not("inventario_item_id", "is", null)
         .order("fecha", { ascending: false }))
@@ -528,16 +530,19 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
           const envases: Record<string, string> = {}
           const imos: Record<string, string> = {}
           const uns: Record<string, string> = {}
-          for (const m of data as { inventario_item_id: string; codigo: string | null; tipo_envase: string | null; imo: string | null; un: string | null }[]) {
+          const bodegas: Record<string, string> = {}
+          for (const m of data as { inventario_item_id: string; codigo: string | null; tipo_envase: string | null; imo: string | null; un: string | null; bodega: string | null }[]) {
             if (m.codigo && !skus[m.inventario_item_id]) skus[m.inventario_item_id] = m.codigo
             if (m.tipo_envase && !envases[m.inventario_item_id]) envases[m.inventario_item_id] = m.tipo_envase
             if (m.imo?.trim() && !imos[m.inventario_item_id]) imos[m.inventario_item_id] = m.imo.trim()
             if (m.un?.trim() && !uns[m.inventario_item_id]) uns[m.inventario_item_id] = m.un.trim()
+            if (m.bodega?.trim() && !bodegas[m.inventario_item_id]) bodegas[m.inventario_item_id] = m.bodega.trim()
           }
           setSkuPorItem(skus)
           setEnvasePorItem(envases)
           setImoPorItem(imos)
           setUnPorItem(uns)
+          setBodegaPorItem(bodegas)
         })
     })
   }, [clienteId])
@@ -576,6 +581,7 @@ export function ProductoCombobox({ clienteId, value, selectedId, onChange, onSel
     ...it,
     clase_imo: it.clase_imo?.trim() || imoPorItem[it.id] || null,
     nu: it.nu?.trim() || unPorItem[it.id] || null,
+    bodega: bodegaPorItem[it.id] ?? null,
   })
 
   function select(item: InventarioItemOption) {
@@ -698,6 +704,7 @@ export function tarifaCubreClase(tarifaClase: string | null, itemClase: string |
 type MovProducto = {
   id: string; lote: string | null; tipo: string; posiciones: number | null; peso_envase: number | null
   fecha: string; fecha_elaboracion: string | null; fecha_vencimiento: string | null
+  unidades: number | null; numero_pallet: string | null; rack: string | null; bodega: string | null
 }
 function useMovimientosProducto(inventarioItemId: string, carga: string): MovProducto[] {
   const [movs, setMovs] = useState<MovProducto[]>([])
@@ -706,7 +713,7 @@ function useMovimientosProducto(inventarioItemId: string, carga: string): MovPro
     if (!inventarioItemId && !cargaTrim) { setMovs([]); return }
     let vivo = true
     const supabase = createClient()
-    const cols = "id, lote, tipo, posiciones, peso_envase, fecha, fecha_elaboracion, fecha_vencimiento"
+    const cols = "id, lote, tipo, posiciones, peso_envase, fecha, fecha_elaboracion, fecha_vencimiento, unidades, numero_pallet, rack, bodega"
     // Dos consultas separadas (no .or()) para no tener que escapar `carga`, que suele
     // traer paréntesis (ej. "HIPOCLORITO (IBC)") — rompería el filtro de PostgREST si
     // fuera texto crudo dentro de un .or(...).
@@ -728,7 +735,116 @@ function useMovimientosProducto(inventarioItemId: string, carga: string): MovPro
   return movs
 }
 
-function LoteField({ inventarioItemId, carga, value, onChange, onLoteConocido, disabled }: {
+// ── UTI Chile: se trabaja por pallet ──────────────────────────────────────────
+// Stock de un producto por pallet y por lote (ingresos − despachos, en unidades), con el rack y la
+// bodega más recientes de cada pallet. Sirve para ofrecer solo pallets/lotes donde el producto está.
+type PalletInfo = { pallet: string; und: number; rack: string | null; bodega: string | null; lotes: Map<string, number> }
+function palletsDelProducto(movs: MovProducto[]): PalletInfo[] {
+  const mapa = new Map<string, PalletInfo>()
+  const cronologico = [...movs].sort((a, b) => a.fecha.localeCompare(b.fecha))
+  for (const m of cronologico) {
+    const p = (m.numero_pallet ?? "").trim()
+    if (!p) continue
+    const info = mapa.get(p) ?? { pallet: p, und: 0, rack: null, bodega: null, lotes: new Map() }
+    const delta = (m.tipo === "ingreso" ? 1 : -1) * (m.unidades ?? 0)
+    info.und += delta
+    if (m.lote) info.lotes.set(m.lote, (info.lotes.get(m.lote) ?? 0) + delta)
+    if (m.rack?.trim()) info.rack = m.rack.trim()
+    if (m.bodega?.trim()) info.bodega = m.bodega.trim()
+    mapa.set(p, info)
+  }
+  return [...mapa.values()].sort((a, b) => a.pallet.localeCompare(b.pallet, undefined, { numeric: true }))
+}
+
+// N° de pallet: en un despacho se elige entre los pallets donde está el producto (con stock);
+// en un ingreso se elige uno existente o se escribe uno nuevo.
+function PalletField({ inventarioItemId, carga, value, tipo, onChange, onElegido, disabled }: {
+  inventarioItemId: string
+  carga: string
+  value: string
+  tipo: string
+  onChange: (v: string) => void
+  onElegido: (info: { pallet: string; rack: string | null; bodega: string | null; lotes: string[] }) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const movs = useMovimientosProducto(inventarioItemId, carga)
+  const despacho = tipo === "despacho"
+  const pallets = useMemo(() => palletsDelProducto(movs).filter(p => !despacho || p.und > 0), [movs, despacho])
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onClickOutside)
+    return () => document.removeEventListener("mousedown", onClickOutside)
+  }, [])
+
+  const q = value.trim().toLowerCase()
+  const filtrados = q ? pallets.filter(p => p.pallet.toLowerCase().includes(q)) : pallets
+  const lotesConStock = (p: PalletInfo) => [...p.lotes.entries()].filter(([, u]) => !despacho || u > 0).map(([l]) => l)
+  const elegir = (p: PalletInfo) => onElegido({ pallet: p.pallet, rack: p.rack, bodega: p.bodega, lotes: lotesConStock(p) })
+  const sinStock = despacho && !!q && !!inventarioItemId && !pallets.some(p => p.pallet.toLowerCase() === q)
+
+  return (
+    <div ref={ref} className="relative">
+      <Input
+        value={value}
+        onChange={e => {
+          const v = e.target.value
+          onChange(v)
+          const exacto = pallets.find(p => p.pallet.toLowerCase() === v.trim().toLowerCase())
+          if (exacto) elegir(exacto)
+          setOpen(true)
+        }}
+        onFocus={() => !disabled && pallets.length > 0 && setOpen(true)}
+        placeholder={despacho ? "Elige el pallet" : "N° de pallet"}
+        className="h-8 text-xs"
+        autoComplete="off"
+        disabled={disabled}
+      />
+      {open && !disabled && filtrados.length > 0 && (
+        <div className="absolute z-50 w-full min-w-44 mt-1 bg-background border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+          {filtrados.map(p => (
+            <button
+              key={p.pallet}
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { elegir(p); setOpen(false) }}
+              className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-xs text-left hover:bg-muted transition-colors"
+            >
+              <span className="font-mono">{p.pallet}</span>
+              <span className="text-[10px] text-muted-foreground">{p.und} und.{p.rack ? ` · rack ${p.rack}` : ""}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {sinStock && <p className="text-[10px] text-amber-600 mt-1">Este producto no tiene stock en el pallet «{value.trim()}».</p>}
+    </div>
+  )
+}
+
+// Unidades que quedan de este producto en el pallet + lote elegidos (solo se muestra en despachos).
+function DisponibleHint({ inventarioItemId, carga, pallet, lote, unidades }: {
+  inventarioItemId: string; carga: string; pallet: string; lote: string; unidades: string
+}) {
+  const movs = useMovimientosProducto(inventarioItemId, carga)
+  const p = pallet.trim()
+  if (!p || !inventarioItemId) return null
+  const info = palletsDelProducto(movs).find(x => x.pallet === p)
+  if (!info) return null
+  const l = lote.trim()
+  const disponible = l ? (info.lotes.get(l) ?? 0) : info.und
+  const pide = Number(unidades) || 0
+  return (
+    <p className={cn("text-[10px] mt-1", pide > disponible ? "text-amber-600" : "text-muted-foreground")}>
+      Disponible: {disponible} und.{pide > disponible ? " — se pide más de lo que hay" : ""}
+    </p>
+  )
+}
+
+function LoteField({ inventarioItemId, carga, value, onChange, onLoteConocido, pallet, tipo, disabled }: {
   inventarioItemId: string
   carga: string
   value: string
@@ -736,16 +852,26 @@ function LoteField({ inventarioItemId, carga, value, onChange, onLoteConocido, d
   // Se llama al elegir un lote que ya existe (de la lista o escrito completo), con las fechas
   // de elaboración y vencimiento que ese lote tiene registradas (las más recientes).
   onLoteConocido?: (fechas: { elab: string | null; venc: string | null }) => void
+  // UTI: con un pallet elegido, los lotes ofrecidos son los de ese pallet (en un despacho, solo con stock)
+  pallet?: string
+  tipo?: string
   disabled?: boolean
 }) {
   const [open,  setOpen]  = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const movs = useMovimientosProducto(inventarioItemId, carga)
   const lotes = useMemo(() => {
+    const p = (pallet ?? "").trim()
+    if (p) {
+      const info = palletsDelProducto(movs).find(x => x.pallet === p)
+      if (info) return [...info.lotes.entries()]
+        .filter(([, u]) => tipo !== "despacho" || u > 0).map(([l]) => l)
+        .sort((x, y) => x.localeCompare(y, undefined, { numeric: true }))
+    }
     const set = new Set<string>()
     for (const m of movs) if (m.lote) set.add(m.lote)
     return [...set].sort((x, y) => x.localeCompare(y, undefined, { numeric: true }))
-  }, [movs])
+  }, [movs, pallet, tipo])
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -874,13 +1000,17 @@ function PesoNetoField({ inventarioItemId, carga, lote, value, onChange, disable
   )
 }
 
-export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove, tarifasCliente, readOnly }: {
+export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove, tarifasCliente, tipo = "", uti = false, readOnly }: {
   clienteId: string
   items: BodegajeItemFormData[]
   onChange: (index: number, patch: Partial<BodegajeItemFormData>) => void
   onAdd: () => void
   onRemove: (index: number) => void
   tarifasCliente: TarifaOption[]
+  // "ingreso" | "despacho" (del Tipo de movimiento de Antecedentes)
+  tipo?: string
+  // UTI Chile: trabaja por N° de pallet y rack (sin posiciones, CAS, OC ni fechas)
+  uti?: boolean
   readOnly?: boolean
 }) {
   return (
@@ -913,10 +1043,15 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
                   sec3_producto:           selected.descripcion,
                   sec3_clase_imo:          selected.clase_imo ?? "",
                   sec3_nu:                 selected.nu ?? "",
+                  // En un despacho el N° de bodega sale del que ya tiene el producto en la base.
+                  ...(tipo === "despacho" && selected.bodega ? { sec3_numero_bodega: selected.bodega } : {}),
+                  // UTI: el pallet, su rack y el lote dependen del producto elegido.
+                  ...(uti ? { sec3_numero_pallet: "", sec3_rack: "", sec3_lote: "" } : {}),
                   tarifa_cliente_id: tarifasCliente.find(t => tarifaCubreClase(t.clase_imo, selected.clase_imo))?.id ?? "",
                 })}
                 onClear={() => onChange(index, {
                   sec3_inventario_item_id: "", sec3_clase_imo: "", sec3_nu: "", sec3_peso_neto: "", tarifa_cliente_id: "",
+                  ...(uti ? { sec3_numero_pallet: "", sec3_rack: "", sec3_lote: "" } : {}),
                 })}
                 readOnly={readOnly}
               />
@@ -927,7 +1062,7 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
               </p>
             )}
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <div className={cn("grid grid-cols-2 gap-2", uti ? "sm:grid-cols-6" : "sm:grid-cols-5")}>
             <Field label="Clase IMO">
               <Input value={item.sec3_clase_imo} onChange={e => onChange(index, { sec3_clase_imo: e.target.value })}
                 placeholder="Clase IMO si aplica" className="h-8 text-xs" disabled={readOnly} />
@@ -940,18 +1075,54 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
               <Input value={item.sec3_numero_bodega} onChange={e => onChange(index, { sec3_numero_bodega: e.target.value })}
                 placeholder="Número de bodega" className="h-8 text-xs" disabled={readOnly} />
             </Field>
-            <Field label="N° Pallets">
-              <Input type="number" min={0} value={item.sec3_numero_pallets}
-                onChange={e => onChange(index, { sec3_numero_pallets: e.target.value })}
-                placeholder="0" className="h-8 text-xs" disabled={readOnly} />
-            </Field>
+            {uti ? (
+              <>
+                <Field label="N° Pallet">
+                  <PalletField
+                    inventarioItemId={item.sec3_inventario_item_id}
+                    carga={item.sec3_producto}
+                    value={item.sec3_numero_pallet}
+                    tipo={tipo}
+                    onChange={v => onChange(index, { sec3_numero_pallet: v })}
+                    onElegido={p => onChange(index, {
+                      sec3_numero_pallet: p.pallet,
+                      sec3_rack: p.rack ?? "",
+                      ...(p.bodega ? { sec3_numero_bodega: p.bodega } : {}),
+                      // Si el pallet trae un solo lote, queda elegido.
+                      ...(p.lotes.length === 1 ? { sec3_lote: p.lotes[0] } : { sec3_lote: "" }),
+                      sec3_peso_neto: "",
+                    })}
+                    disabled={readOnly}
+                  />
+                </Field>
+                <Field label="Rack">
+                  <Input value={item.sec3_rack} onChange={e => onChange(index, { sec3_rack: e.target.value })}
+                    placeholder="Rack" className="h-8 text-xs" disabled={readOnly} />
+                </Field>
+              </>
+            ) : (
+              <Field label="N° Posición">
+                <Input type="number" min={0} value={item.sec3_numero_pallets}
+                  onChange={e => onChange(index, { sec3_numero_pallets: e.target.value })}
+                  placeholder="0" className="h-8 text-xs" disabled={readOnly} />
+              </Field>
+            )}
             <Field label="N° Unidades">
               <Input type="number" min={0} value={item.sec3_numero_unidades}
                 onChange={e => onChange(index, { sec3_numero_unidades: e.target.value })}
                 placeholder="0" className="h-8 text-xs" disabled={readOnly} />
+              {uti && tipo === "despacho" && (
+                <DisponibleHint
+                  inventarioItemId={item.sec3_inventario_item_id}
+                  carga={item.sec3_producto}
+                  pallet={item.sec3_numero_pallet}
+                  lote={item.sec3_lote}
+                  unidades={item.sec3_numero_unidades}
+                />
+              )}
             </Field>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-[minmax(0,2.2fr)_repeat(5,minmax(0,1fr))] gap-2">
+          <div className={cn("grid grid-cols-2 gap-2", uti ? "sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]" : "sm:grid-cols-[minmax(0,2.2fr)_repeat(5,minmax(0,1fr))]")}>
             <Field label="Lote" className="col-span-2 sm:col-span-1">
               <LoteField
                 inventarioItemId={item.sec3_inventario_item_id}
@@ -962,25 +1133,31 @@ export function BodegajeItemsList({ clienteId, items, onChange, onAdd, onRemove,
                   ...(f.elab ? { sec3_fecha_elaboracion: f.elab } : {}),
                   ...(f.venc ? { sec3_fecha_vencimiento: f.venc } : {}),
                 })}
+                pallet={uti ? item.sec3_numero_pallet : undefined}
+                tipo={tipo}
                 disabled={readOnly}
               />
             </Field>
-            <Field label="CAS">
-              <Input value={item.sec3_cas} onChange={e => onChange(index, { sec3_cas: e.target.value })}
-                className="h-8 text-xs font-mono" disabled={readOnly} />
-            </Field>
-            <Field label="OC">
-              <Input value={item.sec3_orden_compra} onChange={e => onChange(index, { sec3_orden_compra: e.target.value })}
-                placeholder="Orden de compra" className="h-8 text-xs" disabled={readOnly} />
-            </Field>
-            <Field label="Elab.">
-              <Input type="date" value={item.sec3_fecha_elaboracion}
-                onChange={e => onChange(index, { sec3_fecha_elaboracion: e.target.value })} className="h-8 text-xs" disabled={readOnly} />
-            </Field>
-            <Field label="Venc.">
-              <Input type="date" value={item.sec3_fecha_vencimiento}
-                onChange={e => onChange(index, { sec3_fecha_vencimiento: e.target.value })} className="h-8 text-xs" disabled={readOnly} />
-            </Field>
+            {!uti && (
+              <>
+                <Field label="CAS">
+                  <Input value={item.sec3_cas} onChange={e => onChange(index, { sec3_cas: e.target.value })}
+                    className="h-8 text-xs font-mono" disabled={readOnly} />
+                </Field>
+                <Field label="OC">
+                  <Input value={item.sec3_orden_compra} onChange={e => onChange(index, { sec3_orden_compra: e.target.value })}
+                    placeholder="Orden de compra" className="h-8 text-xs" disabled={readOnly} />
+                </Field>
+                <Field label="Elab.">
+                  <Input type="date" value={item.sec3_fecha_elaboracion}
+                    onChange={e => onChange(index, { sec3_fecha_elaboracion: e.target.value })} className="h-8 text-xs" disabled={readOnly} />
+                </Field>
+                <Field label="Venc.">
+                  <Input type="date" value={item.sec3_fecha_vencimiento}
+                    onChange={e => onChange(index, { sec3_fecha_vencimiento: e.target.value })} className="h-8 text-xs" disabled={readOnly} />
+                </Field>
+              </>
+            )}
             <PesoNetoField
               inventarioItemId={item.sec3_inventario_item_id}
               carga={item.sec3_producto}

@@ -16,6 +16,7 @@ import type { ReportFormData } from "@/components/reports/report-form-types"
 import { Field, RadioGroup, Sec1Content, Sec2Content, Sec3Content, handleEnterFocusNext, type FormSetter } from "@/components/reports/report-form-sections"
 import { ClienteCombobox, ServiciosSection, EmpresaTransporteCombobox, ConductorComboboxes, formatRut, type ServicioSeleccionado } from "@/components/reports/report-form-widgets"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
+import { TomarFotoBoton } from "@/components/tomar-foto-boton"
 import { siglaIncompleta, MSG_SIGLA } from "@/lib/sigla"
 
 interface FormData extends ReportFormData {
@@ -29,7 +30,7 @@ const INITIAL: FormData = {
   sec1_carga_imo: false, sec1_clase_imo: "", sec1_nu: "", sec1_hora_inicio: "", sec1_hora_termino: "",
   sec1_sigla: "", sec1_interchange: "", sec1_hds: false, sec1_sigla_2: "", sec1_interchange_2: "",
   sec2_activa: false, sec2_consolidado: false, sec2_desconsolidado: false, sec2_picking: false,
-  sec2_paletizado: false, sec2_etiquetado: false, sec2_otro: false, sec2_hora_inicio: "",
+  sec2_paletizado: false, sec2_etiquetado: false, sec2_otro: false, sec2_parcial: false, sec2_hora_inicio: "",
   sec2_hora_termino: "", sec2_sigla_numero: "", sec2_observaciones: "",
   sec3_activa: false, sec3_hora_inicio: "", sec3_hora_termino: "", sec3_tipo: "",
   sec3_numero_guia: "", sec3_solicitado_por: "", sec3_cuyd: false, sec3_cuyd_detalle: "",
@@ -199,6 +200,7 @@ export default function NuevoReportPage() {
       sec2_paletizado:     form.sec2_paletizado,
       sec2_etiquetado:     form.sec2_etiquetado,
       sec2_otro:           form.sec2_otro,
+      sec2_parcial:        form.sec2_parcial,
       sec2_sigla_numero:   form.sec2_sigla_numero  || null,
       sec2_observaciones:  form.sec2_observaciones || null,
       // Sección 3
@@ -583,6 +585,7 @@ export default function NuevoReportPage() {
                         Arrastra archivos aquí o <span className="text-primary underline underline-offset-2">selecciona</span>
                       </p>
                     </div>
+                    <TomarFotoBoton onFotos={addAdjuntoFiles} className="w-full" />
                     {adjuntoFiles.length > 0 && (
                       <div className="flex flex-col gap-1.5">
                         {adjuntoFiles.map((file, i) => (
@@ -667,6 +670,7 @@ export default function NuevoReportPage() {
                       Toma una foto o <span className="text-primary underline underline-offset-2">adjunta un archivo</span>
                     </p>
                   </div>
+                  <TomarFotoBoton onFotos={addSec2EvidenciaFiles} className="w-full" />
                   {sec2EvidenciaFiles.length > 0 && (
                     <div className="flex flex-col gap-1.5">
                       {sec2EvidenciaFiles.map((file, i) => (

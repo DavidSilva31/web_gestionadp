@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Save, Loader2, FileCheck2, FileX2, Upload, Undo2, UserPlus, Repeat, Pencil } from "lucide-react"
+import { ArrowLeft, Save, Loader2, FileCheck2, FileX2, Upload, Undo2, UserPlus, Repeat, Pencil, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PageHeader } from "@/components/layout/page-header"
+import { VisorArchivo } from "@/components/visor-archivo"
+import { ConfirmarDialogo } from "@/components/confirmar-dialogo"
+import { TomarFotoBoton } from "@/components/tomar-foto-boton"
 import { createClient } from "@/lib/supabase"
-import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
-import { TIPOS_EQUIPO, ESTADOS_EQUIPO, estadoEquipoClase } from "@/lib/equipos"
+import { TIPOS_EQUIPO, ESTADOS_EQUIPO, estadoEquipoClase, validarActa, extensionActa, tipoVisorActa } from "@/lib/equipos"
 
 type Asignacion = {
   id: string
@@ -55,6 +57,10 @@ export default function EquipoPage() {
   const actaNuevaRef = useRef<HTMLInputElement>(null)
 
   const [fechaDevolucion, setFechaDevolucion] = useState(hoy())
+
+  // Visor del acta dentro del sistema, y confirmación para eliminar un acta cargada.
+  const [visor, setVisor] = useState<{ url: string; titulo: string; subtitulo: string; tipo: "pdf" | "imagen" | "otro" } | null>(null)
+  const [actaPorEliminar, setActaPorEliminar] = useState<Asignacion | null>(null)
 
   // Cambio de encargado (cierra la entrega vigente y abre una nueva) o corrección de los datos de la vigente.
   const [accion, setAccion] = useState<"ninguna" | "cambiar" | "editar">("ninguna")
@@ -112,10 +118,10 @@ export default function EquipoPage() {
   }
 
   async function subirActa(asignacionId: string, archivo: File, anterior: string | null): Promise<boolean> {
-    const invalido = validateUploadFile(archivo)
+    const invalido = validarActa(archivo)
     if (invalido) { setError(invalido); return false }
     const supabase = createClient()
-    const path = `${equipoId}/${asignacionId}-${marcaTiempo()}.${sanitizeExt(archivo.name)}`
+    const path = `${equipoId}/${asignacionId}-${marcaTiempo()}.${extensionActa(archivo.name)}`
     const { error: eUp } = await supabase.storage.from("equipos-actas").upload(path, archivo)
     if (eUp) { setError("No se pudo subir el acta. Intenta de nuevo."); return false }
     const { error: eDb } = await supabase.from("equipo_asignaciones").update({ acta_path: path }).eq("id", asignacionId)
@@ -128,7 +134,7 @@ export default function EquipoPage() {
     setError(null)
     if (!equipoId) return
     if (!encNombre.trim()) { setError("Ingresa el nombre del encargado."); return }
-    if (encActa) { const inv = validateUploadFile(encActa); if (inv) { setError(inv); return } }
+    if (encActa) { const inv = validarActa(encActa); if (inv) { setError(inv); return } }
     setTrabajando(true)
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -152,7 +158,7 @@ export default function EquipoPage() {
     if (!equipoId || !vigente) return
     if (!encNombre.trim()) { setError("Ingresa el nombre del nuevo encargado."); return }
     if (encFecha < vigente.fecha_entrega) { setError("El traspaso no puede ser anterior a la entrega actual."); return }
-    if (encActa) { const inv = validateUploadFile(encActa); if (inv) { setError(inv); return } }
+    if (encActa) { const inv = validarActa(encActa); if (inv) { setError(inv); return } }
     setTrabajando(true)
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -225,7 +231,31 @@ export default function EquipoPage() {
   async function verActa(path: string) {
     const { data, error: e } = await createClient().storage.from("equipos-actas").createSignedUrl(path, 3600)
     if (e || !data) { setError("No se pudo abrir el acta."); return }
-    window.open(data.signedUrl, "_blank", "noopener")
+    const asig = asignaciones.find(x => x.acta_path === path)
+    setVisor({
+      url: data.signedUrl,
+      titulo: `Acta de entrega${asig ? ` — ${asig.encargado_nombre}` : ""}`,
+      subtitulo: [marca, modelo].filter(Boolean).join(" ") + (asig ? ` · entregado el ${fmtFecha(asig.fecha_entrega)}` : ""),
+      tipo: tipoVisorActa(path),
+    })
+  }
+
+  // Eliminar el acta cargada: se desvincula de la entrega y se borra el archivo del almacenamiento.
+  async function eliminarActa(a: Asignacion) {
+    if (!a.acta_path) return
+    setError(null)
+    setTrabajando(true)
+    const supabase = createClient()
+    const { error: eDb } = await supabase.from("equipo_asignaciones").update({ acta_path: null }).eq("id", a.id)
+    if (eDb) {
+      setError(eDb.message)
+    } else {
+      const { error: eRm } = await supabase.storage.from("equipos-actas").remove([a.acta_path])
+      if (eRm) console.error("[equipos] el acta se desvinculó pero no se pudo borrar el archivo:", eRm)
+      if (equipoId) await cargarAsignaciones(equipoId)
+    }
+    setTrabajando(false)
+    setActaPorEliminar(null)
   }
 
   // Campos del encargado nuevo: los usan "Registrar entrega" y "Cambiar encargado".
@@ -252,13 +282,14 @@ export default function EquipoPage() {
         <Input value={encObs} onChange={e => setEncObs(e.target.value)} className="h-9" />
       </div>
       <div className="space-y-1 md:col-span-2">
-        <Label className="text-xs">Acta de responsabilidad firmada (PDF, JPG o PNG, máx. 10 MB)</Label>
+        <Label className="text-xs">Acta de responsabilidad firmada (PDF, Word, imagen escaneada u otro archivo, máx. 25 MB)</Label>
         <div className="flex items-center gap-2">
-          <input ref={actaNuevaRef} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" className="hidden"
+          <input ref={actaNuevaRef} type="file" className="hidden"
             onChange={e => { setEncActa(e.target.files?.[0] ?? null); e.target.value = "" }} />
           <Button type="button" variant="outline" size="sm" onClick={() => actaNuevaRef.current?.click()} className="gap-1.5">
             <Upload className="h-3.5 w-3.5" /> {encActa ? "Cambiar archivo" : "Elegir archivo"}
           </Button>
+          <TomarFotoBoton onFotos={fs => setEncActa(fs[0] ?? null)} className="h-8 text-xs" />
           <span className="text-xs text-muted-foreground truncate">{encActa?.name ?? "Se puede cargar después"}</span>
         </div>
       </div>
@@ -333,7 +364,7 @@ export default function EquipoPage() {
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">Entregado el {fmtFecha(vigente.fecha_entrega)}</p>
                   </div>
-                  <ActaBoton a={vigente} onVer={verActa} onSubir={cambiarActa} disabled={trabajando} />
+                  <ActaBoton a={vigente} onVer={verActa} onSubir={cambiarActa} onEliminar={setActaPorEliminar} disabled={trabajando} />
                 </div>
                 {accion === "ninguna" && (
                   <div className="flex flex-wrap items-end gap-2 border-t pt-3">
@@ -440,7 +471,7 @@ export default function EquipoPage() {
                             {a.fecha_devolucion ? fmtFecha(a.fecha_devolucion) : <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-950 dark:text-sky-300">Actual</span>}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">{a.observaciones || "—"}</td>
-                          <td className="px-3 py-2"><ActaBoton a={a} onVer={verActa} onSubir={cambiarActa} disabled={trabajando} compacto /></td>
+                          <td className="px-3 py-2"><ActaBoton a={a} onVer={verActa} onSubir={cambiarActa} onEliminar={setActaPorEliminar} disabled={trabajando} compacto /></td>
                         </tr>
                       ))}
                     </tbody>
@@ -451,21 +482,31 @@ export default function EquipoPage() {
           </section>
         )}
       </div>
+      {visor && <VisorArchivo {...visor} onClose={() => setVisor(null)} />}
+      <ConfirmarDialogo
+        abierto={actaPorEliminar !== null}
+        titulo="¿Eliminar el acta?"
+        descripcion={<>Se eliminará el acta de entrega de <span className="font-semibold text-foreground">{actaPorEliminar?.encargado_nombre}</span>. Podrás cargar otra después. Esta acción no se puede deshacer.</>}
+        ocupado={trabajando}
+        onConfirmar={() => actaPorEliminar && eliminarActa(actaPorEliminar)}
+        onCancelar={() => setActaPorEliminar(null)}
+      />
     </div>
   )
 }
 
-function ActaBoton({ a, onVer, onSubir, disabled, compacto }: {
+function ActaBoton({ a, onVer, onSubir, onEliminar, disabled, compacto }: {
   a: Asignacion
   onVer: (path: string) => void
   onSubir: (a: Asignacion, f: File) => void
+  onEliminar: (a: Asignacion) => void
   disabled: boolean
   compacto?: boolean
 }) {
   const ref = useRef<HTMLInputElement>(null)
   return (
     <div className="flex items-center gap-2">
-      <input ref={ref} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" className="hidden"
+      <input ref={ref} type="file" className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) onSubir(a, f); e.target.value = "" }} />
       {a.acta_path ? (
         <button type="button" onClick={() => onVer(a.acta_path!)} className="flex items-center gap-1 text-xs text-emerald-700 hover:underline">
@@ -477,6 +518,13 @@ function ActaBoton({ a, onVer, onSubir, disabled, compacto }: {
       <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => ref.current?.click()} className="h-7 gap-1 text-xs">
         <Upload className="h-3 w-3" /> {a.acta_path ? "Reemplazar" : compacto ? "Cargar" : "Cargar acta"}
       </Button>
+      <TomarFotoBoton onFotos={fs => fs[0] && onSubir(a, fs[0])} disabled={disabled} label="Foto" className="h-7 px-2 text-xs" />
+      {a.acta_path && (
+        <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => onEliminar(a)} title="Eliminar el acta"
+          className="h-7 w-7 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      )}
     </div>
   )
 }

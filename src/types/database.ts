@@ -6,7 +6,7 @@ export type MovimientoServicio = 'Almacenaje' | 'Transporte' | 'Porteo' | 'Logí
 export type MovimientoEstado = 'en_proceso' | 'completado'
 export type TipoMovimiento = 'ingreso' | 'despacho'
 export type TipoContenedor = '20ft' | '40ft' | 'isotanque'
-export type AlmacenajeContenedor = 'full' | 'vacio'
+export type AlmacenajeContenedor = 'full' | 'vacio' | 'parcial'
 export type SolicitadoPor = 'clientes' | 'hds' | 'operaciones'
 export type TransporteTipo = 'propio' | 'externo'
 export type TipoEnvase = 'Tambor' | 'Bidón' | 'IBC' | 'Saco' | 'Caja' | 'Pallet' | 'Granel' | 'Maxisaco' | 'Tineta' | 'Cilindro' | 'Cuñete' | 'Otro'
@@ -60,6 +60,7 @@ export interface Report {
   sec2_paletizado: boolean
   sec2_etiquetado: boolean
   sec2_otro: boolean
+  sec2_parcial: boolean
   sec2_hora_inicio: string | null
   sec2_hora_termino: string | null
   sec2_sigla_numero: string | null
@@ -146,6 +147,9 @@ export interface ReportBodegajeItem {
   sec3_clase_imo:          string | null
   sec3_nu:                 string | null
   sec3_numero_bodega:      string | null
+  // Solo UTI Chile: N° de pallet y rack del producto en este movimiento
+  sec3_numero_pallet?:     string | null
+  sec3_rack?:              string | null
   sec3_numero_pallets:     number | null
   sec3_numero_unidades:    number | null
   sec3_lote:               string | null
@@ -253,6 +257,7 @@ export interface Movimiento {
   tipo_envase:        TipoEnvase | EnvaseContenedor | null
   posiciones:         number | null
   numero_pallet:      string | null
+  rack?:              string | null
   guia_numero:        string | null
   orden_compra:       string | null
   bodega:             string | null

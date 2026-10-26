@@ -5,6 +5,7 @@ import { FileText, Loader2, Paperclip, Plus, X } from "lucide-react"
 import { createClient } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
+import { TomarFotoBoton } from "@/components/tomar-foto-boton"
 
 interface Props {
   reportId: string
@@ -91,15 +92,18 @@ export function ReportArchivosPanel({ reportId, numero, initial }: Props) {
           className="hidden"
           onChange={e => { if (e.target.files) upload(e.target.files); e.target.value = "" }}
         />
-        <button
-          type="button"
-          disabled={uploading}
-          onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] font-medium hover:bg-muted/60 disabled:opacity-60"
-        >
-          {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-          {uploading ? "Subiendo..." : "Adjuntar"}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <TomarFotoBoton onFotos={upload} disabled={uploading} label="Foto" className="h-8 px-2.5 text-[11px]" />
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileRef.current?.click()}
+            className="flex h-8 items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 text-[11px] font-medium hover:bg-muted/60 disabled:opacity-60"
+          >
+            {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+            {uploading ? "Subiendo..." : "Adjuntar"}
+          </button>
+        </div>
       </div>
 
       {archivos.length === 0 ? (

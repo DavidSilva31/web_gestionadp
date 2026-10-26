@@ -19,6 +19,7 @@ import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { FirmaRecepcionDespacho } from "@/components/reports/firma-staff-block"
 import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
+import { TomarFotoBoton } from "@/components/tomar-foto-boton"
 import { EstadoSemaforo, estadoDespachadoLabel, estadoEnProcesoLabel } from "@/components/reports/report-estado-semaforo"
 import { estadoAlDespachar } from "@/lib/report-proceso"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
@@ -792,6 +793,7 @@ function ArchivosPendienteDespachoPanel({ report, onChange }: { report: ReportRo
           }
         </p>
       </div>
+      <TomarFotoBoton onFotos={upload} disabled={uploading} className="w-full" />
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )

@@ -20,6 +20,8 @@ import { logAudit, accionLabel } from "@/lib/audit"
 import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { ReportArchivosPanel } from "@/components/reports/report-archivos-panel"
+import { ConfirmarDialogo } from "@/components/confirmar-dialogo"
+import { TomarFotoBoton } from "@/components/tomar-foto-boton"
 import { FirmaStaffBlock } from "@/components/reports/firma-staff-block"
 import { firmarReport } from "@/lib/report-firmas"
 import type { FirmaEvidencia } from "@/lib/firma-hash"
@@ -34,6 +36,7 @@ import { ReportPreviewModal } from "@/components/reports/report-preview-modal"
 import { downloadReportPDF } from "@/lib/download-report-pdf"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import { siglaIncompleta, MSG_SIGLA } from "@/lib/sigla"
+import { detalleConRack } from "@/lib/inventario"
 
 interface FormData extends ReportFormData {
   cliente_id: string
@@ -232,6 +235,42 @@ export default function ReportDetailPage() {
     setSec2DragOver(false)
     if (e.dataTransfer.files?.length) addSec2EvidenciaFiles(e.dataTransfer.files)
   }
+  // Quitar un archivo ya guardado del report. Se desvincula del report (igual que el panel "Archivos
+  // adjuntos"); el archivo sigue en el almacenamiento privado, que por diseño no se borra desde la app
+  // (no hay política de DELETE) y queda en la copia de seguridad. Se guarda al instante.
+  async function quitarArchivoReport(columnas: Record<string, string[]>, aplicar: () => void) {
+    setError(null)
+    const { error: err } = await createClient().from("reports").update(columnas).eq("id", id)
+    if (err) {
+      console.error("[reports/id] error quitando archivo:", err)
+      setError("No se pudo quitar el archivo. Intenta de nuevo.")
+      return
+    }
+    aplicar()
+    logAudit({
+      tabla:          "reports",
+      registro_id:    id,
+      accion:         "report.actualizar",
+      descripcion:    `Report #${numero} — archivo quitado`,
+      usuario_id:     user?.id,
+      usuario_nombre: profile?.nombre ?? user?.email,
+    })
+  }
+  // HDS / Guía de despacho: un mismo archivo puede estar en las dos listas, se quita de ambas.
+  function quitarAdjunto(path: string) {
+    const hds = existingHdsPaths.filter(p => p !== path)
+    const guia = existingGuiaDespachoPaths.filter(p => p !== path)
+    return quitarArchivoReport({ hds_archivos: hds, guia_despacho_archivos: guia }, () => { setExistingHdsPaths(hds); setExistingGuiaDespachoPaths(guia) })
+  }
+  function quitarEvidencia(path: string) {
+    const nuevos = existingEvidenciaPaths.filter(p => p !== path)
+    return quitarArchivoReport({ sec2_evidencia_archivos: nuevos }, () => setExistingEvidenciaPaths(nuevos))
+  }
+  function quitarImagenReferencia(path: string) {
+    const nuevos = existingSec3ImgPaths.filter(p => p !== path)
+    return quitarArchivoReport({ sec3_imagenes_referencia: nuevos }, () => setExistingSec3ImgPaths(nuevos))
+  }
+
   function addSec3ImgFiles(list: FileList | File[]) {
     // Solo imágenes (el input ya filtra, pero arrastrar y soltar no).
     const imgs = Array.from(list).filter(f => f.type.startsWith("image/"))
@@ -494,6 +533,7 @@ export default function ReportDetailPage() {
       sec2_paletizado:     form.sec2_paletizado,
       sec2_etiquetado:     form.sec2_etiquetado,
       sec2_otro:           form.sec2_otro,
+      sec2_parcial:        form.sec2_parcial,
       sec2_sigla_numero:   form.sec2_sigla_numero   || null,
       sec2_observaciones:  form.sec2_observaciones  || null,
       sec3_activa:              sec3Activa,
@@ -672,6 +712,9 @@ export default function ReportDetailPage() {
             sec3_clase_imo:          it.sec3_clase_imo          || null,
             sec3_nu:                 it.sec3_nu                 || null,
             sec3_numero_bodega:      it.sec3_numero_bodega      || null,
+            // Solo se envían con valor (UTI): así guardar sigue funcionando aunque la columna no exista aún.
+            ...(it.sec3_numero_pallet ? { sec3_numero_pallet: it.sec3_numero_pallet } : {}),
+            ...(it.sec3_rack ? { sec3_rack: it.sec3_rack } : {}),
             sec3_numero_pallets:     it.sec3_numero_pallets     ? Number(it.sec3_numero_pallets)  : null,
             sec3_numero_unidades:    it.sec3_numero_unidades    ? Number(it.sec3_numero_unidades) : null,
             sec3_lote:               it.sec3_lote               || null,
@@ -1319,7 +1362,7 @@ export default function ReportDetailPage() {
                     {existingAdjuntoPaths.length > 0 && (
                       <div className="flex flex-col gap-1.5">
                         {existingAdjuntoPaths.map((path, i) => (
-                          <EvidenciaExistenteLink key={path} path={path} index={i} label="Adjunto" />
+                          <EvidenciaExistenteLink key={path} path={path} index={i} label="Adjunto" onRemove={!leftReadOnly ? () => quitarAdjunto(path) : undefined} />
                         ))}
                       </div>
                     )}
@@ -1348,6 +1391,7 @@ export default function ReportDetailPage() {
                             Arrastra archivos aquí o <span className="text-primary underline underline-offset-2">selecciona</span>
                           </p>
                         </div>
+                        <TomarFotoBoton onFotos={addAdjuntoFiles} className="w-full" />
                         {adjuntoFiles.length > 0 && (
                           <div className="flex flex-col gap-1.5">
                             {adjuntoFiles.map((file, i) => (
@@ -1412,7 +1456,7 @@ export default function ReportDetailPage() {
                   {existingEvidenciaPaths.length > 0 && (
                     <div className="flex flex-col gap-1.5">
                       {existingEvidenciaPaths.map((path, i) => (
-                        <EvidenciaExistenteLink key={path} path={path} index={i} />
+                        <EvidenciaExistenteLink key={path} path={path} index={i} onRemove={!rightReadOnly ? () => quitarEvidencia(path) : undefined} />
                       ))}
                     </div>
                   )}
@@ -1441,6 +1485,7 @@ export default function ReportDetailPage() {
                           Toma una foto o <span className="text-primary underline underline-offset-2">adjunta un archivo</span>
                         </p>
                       </div>
+                      <TomarFotoBoton onFotos={addSec2EvidenciaFiles} className="w-full" />
                       {sec2EvidenciaFiles.length > 0 && (
                         <div className="flex flex-col gap-1.5">
                           {sec2EvidenciaFiles.map((file, i) => (
@@ -1486,6 +1531,8 @@ export default function ReportDetailPage() {
                     onAdd={addBodegajeItem}
                     onRemove={removeBodegajeItem}
                     tarifasCliente={tarifasCliente}
+                    tipo={form.sec3_tipo}
+                    uti={detalleConRack(form.cliente)}
                     readOnly={rightReadOnly}
                   />
                 }
@@ -1508,7 +1555,7 @@ export default function ReportDetailPage() {
                     {existingSec3ImgPaths.length > 0 && (
                       <div className="flex flex-col gap-1.5">
                         {existingSec3ImgPaths.map((path, i) => (
-                          <EvidenciaExistenteLink key={path} path={path} index={i} label="Imagen de referencia" />
+                          <EvidenciaExistenteLink key={path} path={path} index={i} label="Imagen de referencia" onRemove={!rightReadOnly ? () => quitarImagenReferencia(path) : undefined} />
                         ))}
                       </div>
                     )}
@@ -1537,6 +1584,7 @@ export default function ReportDetailPage() {
                             Toma una foto o <span className="text-primary underline underline-offset-2">adjunta una imagen</span>
                           </p>
                         </div>
+                        <TomarFotoBoton onFotos={addSec3ImgFiles} className="w-full" />
                         {sec3ImgFiles.length > 0 && (
                           <div className="flex flex-col gap-1.5">
                             {sec3ImgFiles.map((file, i) => (
@@ -1824,10 +1872,11 @@ export default function ReportDetailPage() {
 // Evidencia fotográfica ya guardada (bucket privado "reports-firmados") —
 // resuelve una URL firmada y la muestra como link, igual que el documento
 // firmado de más arriba en esta misma página.
-function EvidenciaExistenteLink({ path, index, label = "Evidencia" }: { path: string; index: number; label?: string }) {
+function EvidenciaExistenteLink({ path, index, label = "Evidencia", onRemove }: { path: string; index: number; label?: string; onRemove?: () => void }) {
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
   const [retryKey, setRetryKey] = useState(0)
+  const [confirmando, setConfirmando] = useState(false)
   useEffect(() => {
     let cancelled = false
     createClient().storage.from("reports-firmados").createSignedUrl(path, 3600)
@@ -1842,6 +1891,7 @@ function EvidenciaExistenteLink({ path, index, label = "Evidencia" }: { path: st
     return () => { cancelled = true }
   }, [path, retryKey])
   return (
+    <div className="flex items-center gap-1.5">
     <a
       href={failed ? "#" : url ?? "#"}
       target="_blank"
@@ -1849,12 +1899,33 @@ function EvidenciaExistenteLink({ path, index, label = "Evidencia" }: { path: st
       title={failed ? "No se pudo cargar el archivo — clic para reintentar" : undefined}
       onClick={failed ? (e) => { e.preventDefault(); setFailed(false); setUrl(null); setRetryKey(k => k + 1) } : undefined}
       className={cn(
-        "flex items-center gap-2 bg-muted/40 border border-border/40 rounded-lg px-2.5 py-1.5 text-xs",
+        "flex min-w-0 flex-1 items-center gap-2 bg-muted/40 border border-border/40 rounded-lg px-2.5 py-1.5 text-xs",
         url ? "hover:bg-muted/60 cursor-pointer" : failed ? "opacity-80 cursor-pointer hover:bg-muted/60 text-destructive" : "opacity-60 cursor-wait pointer-events-none"
       )}
     >
       <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
       <span className="truncate flex-1">{label} {index + 1}{failed && " — no se pudo cargar, clic para reintentar"}</span>
     </a>
+    {onRemove && (
+      <button
+        type="button"
+        title="Quitar archivo"
+        onClick={() => setConfirmando(true)}
+        className="flex-shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    )}
+    {onRemove && (
+      <ConfirmarDialogo
+        abierto={confirmando}
+        titulo="¿Quitar este archivo?"
+        descripcion={<>Se quitará <span className="font-semibold text-foreground">{label} {index + 1}</span> del report. El archivo queda guardado en el sistema, pero ya no aparecerá aquí.</>}
+        confirmar="Quitar"
+        onConfirmar={() => { setConfirmando(false); onRemove() }}
+        onCancelar={() => setConfirmando(false)}
+      />
+    )}
+    </div>
   )
 }

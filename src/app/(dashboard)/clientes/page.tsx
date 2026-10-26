@@ -140,6 +140,8 @@ export default function ClientesPage() {
       activo:   form.activo,
       stock_compartido_con: form.stock_compartido_con || null,
       usa_vista_kardex: form.usa_vista_kardex,
+      // Día en que parte el período de facturación del HES: 1 = mes calendario; otro día = ciclo (ej. 26: del 26 al 25).
+      dia_corte_facturacion: Math.min(31, Math.max(1, Math.trunc(Number(form.dia_corte_facturacion)) || 1)),
     }
 
     try {
@@ -330,6 +332,15 @@ export default function ClientesPage() {
               <option value="">Sin sector</option>
               {SECTORES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Día de corte de facturación
+              <span className="text-muted-foreground font-normal ml-1 normal-case">1 = mes calendario · otro día = ciclo (ej. 26: del 26 al 25 del mes siguiente)</span>
+            </Label>
+            <Input type="number" min={1} max={31} value={form.dia_corte_facturacion ?? 1}
+              onChange={e => setForm(p => ({ ...p, dia_corte_facturacion: e.target.value === "" ? 1 : Number(e.target.value) }))}
+              className="h-9 w-28" />
           </div>
           <div className="col-span-2 space-y-1.5">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">

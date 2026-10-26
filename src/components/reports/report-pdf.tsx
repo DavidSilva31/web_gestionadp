@@ -148,7 +148,7 @@ const SEC3_COLS: { key: keyof ReportBodegajeItem; label: string; flex: number; n
   { key: "sec3_clase_imo",         label: "Cl. IMO",   flex: 0.6 },
   { key: "sec3_nu",                label: "NU",         flex: 0.6 },
   { key: "sec3_numero_bodega",     label: "Bodega",     flex: 0.6 },
-  { key: "sec3_numero_pallets",    label: "Pallets",    flex: 0.5, num: true },
+  { key: "sec3_numero_pallets",    label: "Posic.",     flex: 0.5, num: true },
   { key: "sec3_numero_unidades",   label: "Unid.",      flex: 0.5, num: true },
   { key: "sec3_lote",              label: "Lote",       flex: 0.8 },
   { key: "sec3_cas",               label: "CAS",        flex: 0.6 },
@@ -157,14 +157,27 @@ const SEC3_COLS: { key: keyof ReportBodegajeItem; label: string; flex: number; n
   { key: "sec3_fecha_vencimiento", label: "Venc.",      flex: 0.7 },
 ]
 
+// UTI Chile trabaja por pallet y rack: sin posiciones, CAS, OC ni fechas.
+const SEC3_COLS_UTI: typeof SEC3_COLS = [
+  { key: "sec3_producto",          label: "Producto",  flex: 2.4 },
+  { key: "sec3_clase_imo",         label: "Cl. IMO",   flex: 0.6 },
+  { key: "sec3_nu",                label: "NU",         flex: 0.6 },
+  { key: "sec3_numero_bodega",     label: "Bodega",     flex: 0.7 },
+  { key: "sec3_numero_pallet",     label: "Pallet",     flex: 0.7 },
+  { key: "sec3_rack",              label: "Rack",       flex: 0.6 },
+  { key: "sec3_numero_unidades",   label: "Unid.",      flex: 0.5, num: true },
+  { key: "sec3_lote",              label: "Lote",       flex: 1 },
+]
+
 // Tabla compacta de productos de Bodegaje — un report puede tener varios,
 // cada uno en su fila. Cabe cómodo en A4 para el rango realista de 1-5
 // productos por report.
 function TablaBodegaje({ items }: { items: ReportBodegajeItem[] }) {
+  const cols = items.some(it => it.sec3_numero_pallet) ? SEC3_COLS_UTI : SEC3_COLS
   return (
     <View>
       <View style={s.sec3TableHeaderRow}>
-        {SEC3_COLS.map(col => (
+        {cols.map(col => (
           <Text key={col.key} style={[s.sec3TableHeaderCell, { flex: col.flex, textAlign: col.num ? "right" : "left" }]}>
             {col.label}
           </Text>
@@ -172,14 +185,14 @@ function TablaBodegaje({ items }: { items: ReportBodegajeItem[] }) {
       </View>
       {items.length === 0 ? (
         <View style={s.sec3TableRow}>
-          {SEC3_COLS.map(col => (
+          {cols.map(col => (
             <Text key={col.key} style={[col.num ? s.sec3TableCellNum : s.sec3TableCell, { flex: col.flex }]}>—</Text>
           ))}
         </View>
       ) : (
         items.map(item => (
           <View key={item.id} style={s.sec3TableRow}>
-            {SEC3_COLS.map(col => (
+            {cols.map(col => (
               <Text key={col.key} style={[col.num ? s.sec3TableCellNum : s.sec3TableCell, { flex: col.flex }]}>
                 {item[col.key] ?? ""}
               </Text>
@@ -293,8 +306,18 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
               </View>
               <CbItem checked={report.sec1_tipo_contenedor === "isotanque"} label="       Isotanque" />
               <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-                <CbItem checked={report.sec1_almacenaje === "full"} label="       Almacenaje Full" />
-                <CbItem checked={report.sec1_almacenaje === "vacio"} label="Almacenaje Vacío" />
+                {(report.sec1_tipo_movimiento ?? report.sec3_tipo) === "despacho" ? (
+                  <>
+                    <CbItem checked={report.sec1_almacenaje === "full"} label="       Despacho Full" />
+                    <CbItem checked={report.sec1_almacenaje === "vacio"} label="Despacho Vacío" />
+                    <CbItem checked={report.sec1_almacenaje === "parcial"} label="Despacho Parcial" />
+                  </>
+                ) : (
+                  <>
+                    <CbItem checked={report.sec1_almacenaje === "full"} label="       Almacenaje Full" />
+                    <CbItem checked={report.sec1_almacenaje === "vacio"} label="Almacenaje Vacío" />
+                  </>
+                )}
               </View>
             </View>
           </View>
@@ -350,6 +373,7 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
             <View style={{ flex: 1 }}>
               <CbItem checked={report.sec2_consolidado}    label="2.1  Consolidado" />
               <CbItem checked={report.sec2_desconsolidado} label="       Desconsolidado" />
+              <CbItem checked={report.sec2_parcial}        label="       Parcial" />
               <CbItem checked={report.sec2_picking}        label="       Picking" />
             </View>
             <View style={{ flex: 1.2 }}>
@@ -399,7 +423,7 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
             <View style={{ flexDirection: "row", alignItems: "center", marginRight: 16 }}>
               <CbItem checked={report.sec3_tipo === "despacho"} label="3.2  Despacho" />
             </View>
-            <Field label="Total Pallets" value={String(totalPallets)} short />
+            {!items.some(it => it.sec3_numero_pallet) && <Field label="Total Posiciones" value={String(totalPallets)} short />}
             <Field label="Total Unidades" value={String(totalUnidades)} short />
           </View>
 

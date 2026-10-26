@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { CheckCircle2, Clock, Truck, Search, User, Calendar, Package, ChevronDown, ChevronUp, Loader2, RefreshCw, Upload, FileText, X, AlertTriangle, Paperclip } from "lucide-react"
+import { TomarFotoBoton } from "@/components/tomar-foto-boton"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PageHeader } from "@/components/layout/page-header"
@@ -277,6 +278,7 @@ function ReportCard({ report, stockPorItem, onDispatch }: { report: PendingRepor
               }
             </p>
           </div>
+          <TomarFotoBoton onFotos={uploadArchivosPD} disabled={archivosPDUploading} className="w-full" />
           {archivosPDError && <p className="text-xs text-destructive">{archivosPDError}</p>}
         </div>
       )}
@@ -341,6 +343,7 @@ function ReportCard({ report, stockPorItem, onDispatch }: { report: PendingRepor
                 </button>
               </div>
             ) : (
+              <div className="space-y-1.5">
               <div
                 onDragOver={e => { e.preventDefault(); setDragOver(true) }}
                 onDragLeave={() => setDragOver(false)}
@@ -358,6 +361,8 @@ function ReportCard({ report, stockPorItem, onDispatch }: { report: PendingRepor
                   {dragOver ? "Suelta para adjuntar" : "Arrastra el archivo aquí"}
                 </span>
                 <span className="text-[10px] text-muted-foreground">o haz clic para seleccionar · PDF, JPG, PNG</span>
+              </div>
+              <TomarFotoBoton onFotos={fs => { setFile(fs[0] ?? null); setUploadError(null) }} className="w-full" />
               </div>
             )}
             {uploadError && <p className="text-xs text-red-500 mt-1">{uploadError}</p>}
