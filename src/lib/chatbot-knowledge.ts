@@ -130,8 +130,8 @@ un camión por las instalaciones. Flujo en DOS FASES:
      a nivel de sección si aplica un servicio especial, más la firma digital del
      conductor y el nombre del operador de carga. Al enviar, el report pasa a
      "pendiente_despacho".
-  3. En la cola de Despacho (/reports/despacho), o desde el botón de despacho
-     rápido en la lista de reports, el portero ingresa su nombre y confirma la
+  3. Desde el botón de despacho rápido en la lista de reports (/reports), el
+     portero ingresa su nombre y confirma la
      salida del vehículo → el report pasa a "despachado", momento en el que
      recién se mueve el stock de Inventario (un movimiento por cada producto de
      la Sección 3) y (si el transporte es "propio"/Transporte ADP) se genera el

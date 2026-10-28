@@ -296,6 +296,12 @@ export function Sec1Content({ form, set, readOnly, toUpperCase: uc, hideActivati
               className="h-3.5 w-3.5" disabled={readOnly} />
             <label htmlFor="sec1_carga_imo" className="text-xs text-foreground/80 cursor-pointer">Carga IMO</label>
           </div>
+          <div className="flex items-center gap-2">
+            <Checkbox id="sec1_habilitacion" checked={form.sec1_habilitacion}
+              onCheckedChange={v => !readOnly && set("sec1_habilitacion", v === true)}
+              className="h-3.5 w-3.5" disabled={readOnly} />
+            <label htmlFor="sec1_habilitacion" className="text-xs text-foreground/80 cursor-pointer">Habilitación</label>
+          </div>
         </div>
 
         {form.sec1_carga_imo && (

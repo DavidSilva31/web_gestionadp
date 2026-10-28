@@ -127,6 +127,7 @@ Todo lo que se ejecuta en el **SQL Editor de Supabase**, ordenado en carpetas:
 
 ### Equipos
 
+- [`migration_picking.sql`](migraciones_aplicadas/migration_picking.sql) — Módulo "Picking": lista de productos a retirar por cliente (`pickings`, `picking_lineas`), precarga para el Bodegaje del report. No mueve stock; el trigger `reports_picking_despachado` pasa el picking a "despachado" cuando el report se despacha.
 - [`migration_equipos.sql`](migraciones_aplicadas/migration_equipos.sql) — Módulo "Equipos" (Administración): notebooks/PCs y tablets entregados a trabajadores,
 - [`migration_equipos_actas_cualquier_archivo.sql`](migraciones_aplicadas/migration_equipos_actas_cualquier_archivo.sql) — Equipos: las actas de entrega pueden ser cualquier tipo de archivo (PDF, Word, imágenes escaneadas, etc.).
 

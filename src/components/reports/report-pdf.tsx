@@ -333,6 +333,7 @@ export function ReportPDF({ report, firmas = {}, items = [] }: { report: Report;
                     <Field label="NU" value={report.sec1_nu} short />
                   </>
                 )}
+                <CbItem checked={report.sec1_habilitacion} label="   Habilitación" />
               </View>
             </View>
             <View style={{ flex: 1 }}>

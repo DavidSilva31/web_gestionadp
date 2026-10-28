@@ -21,6 +21,7 @@ import { invalidarCache } from "@/lib/cache-consultas"
 import { exportInventarioResumenToExcel, exportKardexToExcel, type KardexExportGroup } from "@/lib/excel"
 import { resolveEffectiveClienteId, sembrarClienteEfectivo, detallePorPallet, detalleConRack, valoresPallet, INVENTARIO_CATEGORIAS, INVENTARIO_UNIDADES, inferInventarioArea, TIPOS_ENVASE, ENVASES_CONTENEDOR } from "@/lib/inventario"
 import { ItemFormDialog } from "@/components/inventario/item-form-dialog"
+import { UtiPosicionesCard } from "@/components/inventario/uti-posiciones-card"
 import { cn } from "@/lib/utils"
 import { useCloseOnBack } from "@/hooks/use-close-on-back"
 import { useAuth } from "@/contexts/auth-context"
@@ -465,12 +466,14 @@ function InventarioContent() {
     setKardexError(null)
     const supabase = createClient()
     const effectiveId = await resolveEffectiveClienteId(supabase, clienteId)
-    const { data, error } = await supabase
+    const { data, error } = await fetchTodas<Movimiento & { reports: { numero: number } | null }>((d, h) => supabase
       .from("movimientos")
       .select("*, reports(numero)")
       .eq("cliente_id", effectiveId)
       .eq("oculto", false)
       .order("fecha", { ascending: true })
+      .order("numero", { ascending: true })
+      .range(d, h))
     if (error) {
       setKardexError(error.message)
     } else {
@@ -480,7 +483,8 @@ function InventarioContent() {
   }, [])
 
   useEffect(() => {
-    if (vista === "kardex" && selected && !kardexMovs[selected.id]) {
+    // UTI Chile muestra su tabla de posiciones en el Resumen, calculada con los mismos movimientos del Detalle.
+    if ((vista === "kardex" || detalleConRack(selected?.nombre)) && selected && !kardexMovs[selected.id]) {
       fetchKardexForCliente(selected.id)
     }
   }, [vista, selected, kardexMovs, fetchKardexForCliente])
@@ -1655,6 +1659,9 @@ function InventarioContent() {
                     </div>
                   ) : (
                     <div className="h-full overflow-auto">
+                      {modoRack && (kardexMovs[selected!.id]
+                        ? <UtiPosicionesCard movs={kardexMovs[selected!.id]} />
+                        : <div className="flex items-center gap-2 px-4 pt-4 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando posiciones…</div>)}
                       <table className="w-full text-sm table-fixed min-w-[720px]">
                         <colgroup>
                           <col style={{ width: "11%" }} />

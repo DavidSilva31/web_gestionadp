@@ -21,6 +21,7 @@ import { syncPesoTon } from "@/lib/inventario"
 import { validateUploadFile, sanitizeExt } from "@/lib/upload-validation"
 import { ReportArchivosPanel } from "@/components/reports/report-archivos-panel"
 import { ConfirmarDialogo } from "@/components/confirmar-dialogo"
+import { CargarPicking } from "@/components/picking/cargar-picking"
 import { TomarFotoBoton } from "@/components/tomar-foto-boton"
 import { FirmaStaffBlock } from "@/components/reports/firma-staff-block"
 import { firmarReport } from "@/lib/report-firmas"
@@ -91,6 +92,8 @@ export default function ReportDetailPage() {
   // propia tarifa derivada de su Clase IMO (ver BodegajeItemsList). Se
   // cargan/guardan aparte, en report_bodegaje_items — no son parte de `form`.
   const [bodegajeItems, setBodegajeItems] = useState<BodegajeItemFormData[]>([])
+  // Picking cargado en el Bodegaje de este report (vinculado = ya quedó guardado en el picking).
+  const [pickingCargado, setPickingCargado] = useState<{ id: string; numero: number; vinculado: boolean } | null>(null)
 
   function changeBodegajeItem(index: number, patch: Partial<BodegajeItemFormData>) {
     setBodegajeItems(prev => prev.map((it, i) => i === index ? { ...it, ...patch } : it))
@@ -408,6 +411,8 @@ export default function ReportDetailPage() {
       const { data: items, error: itemsErr } = itemsRes
       if (itemsErr) console.error("[reports/id] error obteniendo productos de Bodegaje:", itemsErr)
       setBodegajeItems(((items as Record<string, unknown>[] | null) ?? []).map(bodegajeItemFromDb))
+      supabase.from("pickings").select("id, numero").eq("report_id", id).maybeSingle()
+        .then(({ data: pk }) => { if (!cancelled && pk) setPickingCargado({ id: pk.id, numero: pk.numero, vinculado: true }) })
       // servicios_ids es un uuid[] plano — un servicio usado 2 veces quedó
       // repetido 2 veces; se reconstruye la cantidad contando ocurrencias.
       const counts = new Map<string, number>()
@@ -478,7 +483,7 @@ export default function ReportDetailPage() {
     if (!form) return {}
     const sec1Activa = !!(
       form.sec1_tipo_movimiento || form.sec1_tipo_contenedor || form.sec1_carga_normal ||
-      form.sec1_carga_imo || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
+      form.sec1_carga_imo || form.sec1_habilitacion || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
       form.sec1_hora_termino || form.sec1_sigla || form.sec1_interchange ||
       form.sec1_hds
     )
@@ -517,6 +522,7 @@ export default function ReportDetailPage() {
       sec1_almacenaje:      form.sec1_tipo_contenedor === "isotanque" ? null : (form.sec1_almacenaje || null),
       sec1_carga_normal:    form.sec1_carga_normal,
       sec1_carga_imo:       form.sec1_carga_imo,
+      sec1_habilitacion:    form.sec1_habilitacion,
       sec1_clase_imo:       form.sec1_clase_imo    || null,
       sec1_nu:              form.sec1_nu            || null,
       sec1_hora_inicio:     form.sec1_hora_inicio   || null,
@@ -730,6 +736,13 @@ export default function ReportDetailPage() {
         )
         if (insItemsErr) { setError(insItemsErr.message); return }
       }
+    }
+
+    // Picking cargado: queda vinculado a este report (estado "En report"; pasa a "Despachado" cuando el report se despache).
+    if (pickingCargado && !pickingCargado.vinculado) {
+      const { error: pkErr } = await supabase.from("pickings").update({ report_id: id, estado: "en_report" }).eq("id", pickingCargado.id)
+      if (pkErr) console.error("[reports/id] error vinculando el picking:", pkErr)
+      else setPickingCargado({ ...pickingCargado, vinculado: true })
     }
 
     // Si se escribió una empresa de transporte nueva, queda guardada en el
@@ -1158,10 +1171,10 @@ export default function ReportDetailPage() {
           )}
 
           {estado === "pendiente_despacho" && (
-            <Link href="/reports/despacho">
+            <Link href="/reports">
               <Button size="sm" className="gap-1.5 h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white">
                 <Clock className="h-3.5 w-3.5" />
-                Ver cola de despacho
+                Despachar en Reports
               </Button>
             </Link>
           )}
@@ -1524,6 +1537,28 @@ export default function ReportDetailPage() {
                 toUpperCase
                 hideActivation
                 itemsNode={
+                  <>
+                  {form.cliente_id && (pickingCargado || (!rightReadOnly && form.sec3_tipo !== "ingreso")) && (
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      {!rightReadOnly && form.sec3_tipo !== "ingreso" && (
+                        <CargarPicking
+                          clienteId={form.cliente_id}
+                          tarifasCliente={tarifasCliente}
+                          uti={detalleConRack(form.cliente)}
+                          onCargar={(lineas, pk) => {
+                            setBodegajeItems(prev => [...prev, ...lineas.map(l => ({ ...emptyBodegajeItem(), ...l }))])
+                            setPickingCargado({ id: pk.id, numero: pk.numero, vinculado: false })
+                            if (!form.sec3_tipo) set("sec3_tipo", "despacho")
+                          }}
+                        />
+                      )}
+                      {pickingCargado && (
+                        <span className="text-xs text-muted-foreground">
+                          Picking N° {pickingCargado.numero} {pickingCargado.vinculado ? "vinculado a este report" : "cargado — se vincula al guardar"}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <BodegajeItemsList
                     clienteId={form.cliente_id}
                     items={bodegajeItems}
@@ -1535,6 +1570,7 @@ export default function ReportDetailPage() {
                     uti={detalleConRack(form.cliente)}
                     readOnly={rightReadOnly}
                   />
+                  </>
                 }
                 serviciosNode={
                   <ServiciosSection

@@ -4,7 +4,7 @@
 import { auditarInicioRespaldoSharePoint, auditarRespaldoSharePoint, generarRespaldoZip } from "../../src/lib/backup-core"
 import { subirArchivoGrandeASharePoint } from "../../src/lib/sharepoint"
 
-const CARPETAS = (process.env.SHAREPOINT_BACKUP_PATH ?? "RESPALDOS ADP").split("/").filter(Boolean)
+const CARPETAS = (process.env.SHAREPOINT_BACKUP_PATH ?? "TI Informática/Respaldo ADP").split("/").filter(Boolean)
 const NOMBRE = "respaldo_adp_semanal.zip"
 
 export default async (req: Request) => {

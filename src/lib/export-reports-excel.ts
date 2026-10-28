@@ -54,6 +54,7 @@ export async function exportReportsToExcel(reports: ReportConItems[], filename =
     "Sec1 Almacenaje":      r.sec1_almacenaje === "full" ? "Full" : r.sec1_almacenaje === "vacio" ? "Vacío" : r.sec1_almacenaje === "parcial" ? "Parcial" : "",
     "Sec1 Carga normal":    yn(r.sec1_carga_normal),
     "Sec1 Carga IMO":       yn(r.sec1_carga_imo),
+    "Sec1 Habilitación":    yn(r.sec1_habilitacion),
     "Sec1 Clase IMO":       str(r.sec1_clase_imo),
     "Sec1 N°U":             str(r.sec1_nu),
     "Sec1 Hora inicio":     str(r.sec1_hora_inicio),

@@ -39,7 +39,7 @@ SHAREPOINT_CLIENT_SECRET=...                         # Valor del secreto del app
 SHAREPOINT_SITE_ID=...                               # ID Graph del sitio (host,siteCollectionId,webId)
 SHAREPOINT_BASE_PATH=HES Y COTIZACIONES/COTIZACIONES/COTIZACIONES   # Carpeta base; dentro se crea una carpeta por año
 SHAREPOINT_TARIFADO_PATH=HES Y COTIZACIONES/COTIZACIONES/TARIFADO TRANSPORTE   # (opcional) Carpeta base de los Tarifado Transporte; dentro se crea una carpeta por año
-SHAREPOINT_BACKUP_PATH=RESPALDOS ADP                      # (opcional) Carpeta del sitio donde se guardan el respaldo semanal y el del inventario
+SHAREPOINT_BACKUP_PATH=TI Informática/Respaldo ADP                      # (opcional) Carpeta del sitio donde se guardan el respaldo semanal y el del inventario
 BACKUP_CRON_SECRET=...                               # Clave entre la función programada y la función de respaldo (solo Netlify)
 ```
 
@@ -64,7 +64,7 @@ npm run start
 |---|---|
 | `super_admin` | Acceso completo, incluido gestión de usuarios, auditoría y Cotizaciones |
 | `operador` | Acceso completo excepto gestión de usuarios y auditoría |
-| `operador_carga` | Solo inventario, reports y cola de despacho |
+| `operador_carga` | Solo inventario, picking y reports (con despacho rápido) |
 
 **Inventario en solo lectura**: un usuario con `profiles.inventario_solo_lectura = true` (hoy se asigna por SQL, ver `migration_inventario_solo_lectura.sql`) entra al módulo Inventario pero no ve ningún control de edición (Registrar ítem, lápiz/papelera, "Editar" del Detalle). En la base de datos un trigger rechaza crear, editar o desactivar productos (`inventario_items`) cuando el cambio es directo del usuario; despachar reports sigue funcionando porque esos cambios los hacen triggers internos. **Límite:** las ediciones del Detalle escriben en `movimientos`, tabla que también usa el módulo Movimientos, así que ahí el bloqueo es solo de pantalla. La marca no la puede cambiar el propio usuario (igual que role/permisos).
 
@@ -91,11 +91,22 @@ Control de ítems almacenados por cliente:
 - **Detalle por N° de pallet** (`detallePorPallet()` en `src/lib/inventario.ts`, hoy solo **Sherwin Williams**): como todo es PINTURA y lo único que distingue cada línea es el pallet, el Detalle reemplaza los filtros de producto/IMO por un selector con los pallets del sistema y no muestra ninguno hasta elegir uno. Cada pallet es un producto distinto: nombre `PINTURA (859) (CAJA)`, SKU = N° de pallet (`inventario_items.codigo`), 1 posición y las unidades del pallet en un movimiento de ingreso con `carga` propia (`PINTURA (859)`), así cada uno tiene su saldo. Así se reciben en un report: `{producto} ({envase}) {sku}`
 - **Nombre del producto editable**: con "Editar" activo, el nombre de cada producto en la cabecera de su grilla es una celda editable. Cambia el nombre del ítem y el texto `carga` de todos sus movimientos (así Kardex, Excel y HES lo muestran igual) y queda en Auditoría. El trigger de stock de `movimientos` solo se dispara al cambiar tipo, unidades, posiciones o producto (`UPDATE OF`), así editar textos no recalcula el stock
 - **Detalle de UTI Chile** (`detalleConRack()`): igual que el de Sherwin (selector de pallets, nada hasta elegir uno) pero con más: columna **Rack** (editable), pallets con varios valores como `401/403` (se encuentran buscando 401 o 403), un **filtro de Lote** que aparece cuando el pallet elegido tiene 2 o más lotes, y un buscador **SKU o lote** para ver en qué pallets está un lote. UTI no usa posiciones en pantalla: se ocultan las columnas Ing./Desp./Stock Pos. Cada SKU es un producto (`LIMPIEZA INDUSTRIAL (SKU)`) y cada línea de pallet un movimiento con su N° de pallet, rack, lote y bodega
+- **Posiciones de UTI Chile en el Resumen** (`UtiPosicionesCard`, `src/lib/uti-posiciones.ts`; solo UTI, los demás clientes no cambian): réplica de la hoja POSICIONES de su Excel — por clase (8, 5.1, NORMAL, 3 y las que aparezcan), **POSICIONES = INVENTARIO INICIAL − DESPACHO + INGRESO**. El inventario inicial son los ingresos sin report (la carga inicial); ingreso y despacho son los movimientos de reports posteriores. Se calcula con los mismos movimientos del Detalle. Límite: un ingreso manual (sin report) hecho después de la carga inicial se contaría como inventario inicial.
 - El selector de producto del Detalle lista cada nombre una sola vez (dos productos pueden llamarse igual) y al elegirlo muestra todos los que lo llevan
 - **Filtro por lote** en la vista Detalle: el saldo corrido y la grilla se pueden acotar a un lote específico; el stock mostrado se calcula sobre ese lote
 - Los movimientos marcados como **ocultos** (`movimientos.oculto = true`) siguen en la base y mantienen su efecto de stock y su vínculo con el report, pero no aparecen en el Kardex ni en las sugerencias de lote
 - **Stock Pos / Stock Und editables** en la vista Detalle (con el modo "Editar" activado): al cambiar un saldo se inserta un movimiento de ajuste por la diferencia (1 segundo después del movimiento editado), sin tocar los movimientos existentes. Es la forma de corregir un stock sin pasar por SQL
 - **Alta de producto** (formulario de `/inventario` y alta rápida desde un report): el SKU se guarda en el propio ítem (`inventario_items.codigo`). Solo se crea un movimiento de ingreso inicial si hay stock real (o, en el alta completa, lote, vencimiento, envase, bodega o transporte); el alta rápida ya no genera una fila 0/0 vacía en el Kardex. Además hay un guard síncrono contra doble guardado, reutiliza el ítem ya creado si el ingreso inicial falla y se reintenta, y en el alta rápida **reutiliza el producto existente** si el cliente ya tiene uno con el mismo nombre (y mismo SKU o sin SKU) en vez de duplicarlo
+
+### Picking (`/picking`)
+
+Lista de productos que un cliente va a retirar, preparada antes del report (debajo de Inventario en el menú; `super_admin`, `operador` y `operador_carga`). **Solo precarga: no mueve stock.** El stock se descuenta cuando el report se despacha, como siempre.
+
+- **Armado**: se elige el cliente y se marca lo que hay en stock por **producto y lote** (en **UTI Chile**, por producto + pallet + lote, con su rack), con lo disponible de cada línea y la cantidad a retirar editable (no puede superar lo disponible). El stock disponible sale de ingresos − despachos (`src/lib/picking.ts`).
+- **Pegar lista**: se pegan los SKU, N° de pallet o lotes que mandó el cliente; el sistema marca las líneas que coinciden y avisa las que no encontró. Un SKU marca todas las líneas del producto.
+- **PDF**: "Ver PDF" guarda el picking y lo muestra desde el servidor (`/api/picking/[id]/pdf`), con el diseño de los demás PDF, una casilla por línea para ir marcando y líneas de firma; el archivo se llama `Picking_{N°} {Cliente}.pdf`.
+- **En el report**: el Bodegaje de un despacho tiene el botón **Cargar picking**, que agrega al report los productos de un picking pendiente del cliente (producto, lote, pallet/rack, cantidades, peso y tarifa) en vez de cargarlos uno por uno. Al guardar el report el picking queda **En report**, y pasa a **Despachado** cuando el report se despacha (trigger `reports_picking_despachado`). Pendiente → En report → Despachado | Anulado; solo un picking pendiente se puede editar o eliminar.
+- Migración: `migration_picking.sql` (tablas `pickings` y `picking_lineas`).
 
 ### Movimientos (`/movimientos`)
 
@@ -146,7 +157,7 @@ Informes de recepción de carga:
   - **Firma del conductor**: recuadro con canvas táctil (pensado para tablet + lápiz) entre los servicios asociados y el cierre del report
 - **Detalle** (`/reports/[id]`): vista y edición completa; al pasar borrador → pendiente_despacho llama `update_stock` con rollback si falla
   - **Sección 3 — Bodegaje admite múltiples productos** por report (tabla `report_bodegaje_items`, una fila por producto): Hora de inicio/término quedan a nivel de sección (compartidas), y cada producto tiene su propio Clase IMO/NU/N° bodega/pallets/unidades/lote/CAS/OC/fechas de elaboración-vencimiento y su **propia tarifa** derivada automáticamente por Clase IMO — se guarda con patrón "reemplazar todo" (se borran y reinsertan las filas del report). Al despachar, el trigger `create_movimiento_from_report()` genera un `movimiento` por producto, cada uno con su tarifa y datos de manifiesto propios (así el HES ya factura por línea de producto sin cambios adicionales)
-- **Cola de despacho** (`/reports/despacho`): cards expandibles con confirmación de salida de vehículo — **el documento firmado es opcional** en ambos flujos de despacho (cola completa y despacho rápido desde la lista), ya no bloquea el despacho si el report ya está firmado digitalmente
+- **Despacho rápido** desde la lista de Reports: confirma la salida del vehículo (nombre del despachador) y pasa el report a despachado — **el documento firmado es opcional**, ya no bloquea el despacho si el report ya está firmado digitalmente. La antigua cola de despacho (`/reports/despacho`) se eliminó.
 - Exportar report individual a **PDF** (con logotipo `adp_logo_hd.png` en cabecera):
   - Secciones 1/2/3 sin datos se colapsan a solo el nombre de la sección + "N/A — no aplica", en vez de mostrar todos los campos vacíos
   - Sello rediseñado: logo ADP + RUT 76.499.190-7 + fecha, con borde doble — ya no muestra el nombre del despachador. Dice **INGRESADO** o **DESPACHADO** según el tipo de movimiento del report (antes decía siempre DESPACHADO)
@@ -342,6 +353,7 @@ Todas las rutas verifican sesión (`getUser()`) y rol antes de ejecutar operacio
 | `/api/chatbot` | POST | autenticado | Asistente virtual (Gemini) — solo lectura vía function calling, sin acciones que modifiquen datos |
 | `/api/cotizaciones/[id]/pdf` | GET | `super_admin` | PDF de una cotización generado en el servidor, con `Content-Disposition` para que la descarga lleve el nombre correcto |
 | `/api/cotizaciones/sharepoint` | POST | `super_admin` | Sube el PDF de una cotización a SharePoint (carpeta del año) vía Microsoft Graph |
+| `/api/picking/[id]/pdf` | GET | usuario activo | PDF de un picking generado en el servidor, con `Content-Disposition` (`Picking_{N°} {Cliente}.pdf`) |
 | `/api/tarifado-transporte/[id]/pdf` | GET | `super_admin` | PDF de un tarifado generado en el servidor, con `Content-Disposition` para que lleve el nombre `Tarifado_Transp_{N°}_{año} {Emisor} - {Cliente}.pdf` |
 | `/api/tarifado-transporte/sharepoint` | POST | `super_admin` | Sube el PDF de un tarifado a SharePoint (carpeta del año) vía Microsoft Graph |
 | `/api/admin/backup/manifiesto` | GET | `super_admin` | Lista de tablas, archivos del bucket y usuarios de Auth para la copia manual |
@@ -405,7 +417,6 @@ src/
 │       │   ├── page.tsx               # Lista de reports
 │       │   ├── nuevo/                 # Crear report
 │       │   ├── [id]/                  # Detalle / edición
-│       │   └── despacho/              # Cola de despacho
 │       ├── hes/                       # Hoja de estadía
 │       ├── transporte/                # Reports con transporte propio
 │       ├── transporte-incomex/        # Transporte tercerizado por cliente

@@ -41,6 +41,7 @@ export interface Report {
   sec1_almacenaje: AlmacenajeContenedor | null
   sec1_carga_normal: boolean
   sec1_carga_imo: boolean
+  sec1_habilitacion: boolean
   sec1_clase_imo: string | null
   sec1_nu: string | null
   sec1_hora_inicio: string | null

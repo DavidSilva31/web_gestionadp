@@ -19,9 +19,9 @@ export interface Profile {
 
 // Rutas permitidas por rol
 export const ROLE_ROUTES: Record<UserRole, string[]> = {
-  super_admin:    ['/dashboard', '/inventario', '/instalaciones', '/movimientos', '/clientes', '/reports', '/reports/nuevo', '/reports/despacho', '/transporte', '/transporte-incomex', '/servicios-adicionales', '/hes', '/servicios', '/cotizaciones', '/tarifado-transporte', '/equipos', '/usuarios', '/configuracion', '/auditoria'],
-  operador:       ['/dashboard', '/inventario', '/instalaciones', '/movimientos', '/clientes', '/reports', '/reports/nuevo', '/reports/despacho', '/transporte', '/transporte-incomex', '/servicios-adicionales', '/hes', '/servicios'],
-  operador_carga: ['/inventario', '/instalaciones', '/reports', '/reports/nuevo', '/reports/despacho'],
+  super_admin:    ['/dashboard', '/inventario', '/picking', '/instalaciones', '/movimientos', '/clientes', '/reports', '/reports/nuevo', '/transporte', '/transporte-incomex', '/servicios-adicionales', '/hes', '/servicios', '/cotizaciones', '/tarifado-transporte', '/equipos', '/usuarios', '/configuracion', '/auditoria'],
+  operador:       ['/dashboard', '/inventario', '/picking', '/instalaciones', '/movimientos', '/clientes', '/reports', '/reports/nuevo', '/transporte', '/transporte-incomex', '/servicios-adicionales', '/hes', '/servicios'],
+  operador_carga: ['/inventario', '/picking', '/instalaciones', '/reports', '/reports/nuevo'],
 }
 
 // Ruta de inicio por rol tras login

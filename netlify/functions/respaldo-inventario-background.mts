@@ -6,7 +6,7 @@ import { generarInventarioXlsx } from "../../src/lib/backup-inventario"
 import { subirArchivoGrandeASharePoint } from "../../src/lib/sharepoint"
 
 // Misma carpeta del respaldo semanal.
-const CARPETAS = (process.env.SHAREPOINT_BACKUP_PATH ?? "RESPALDOS ADP").split("/").filter(Boolean)
+const CARPETAS = (process.env.SHAREPOINT_BACKUP_PATH ?? "TI Informática/Respaldo ADP").split("/").filter(Boolean)
 const NOMBRE = "inventario_adp_diario.xlsx"
 
 export default async (req: Request) => {

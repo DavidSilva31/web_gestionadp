@@ -27,7 +27,7 @@ const INITIAL: FormData = {
   cliente: "", cliente_id: "", fecha: new Date().toISOString().split("T")[0], patente: "", conductor: "",
   rut_conductor: "", empresa_transporte: "", transporte_tipo: "externo", hds_header: false, guia_despacho_header: false, observaciones: "",
   sec1_activa: false, sec1_tipo_movimiento: "", sec1_tipo_contenedor: "", sec1_almacenaje: "", sec1_carga_normal: false,
-  sec1_carga_imo: false, sec1_clase_imo: "", sec1_nu: "", sec1_hora_inicio: "", sec1_hora_termino: "",
+  sec1_carga_imo: false, sec1_habilitacion: false, sec1_clase_imo: "", sec1_nu: "", sec1_hora_inicio: "", sec1_hora_termino: "",
   sec1_sigla: "", sec1_interchange: "", sec1_hds: false, sec1_sigla_2: "", sec1_interchange_2: "",
   sec2_activa: false, sec2_consolidado: false, sec2_desconsolidado: false, sec2_picking: false,
   sec2_paletizado: false, sec2_etiquetado: false, sec2_otro: false, sec2_parcial: false, sec2_hora_inicio: "",
@@ -136,7 +136,7 @@ export default function NuevoReportPage() {
   function buildPayload() {
     const sec1Activa = !!(
       form.sec1_tipo_contenedor || form.sec1_carga_normal ||
-      form.sec1_carga_imo || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
+      form.sec1_carga_imo || form.sec1_habilitacion || form.sec1_clase_imo || form.sec1_nu || form.sec1_hora_inicio ||
       form.sec1_hora_termino || form.sec1_sigla || form.sec1_interchange ||
       form.sec1_hds
     )
@@ -183,6 +183,7 @@ export default function NuevoReportPage() {
       sec1_almacenaje:      form.sec1_tipo_contenedor === "isotanque" ? null : (form.sec1_almacenaje || null),
       sec1_carga_normal:    form.sec1_carga_normal,
       sec1_carga_imo:       form.sec1_carga_imo,
+      sec1_habilitacion:    form.sec1_habilitacion,
       sec1_clase_imo:       form.sec1_clase_imo   || null,
       sec1_nu:              form.sec1_nu           || null,
       sec1_hora_inicio:     form.sec1_hora_inicio  || null,
@@ -239,7 +240,7 @@ export default function NuevoReportPage() {
     // Con la Sección 1 llena, el Ingreso/Despacho sale de Antecedentes: sin él
     // el movimiento se registraría como ingreso por defecto, aunque fuera un despacho.
     const sec1ConDatos = !!(
-      form.sec1_tipo_contenedor || form.sec1_carga_normal || form.sec1_carga_imo || form.sec1_clase_imo ||
+      form.sec1_tipo_contenedor || form.sec1_carga_normal || form.sec1_carga_imo || form.sec1_habilitacion || form.sec1_clase_imo ||
       form.sec1_nu || form.sec1_hora_inicio || form.sec1_hora_termino || form.sec1_sigla ||
       form.sec1_interchange || form.sec1_hds
     )

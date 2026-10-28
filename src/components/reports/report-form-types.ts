@@ -24,6 +24,7 @@ export interface ReportFormData {
   sec1_almacenaje:      AlmacenajeContenedor | ""
   sec1_carga_normal:    boolean
   sec1_carga_imo:       boolean
+  sec1_habilitacion:    boolean
   sec1_clase_imo:       string
   sec1_nu:              string
   sec1_hora_inicio:     string
@@ -147,7 +148,7 @@ export function dbToForm(data: Record<string, any>): ReportFormData {
     sec1_tipo_movimiento: s(data.sec1_tipo_movimiento) as TipoMovimiento | "",
     sec1_tipo_contenedor: s(data.sec1_tipo_contenedor) as TipoContenedor | "",
     sec1_almacenaje: s(data.sec1_almacenaje) as AlmacenajeContenedor | "",
-    sec1_carga_normal: b(data.sec1_carga_normal), sec1_carga_imo: b(data.sec1_carga_imo),
+    sec1_carga_normal: b(data.sec1_carga_normal), sec1_carga_imo: b(data.sec1_carga_imo), sec1_habilitacion: b(data.sec1_habilitacion),
     sec1_clase_imo: s(data.sec1_clase_imo), sec1_nu: s(data.sec1_nu),
     sec1_hora_inicio: s(data.sec1_hora_inicio), sec1_hora_termino: s(data.sec1_hora_termino),
     sec1_sigla: s(data.sec1_sigla),
