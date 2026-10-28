@@ -11,7 +11,7 @@ import { VisorArchivo } from "@/components/visor-archivo"
 import { ConfirmarDialogo } from "@/components/confirmar-dialogo"
 import { TomarFotoBoton } from "@/components/tomar-foto-boton"
 import { createClient } from "@/lib/supabase"
-import { TIPOS_EQUIPO, ESTADOS_EQUIPO, estadoEquipoClase, validarActa, extensionActa, tipoVisorActa } from "@/lib/equipos"
+import { TIPOS_EQUIPO, ESTADOS_EQUIPO, estadoEquipoClase, validarActa, extensionActa, tipoVisorActa, type TipoVisor } from "@/lib/equipos"
 
 type Asignacion = {
   id: string
@@ -59,7 +59,7 @@ export default function EquipoPage() {
   const [fechaDevolucion, setFechaDevolucion] = useState(hoy())
 
   // Visor del acta dentro del sistema, y confirmación para eliminar un acta cargada.
-  const [visor, setVisor] = useState<{ url: string; titulo: string; subtitulo: string; tipo: "pdf" | "imagen" | "otro" } | null>(null)
+  const [visor, setVisor] = useState<{ url: string; titulo: string; subtitulo: string; tipo: TipoVisor } | null>(null)
   const [actaPorEliminar, setActaPorEliminar] = useState<Asignacion | null>(null)
 
   // Cambio de encargado (cierra la entrega vigente y abre una nueva) o corrección de los datos de la vigente.

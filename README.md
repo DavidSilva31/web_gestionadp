@@ -277,7 +277,7 @@ Registro de notebooks/PCs y tablets entregados al personal. Solo `super_admin`, 
 
 - **Equipo** (`equipos`): tipo, marca, modelo, N° de serie (único si se informa), observaciones y estado (Disponible, Asignado, En reparación, Dado de baja). El estado pasa solo a Asignado/Disponible al entregar/devolver.
 - **Encargado** (`equipo_asignaciones`): cada entrega guarda nombre, RUT, cargo, fecha de entrega, devolución y el **acta de responsabilidad firmada** (cualquier tipo de archivo —PDF, Word, imágenes escaneadas—, máx. 25 MB, sin ejecutables, bucket privado `equipos-actas`, solo `super_admin`). Un equipo tiene como máximo una entrega vigente; las anteriores quedan como historial. El acta se puede cargar al entregar o después, y reemplazar. **Cambiar encargado** cierra la entrega vigente en la fecha del traspaso y abre una nueva (con su propia acta y el motivo en observaciones), así el equipo conserva el historial; si abrir la nueva falla, reabre la anterior. **Editar datos** corrige nombre, RUT, cargo, fecha y observaciones de la entrega actual sin crear historial. La ficha muestra el **Historial de encargados** completo, con el actual marcado.
-- **Ver, eliminar y fotografiar el acta**: "Ver acta" abre un **visor dentro del sistema** (`VisorArchivo`; PDF e imágenes se ven ahí, Word y otros formatos se descargan). Cada acta cargada se puede **eliminar** (con confirmación; borra también el archivo del almacenamiento) y se puede sacar con la cámara de la tablet (**Foto**)
+- **Ver, eliminar y fotografiar el acta**: "Ver acta" abre un **visor dentro del sistema** (`VisorArchivo`; PDF, imágenes, Word `.docx`, Excel `.xlsx` y texto plano se ven ahí —Word y Excel se dibujan en el navegador, sin enviar el archivo a terceros—; el resto, como `.doc`, se descarga). Cada acta cargada se puede **eliminar** (con confirmación; borra también el archivo del almacenamiento) y se puede sacar con la cámara de la tablet (**Foto**)
 - **Listado**: pestañas Todos / Notebooks y PCs / Tablets con su contador; tarjetas de resumen de la pestaña (equipos, asignados, disponibles, en reparación y **sin acta firmada**, que al pulsarla filtra esos equipos); búsqueda y filtro por estado. La columna Acta distingue "Cargada" de "Falta".
 - **Excel** (`/api/equipos/export`, solo `super_admin`): hoja "Equipos" (con su encargado vigente y si el acta está cargada) y hoja "Historial de entregas".
 - Migraciones: `migration_equipos.sql` y `migration_equipos_actas_cualquier_archivo.sql` (quita la restricción de tipo del bucket).
@@ -441,7 +441,7 @@ src/
 │   │   ├── report-form-types.ts       # Tipos y mapper DB → form
 │   │   └── report-preview-modal.tsx   # Modal de previsualización/descarga del PDF
 │   ├── confirmar-dialogo.tsx          # Confirmación con el diseño de la web (reemplaza window.confirm)
-│   ├── visor-archivo.tsx              # Visor de PDF / imagen dentro del sistema (actas de Equipos)
+│   ├── visor-archivo.tsx              # Visor de PDF, imagen, docx, xlsx y texto dentro del sistema (actas de Equipos)
 │   ├── tomar-foto-boton.tsx           # Botón que abre la cámara directamente (tablet / celular)
 │   └── ui/                            # Componentes shadcn/ui
 ├── contexts/auth-context.tsx          # Sesión y perfil de usuario

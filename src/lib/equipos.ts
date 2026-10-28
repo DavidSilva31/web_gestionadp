@@ -28,10 +28,15 @@ export function validarActa(file: File): string | null {
   return null
 }
 
-// Cómo se muestra un acta en el visor: PDF e imágenes comunes se ven dentro del sistema; Word y el resto solo se descargan.
-export function tipoVisorActa(path: string): "pdf" | "imagen" | "otro" {
+// Cómo se muestra un acta en el visor: PDF, imágenes, Word (.docx), Excel (.xlsx) y texto plano se ven dentro del sistema;
+// el resto (p. ej. .doc antiguo) solo se descarga.
+export type TipoVisor = "pdf" | "imagen" | "docx" | "xlsx" | "texto" | "otro"
+export function tipoVisorActa(path: string): TipoVisor {
   const ext = extensionActa(path)
   if (ext === "pdf") return "pdf"
   if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif"].includes(ext)) return "imagen"
+  if (ext === "docx") return "docx"
+  if (ext === "xlsx") return "xlsx"
+  if (["txt", "csv", "log", "md", "json"].includes(ext)) return "texto"
   return "otro"
 }
