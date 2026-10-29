@@ -708,6 +708,10 @@ export default function ReportDetailPage() {
     if (!rightReadOnly) {
       const { error: delItemsErr } = await supabase.from("report_bodegaje_items").delete().eq("report_id", id)
       if (delItemsErr) { setError(delItemsErr.message); return }
+      // La política de borrado puede filtrar filas en silencio (sin error): si quedaron líneas, no se reinserta
+      // (insertar encima duplicaría los productos y, al despachar, el descuento de stock).
+      const { count: restantes } = await supabase.from("report_bodegaje_items").select("id", { count: "exact", head: true }).eq("report_id", id)
+      if (restantes) { setError("No se pudieron reemplazar los productos de Bodegaje (permisos). No se guardaron cambios en esa sección."); return }
       if (bodegajeItems.length > 0) {
         const { error: insItemsErr } = await supabase.from("report_bodegaje_items").insert(
           bodegajeItems.map((it, index) => ({
