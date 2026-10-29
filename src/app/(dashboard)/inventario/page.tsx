@@ -337,6 +337,10 @@ function InventarioContent() {
   const [exportError,  setExportError]  = useState<string | null>(null)
   const [exportingExcel, setExportingExcel] = useState(false)
   const [exportPreviewLoading, setExportPreviewLoading] = useState(false)
+  // Popup previo al Excel: inventario a una fecha de corte (por defecto el último 25) o al día en curso.
+  const [corteOpen, setCorteOpen] = useState(false)
+  const [corteModo, setCorteModo] = useState<"corte" | "hoy">("corte")
+  const [corteFecha, setCorteFecha] = useState(ultimoDia25)
   const [instalaciones, setInstalaciones] = useState<InstalacionAlmacenamiento[]>([])
   const [vista,        setVista]        = useState<"resumen" | "kardex">("resumen")
   const [kardexProducto, setKardexProducto] = useState<string | null>(null)
@@ -931,13 +935,13 @@ function InventarioContent() {
   // ProductoCombobox en report-form-widgets.tsx). Cada campo se resuelve
   // por separado: si el movimiento más reciente no tiene lote pero uno
   // anterior sí, igual se usa ese.
-  async function buildExportRows() {
+  async function buildExportRows(corte: string | null) {
     if (!selected || !items.length) return null
     const supabase = createClient()
     const effectiveId = await resolveEffectiveClienteId(supabase, selected.id)
     const { data: movs } = await supabase
       .from("movimientos")
-      .select("inventario_item_id, codigo, lote, tipo_envase, fecha")
+      .select("inventario_item_id, codigo, lote, tipo_envase, fecha, tipo, posiciones, unidades")
       .eq("cliente_id", effectiveId)
       .not("inventario_item_id", "is", null)
       .order("fecha", { ascending: false })
@@ -952,6 +956,19 @@ function InventarioContent() {
       if (m.tipo_envase && !envasePorItem[id]) envasePorItem[id] = m.tipo_envase
     }
 
+    // Stock a la fecha de corte = stock actual menos lo que se movió después de esa fecha.
+    const netDespuesPos: Record<string, number> = {}
+    const netDespuesUnd: Record<string, number> = {}
+    if (corte) {
+      for (const m of movs ?? []) {
+        if (String(m.fecha).slice(0, 10) <= corte) continue
+        const id = m.inventario_item_id as string
+        const sgn = m.tipo === "ingreso" ? 1 : -1
+        netDespuesPos[id] = (netDespuesPos[id] ?? 0) + sgn * (m.posiciones ?? 0)
+        netDespuesUnd[id] = (netDespuesUnd[id] ?? 0) + sgn * (m.unidades ?? 0)
+      }
+    }
+
     const rows = items.map(item => ({
       "SKU":               skuPorItem[item.id] ?? "",
       "Producto (Nombre)": item.descripcion,
@@ -959,19 +976,19 @@ function InventarioContent() {
       "IMO":               item.clase_imo ?? "",
       "NU":                item.nu ?? "",
       "Envase":            envasePorItem[item.id] ?? "",
-      "Stock Posición":    item.stock_actual,
-      "Stock Unidad":      item.stock_unidades,
+      "Stock Posición":    item.stock_actual - (netDespuesPos[item.id] ?? 0),
+      "Stock Unidad":      item.stock_unidades - (netDespuesUnd[item.id] ?? 0),
     }))
-    const today = new Date().toLocaleDateString("es-CL").replace(/\//g, "-")
-    return { rows, filename: `Inventario_${selected.nombre}_${today}` }
+    return { rows, filename: `Inventario_${selected.nombre}_${nombreFecha(corte)}` }
   }
 
   // Excel del Detalle: SIEMPRE todos los productos del cliente (kardexGroups
   // sin filtrar), sin importar si en pantalla hay un Producto o un IMO
   // seleccionado — el filtro es solo para mirar, no para acotar la descarga.
-  function buildKardexExportRows() {
+  function buildKardexExportRows(corte: string | null) {
     if (!selected || kardexGroups.length === 0) return null
-    const groups: KardexExportGroup[] = kardexGroups.map(g => ({
+    // El saldo corrido de cada fila ya es acumulado, así que a la fecha de corte basta con cortar las filas.
+    const groups: KardexExportGroup[] = kardexGroups.map(g => ({ ...g, rows: corte ? g.rows.filter(m => m.fecha.slice(0, 10) <= corte) : g.rows })).filter(g => !corte || g.rows.length > 0).map(g => ({
       carga: g.carga,
       subtitulo: `${g.rows.length} movimiento${g.rows.length !== 1 ? "s" : ""}`,
       rows: g.rows.map(m => ({
@@ -1000,18 +1017,28 @@ function InventarioContent() {
         "Bodega":              m.bodega ?? "",
       })),
     }))
-    const today = new Date().toLocaleDateString("es-CL").replace(/\//g, "-")
-    return { groups, filename: `Detalle_Inventario_${selected.nombre}_${today}` }
+    if (groups.length === 0) return null
+    return { groups, filename: `Detalle_Inventario_${selected.nombre}_${nombreFecha(corte)}` }
+  }
+
+  // Fecha para el nombre del archivo: la de corte o la de hoy (dd-mm-aaaa).
+  function nombreFecha(corte: string | null) {
+    if (!corte) return new Date().toLocaleDateString("es-CL").replace(/\//g, "-")
+    const [y, mo, d] = corte.split("-")
+    return `Corte_${d}-${mo}-${y}`
   }
 
   async function openExportPreview() {
+    const corte = corteModo === "corte" ? corteFecha : null
+    if (!corte && corteModo === "corte") return
+    setCorteOpen(false)
     if (vista === "kardex") {
-      const built = buildKardexExportRows()
+      const built = buildKardexExportRows(corte)
       if (built) setExportPreview({ kind: "kardex", ...built })
     } else {
       setExportPreviewLoading(true)
       try {
-        const built = await buildExportRows()
+        const built = await buildExportRows(corte)
         if (built) setExportPreview({ kind: "resumen", ...built })
       } finally {
         setExportPreviewLoading(false)
@@ -1284,7 +1311,7 @@ function InventarioContent() {
                     )}
                     <Button
                       variant="outline" size="sm"
-                      onClick={openExportPreview}
+                      onClick={() => setCorteOpen(true)}
                       disabled={exportPreviewLoading || (vista === "kardex" ? kardexGroups.length === 0 : items.length === 0)}
                       className="gap-1.5 text-xs h-7"
                     >
@@ -1970,6 +1997,33 @@ function InventarioContent() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Fecha de corte del Excel ── */}
+      <Dialog open={corteOpen} onOpenChange={setCorteOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Exportar inventario a Excel</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="corte-modo" checked={corteModo === "corte"} onChange={() => setCorteModo("corte")} />
+              A la fecha de corte
+            </label>
+            <Input
+              type="date" value={corteFecha} onChange={e => setCorteFecha(e.target.value)}
+              disabled={corteModo !== "corte"} className="h-8 w-44 ml-6"
+            />
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="corte-modo" checked={corteModo === "hoy"} onChange={() => setCorteModo("hoy")} />
+              Al día en curso
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCorteOpen(false)}>Cancelar</Button>
+            <Button size="sm" onClick={openExportPreview} disabled={corteModo === "corte" && !corteFecha}>Continuar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Vista previa del Excel antes de descargar ── */}
       <Dialog open={exportPreview !== null} onOpenChange={open => { if (!open) { setExportPreview(null); setExportError(null) } }}>
         <DialogContent className={cn("max-h-[85vh] flex flex-col", exportPreview?.kind === "kardex" ? "sm:max-w-5xl" : "sm:max-w-3xl")}>
@@ -2123,6 +2177,14 @@ function InventarioContent() {
       )}
     </>
   )
+}
+
+// Fecha de corte por defecto: el último día 25 que ya pasó (hoy incluido), en formato YYYY-MM-DD.
+function ultimoDia25() {
+  const d = new Date()
+  if (d.getDate() < 25) d.setMonth(d.getMonth() - 1)
+  d.setDate(25)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-25`
 }
 
 export default function InventarioPage() {
